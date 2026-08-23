@@ -1,6 +1,6 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from database.models import Category, Product, Variant, Order
-from utils.emojis import Emojis, UI
+from utils.emojis import Emojis, UI, clean_button_text
 import config
 
 def get_main_menu_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:
@@ -46,10 +46,11 @@ def get_search_results_keyboard(
     for prod in products:
         stock = stock_counts.get(prod.id, 0)
         stock_badge = f"🟢 {stock} In Stock" if stock > 0 else "🔴 Out of Stock"
+        clean_title = clean_button_text(prod.title)
         icon = prod.emoji or Emojis.PRODUCT
         buttons.append([
             InlineKeyboardButton(
-                text=f"{icon}  {prod.title}  •  {stock_badge}",
+                text=f"{icon}  {clean_title}  •  {stock_badge}",
                 callback_data=f"prod_{prod.id}"
             )
         ])
@@ -63,12 +64,12 @@ def get_search_results_keyboard(
 def get_categories_keyboard(categories: list[Category]) -> InlineKeyboardMarkup:
     buttons = []
     for idx, cat in enumerate(categories, 1):
-        name = cat.name.strip()
+        clean_name = clean_button_text(cat.name)
         # Avoid prepending emoji if name already starts with an emoji
-        if cat.emoji and not any(name.startswith(c) for c in ["🍿", "🤖", "🛡️", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "👑", "✨", "💎", "📦"]):
-            btn_text = f"{cat.emoji}  {name}"
+        if cat.emoji and not any(clean_name.startswith(c) for c in ["🍿", "🤖", "🛡️", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "👑", "✨", "💎", "📦"]):
+            btn_text = f"{cat.emoji}  {clean_name}"
         else:
-            btn_text = name
+            btn_text = clean_name
 
         buttons.append([
             InlineKeyboardButton(
@@ -78,7 +79,8 @@ def get_categories_keyboard(categories: list[Category]) -> InlineKeyboardMarkup:
         ])
     
     buttons.append([
-        InlineKeyboardButton(text="◀️  Back to Main Menu", callback_data="nav_home")
+        InlineKeyboardButton(text="🔍  Search Products", callback_data="nav_search"),
+        InlineKeyboardButton(text="🏠  Main Menu", callback_data="nav_home")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -87,7 +89,7 @@ def get_products_keyboard(
     category_id: int,
     stock_counts: dict[int, int],
     page: int = 1,
-    per_page: int = 8
+    per_page: int = 6
 ) -> InlineKeyboardMarkup:
     total_pages = max(1, (len(products) + per_page - 1) // per_page)
     start_idx = (page - 1) * per_page
@@ -97,12 +99,12 @@ def get_products_keyboard(
     buttons = []
     for prod in page_products:
         stock = stock_counts.get(prod.id, 0)
-        stock_badge = f"🟢 {stock} In Stock" if stock > 0 else "🔴 Out of Stock"
-        title = prod.title.strip()
-        if prod.emoji and not any(title.startswith(c) for c in ["🍿", "🤖", "🛡️", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "👑", "✨", "💎", "📦", "🔴"]):
-            btn_text = f"{prod.emoji}  {title}  •  {stock_badge}"
+        stock_indicator = f"({stock})" if stock > 0 else "(Out)"
+        clean_title = clean_button_text(prod.title)
+        if prod.emoji and not any(clean_title.startswith(c) for c in ["🍿", "🤖", "🛡️", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "👑", "✨", "💎", "📦"]):
+            btn_text = f"{prod.emoji} {clean_title} {stock_indicator}"
         else:
-            btn_text = f"{title}  •  {stock_badge}"
+            btn_text = f"{clean_title} {stock_indicator}"
 
         buttons.append([
             InlineKeyboardButton(
@@ -134,9 +136,10 @@ def get_variants_keyboard(
     buttons = []
     for var in variants:
         price_tag = f"{config.CURRENCY_SYMBOL}{var.price:.0f}"
+        clean_name = clean_button_text(var.name)
         buttons.append([
             InlineKeyboardButton(
-                text=f"✨  {var.name}  ➜  {price_tag}",
+                text=f"✨  {clean_name}  ➜  {price_tag}",
                 callback_data=f"var_{var.id}"
             )
         ])

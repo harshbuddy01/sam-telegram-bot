@@ -91,8 +91,11 @@ async def cb_nav_shop(callback: types.CallbackQuery, session: AsyncSession):
 
     cat_lines = []
     for cat in categories:
-        icon = format_emoji(cat.emoji or "📁", cat.custom_emoji_id)
-        cat_lines.append(f"• {icon} <b>{cat.name}</b>")
+        if "<tg-emoji" in cat.name:
+            cat_lines.append(f"• <b>{cat.name}</b>")
+        else:
+            icon = format_emoji(cat.emoji or "📁", cat.custom_emoji_id)
+            cat_lines.append(f"• {icon} <b>{cat.name}</b>")
     cat_block = "\n".join(cat_lines) if cat_lines else "<i>No categories active yet.</i>"
 
     text = (
@@ -127,15 +130,23 @@ async def cb_category_products(callback: types.CallbackQuery, session: AsyncSess
 
     prod_lines = []
     for prod in products:
-        p_icon = format_emoji(prod.emoji or "📦", prod.custom_emoji_id)
         stock = stock_counts.get(prod.id, 0)
         stock_str = f"🟢 {stock} In Stock" if stock > 0 else "🔴 Out of Stock"
-        prod_lines.append(f"• {p_icon} <b>{prod.title}</b> — <i>{stock_str}</i>")
+        if "<tg-emoji" in prod.title:
+            prod_lines.append(f"• <b>{prod.title}</b> — <i>{stock_str}</i>")
+        else:
+            p_icon = format_emoji(prod.emoji or "📦", prod.custom_emoji_id)
+            prod_lines.append(f"• {p_icon} <b>{prod.title}</b> — <i>{stock_str}</i>")
     prod_block = "\n".join(prod_lines) if prod_lines else "<i>No products available yet.</i>"
 
-    cat_emoji = format_emoji(category.emoji, category.custom_emoji_id)
+    if "<tg-emoji" in category.name:
+        cat_header = f"<b>CATEGORY ➜ {category.name}</b>"
+    else:
+        cat_emoji = format_emoji(category.emoji, category.custom_emoji_id)
+        cat_header = f"{cat_emoji} <b>CATEGORY ➜ {category.name.upper()}</b>"
+
     text = (
-        f"{cat_emoji} <b>CATEGORY ➜ {category.name.upper()}</b>\n"
+        f"{cat_header}\n"
         f"{UI.SECTION_BAR}\n\n"
         f"<b>Available Products:</b>\n"
         f"{prod_block}\n\n"

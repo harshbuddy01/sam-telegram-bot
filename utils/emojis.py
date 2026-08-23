@@ -172,6 +172,16 @@ def get_message_html_text(message) -> str:
         return message.html_text.strip()
     return message.text.strip() if message.text else ""
 
+def clean_button_text(html_text: str) -> str:
+    """
+    Strips HTML tags like <tg-emoji> to make button text safe and clean for Telegram InlineKeyboardButtons.
+    """
+    if not html_text:
+        return ""
+    clean = re.sub(r'<[^>]+>', '', html_text)
+    clean = "".join(c for c in clean if not (0xD800 <= ord(c) <= 0xDFFF))
+    return clean.strip()
+
 class UI:
     BORDER_TOP = "╭─────────────────────────────╮"
     BORDER_BOT = "╰─────────────────────────────╯"

@@ -673,16 +673,16 @@ async def cb_admin_cat_add(callback: types.CallbackQuery, state: FSMContext):
 
 @router.message(AdminCategoryStates.waiting_for_name, F.text)
 async def msg_admin_cat_name(message: types.Message, state: FSMContext, session: AsyncSession):
-    clean_name, fallback_icon, custom_emoji_id = extract_clean_name_and_emoji(message)
+    html_name = get_message_html_text(message)
+    _, fallback_icon, custom_emoji_id = extract_clean_name_and_emoji(message)
     await state.clear()
 
     category = await create_category(
         session,
-        name=clean_name,
+        name=html_name,
         emoji=fallback_icon or "📁",
         custom_emoji_id=custom_emoji_id
     )
-    rendered_icon = format_emoji(category.emoji, category.custom_emoji_id)
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕  Add Another Category", callback_data="adm_cat_add")],
@@ -693,7 +693,7 @@ async def msg_admin_cat_name(message: types.Message, state: FSMContext, session:
 
     await message.answer(
         f"✅ <b>Category Created Successfully!</b>\n\n"
-        f"📁 <b>Name:</b> {rendered_icon} <b>{category.name}</b>\n"
+        f"📁 <b>Name:</b> <b>{category.name}</b>\n"
         f"🆔 <b>Category ID:</b> <code>{category.id}</code>\n\n"
         f"What would you like to do next?",
         reply_markup=kb
@@ -723,11 +723,10 @@ async def cb_admin_cat_viewprods(callback: types.CallbackQuery, session: AsyncSe
     category = await get_category(session, cat_id)
     products = await get_products_by_category(session, cat_id)
 
-    cat_icon = format_emoji(category.emoji if category else "📁", category.custom_emoji_id if category else None)
     cat_name = category.name if category else "Category"
 
     text = (
-        f"📦 <b>PRODUCTS IN: {cat_icon} {cat_name}</b>\n"
+        f"📦 <b>PRODUCTS IN: {cat_name}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Total Products: {len(products)}\n\n"
         f"Click <b>'Delete'</b> to remove or <b>'Add'</b> to create a new product:"
@@ -772,23 +771,24 @@ async def cb_admin_prod_add(callback: types.CallbackQuery, state: FSMContext):
 
 @router.message(AdminProductStates.waiting_for_title, F.text)
 async def msg_admin_prod_title(message: types.Message, state: FSMContext):
-    clean_title, fallback_icon, custom_emoji_id = extract_clean_name_and_emoji(message)
+    html_title = get_message_html_text(message)
+    _, fallback_icon, custom_emoji_id = extract_clean_name_and_emoji(message)
     await state.update_data(
-        title=clean_title,
+        title=html_title,
         emoji=fallback_icon or "📦",
         custom_emoji_id=custom_emoji_id
     )
     await state.set_state(AdminProductStates.waiting_for_desc)
     await message.answer(
-        f"📦 Product: <b>{clean_title}</b>\n\n"
+        f"📦 Product: <b>{html_title}</b>\n\n"
         f"Now send a <b>Short Description</b> for this product (or send <code>skip</code>):"
     )
 
 @router.message(AdminProductStates.waiting_for_desc, F.text)
 async def msg_admin_prod_desc(message: types.Message, state: FSMContext, session: AsyncSession):
-    desc = message.text.strip()
-    if desc.lower() == "skip":
-        desc = None
+    html_desc = get_message_html_text(message)
+    if message.text.strip().lower() == "skip":
+        html_desc = None
 
     data = await state.get_data()
     cat_id = data.get("cat_id")
@@ -802,10 +802,9 @@ async def msg_admin_prod_desc(message: types.Message, state: FSMContext, session
         category_id=cat_id,
         title=title,
         emoji=emoji,
-        description=desc,
+        description=html_desc,
         custom_emoji_id=custom_emoji_id
     )
-    rendered_icon = format_emoji(product.emoji, product.custom_emoji_id)
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕  Add Plans to this Product", callback_data=f"adm_var_add_{product.id}")],
@@ -816,7 +815,7 @@ async def msg_admin_prod_desc(message: types.Message, state: FSMContext, session
 
     await message.answer(
         f"✅ <b>Product Created Successfully!</b>\n\n"
-        f"📦 <b>Title:</b> {rendered_icon} <b>{product.title}</b>\n"
+        f"📦 <b>Title:</b> <b>{product.title}</b>\n"
         f"🆔 <b>Product ID:</b> <code>{product.id}</code>\n\n"
         f"What would you like to do next?",
         reply_markup=kb

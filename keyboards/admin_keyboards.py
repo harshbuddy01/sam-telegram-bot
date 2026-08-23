@@ -1,6 +1,6 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from database.models import Category, Product, Variant, Order
-from utils.emojis import Emojis
+from database.models import Category, Product, Variant, Order, Deposit
+from utils.emojis import Emojis, clean_button_text
 import config
 
 def get_admin_main_keyboard(pending_deposits: int = 0, pending_orders: int = 0) -> InlineKeyboardMarkup:
@@ -129,8 +129,9 @@ def get_admin_manual_order_detail_keyboard(order_id: int) -> InlineKeyboardMarku
 def get_admin_categories_keyboard(categories: list[Category]) -> InlineKeyboardMarkup:
     buttons = []
     for cat in categories:
+        clean_name = clean_button_text(cat.name)
         buttons.append([
-            InlineKeyboardButton(text=f"{cat.emoji} {cat.name}", callback_data=f"adm_cat_view_{cat.id}"),
+            InlineKeyboardButton(text=f"{cat.emoji} {clean_name}", callback_data=f"adm_cat_view_{cat.id}"),
             InlineKeyboardButton(text="🗑️ Delete", callback_data=f"adm_cat_del_{cat.id}")
         ])
     
@@ -145,8 +146,9 @@ def get_admin_categories_keyboard(categories: list[Category]) -> InlineKeyboardM
 def get_admin_category_select_keyboard(categories: list[Category], action: str = "addprod") -> InlineKeyboardMarkup:
     buttons = []
     for cat in categories:
+        clean_name = clean_button_text(cat.name)
         buttons.append([
-            InlineKeyboardButton(text=f"{cat.emoji} {cat.name}", callback_data=f"adm_selcat_{action}_{cat.id}")
+            InlineKeyboardButton(text=f"{cat.emoji} {clean_name}", callback_data=f"adm_selcat_{action}_{cat.id}")
         ])
     buttons.append([
         InlineKeyboardButton(text=f"{Emojis.CANCEL} Cancel", callback_data="admin_home")
@@ -156,8 +158,9 @@ def get_admin_category_select_keyboard(categories: list[Category], action: str =
 def get_admin_products_keyboard(products: list[Product], category_id: int) -> InlineKeyboardMarkup:
     buttons = []
     for prod in products:
+        clean_title = clean_button_text(prod.title)
         buttons.append([
-            InlineKeyboardButton(text=f"{prod.emoji} {prod.title}", callback_data=f"adm_prod_view_{prod.id}"),
+            InlineKeyboardButton(text=f"{prod.emoji} {clean_title}", callback_data=f"adm_prod_view_{prod.id}"),
             InlineKeyboardButton(text="🗑️ Delete", callback_data=f"adm_prod_del_{prod.id}")
         ])
     
@@ -172,8 +175,9 @@ def get_admin_products_keyboard(products: list[Product], category_id: int) -> In
 def get_admin_product_select_keyboard(products: list[Product], action: str = "addvar") -> InlineKeyboardMarkup:
     buttons = []
     for prod in products:
+        clean_title = clean_button_text(prod.title)
         buttons.append([
-            InlineKeyboardButton(text=f"{prod.emoji} {prod.title}", callback_data=f"adm_selprod_{action}_{prod.id}")
+            InlineKeyboardButton(text=f"{prod.emoji} {clean_title}", callback_data=f"adm_selprod_{action}_{prod.id}")
         ])
     buttons.append([
         InlineKeyboardButton(text=f"{Emojis.CANCEL} Cancel", callback_data="admin_home")
@@ -183,8 +187,9 @@ def get_admin_product_select_keyboard(products: list[Product], action: str = "ad
 def get_admin_variants_keyboard(variants: list[Variant], product_id: int) -> InlineKeyboardMarkup:
     buttons = []
     for var in variants:
+        clean_name = clean_button_text(var.name)
         buttons.append([
-            InlineKeyboardButton(text=f"✨ {var.name} ({config.CURRENCY_SYMBOL}{var.price})", callback_data=f"adm_var_view_{var.id}"),
+            InlineKeyboardButton(text=f"✨ {clean_name} ({config.CURRENCY_SYMBOL}{var.price:.0f})", callback_data=f"adm_var_view_{var.id}"),
             InlineKeyboardButton(text="🗑️ Delete", callback_data=f"adm_var_del_{var.id}")
         ])
     
