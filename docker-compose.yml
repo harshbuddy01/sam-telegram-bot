@@ -1,0 +1,9 @@
+services:
+  telegram-bot:
+    build: .
+    container_name: sam_telegram_bot
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - ./store.db:/app/store.db

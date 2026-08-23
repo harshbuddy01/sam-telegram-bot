@@ -1,0 +1,15 @@
+[Unit]
+Description=Telegram Store Bot Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/SAM-TELEGRAM
+ExecStart=/usr/bin/python3 bot.py
+Restart=always
+RestartSec=5
+EnvironmentFile=/root/SAM-TELEGRAM/.env
+
+[Install]
+WantedBy=multi-user.target
