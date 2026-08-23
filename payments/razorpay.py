@@ -13,11 +13,19 @@ class RazorpayGateway(BasePaymentGateway):
     - Creates Instant Payment Links (UPI, GPay, PhonePe, Cards, NetBanking)
     - Validates Webhooks for Instant Auto-Credit
     """
-    def __init__(self):
-        self.key_id = getattr(config, "RAZORPAY_KEY_ID", os.getenv("RAZORPAY_KEY_ID", ""))
-        self.key_secret = getattr(config, "RAZORPAY_KEY_SECRET", os.getenv("RAZORPAY_KEY_SECRET", ""))
-        self.webhook_secret = getattr(config, "RAZORPAY_WEBHOOK_SECRET", os.getenv("RAZORPAY_WEBHOOK_SECRET", ""))
-        self.base_url = "https://api.razorpay.com/v1"
+    base_url = "https://api.razorpay.com/v1"
+
+    @property
+    def key_id(self):
+        return os.getenv("RAZORPAY_KEY_ID") or getattr(config, "RAZORPAY_KEY_ID", "")
+
+    @property
+    def key_secret(self):
+        return os.getenv("RAZORPAY_KEY_SECRET") or getattr(config, "RAZORPAY_KEY_SECRET", "")
+
+    @property
+    def webhook_secret(self):
+        return os.getenv("RAZORPAY_WEBHOOK_SECRET") or getattr(config, "RAZORPAY_WEBHOOK_SECRET", "")
 
     @property
     def is_configured(self) -> bool:
@@ -44,9 +52,13 @@ class RazorpayGateway(BasePaymentGateway):
         url = f"{self.base_url}/payment_links"
         auth = aiohttp.BasicAuth(self.key_id, self.key_secret)
 
-        clean_phone = (customer_phone or "9999999999").replace("+91", "").replace(" ", "").strip()
-        if len(clean_phone) < 10:
-            clean_phone = "9999999999"
+        customer_data = {
+            "name": customer_name or f"Telegram User {user_id}",
+            "email": customer_email or f"user{user_id}@samstore.com"
+        }
+        if customer_phone and len(customer_phone.replace("+91", "").strip()) >= 10:
+            clean_phone = customer_phone.replace("+91", "").replace(" ", "").strip()
+            customer_data["contact"] = f"+91{clean_phone[-10:]}"
 
         # Amount in paise (1 INR = 100 paise)
         amount_in_paise = int(round(amount * 100))
@@ -57,11 +69,7 @@ class RazorpayGateway(BasePaymentGateway):
             "accept_partial": False,
             "reference_id": order_id,
             "description": f"Wallet Top-Up #{order_id} for User {user_id}",
-            "customer": {
-                "name": customer_name or f"Telegram User {user_id}",
-                "contact": f"+91{clean_phone[-10:]}",
-                "email": customer_email or f"user{user_id}@samstore.com"
-            },
+            "customer": customer_data,
             "notify": {
                 "sms": False,
                 "email": False
@@ -74,7 +82,8 @@ class RazorpayGateway(BasePaymentGateway):
         }
 
         try:
-            async with aiohttp.ClientSession() as session:
+            connector = aiohttp.TCPConnector(ssl=False)
+            async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.post(url, json=payload, auth=auth) as response:
                     res_data = await response.json()
                     if response.status in (200, 201):
@@ -109,7 +118,8 @@ class RazorpayGateway(BasePaymentGateway):
         auth = aiohttp.BasicAuth(self.key_id, self.key_secret)
 
         try:
-            async with aiohttp.ClientSession() as session:
+            connector = aiohttp.TCPConnector(ssl=False)
+            async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.get(url, auth=auth) as response:
                     res_data = await response.json()
                     if response.status == 200:
