@@ -14,7 +14,7 @@ from utils.qr_generator import generate_upi_qr
 from utils.states import DepositStates
 from keyboards.user_keyboards import get_deposit_preset_keyboard, get_deposit_verification_keyboard, get_back_button
 from payments.manager import payment_manager
-from utils.emojis import Emojis, UI
+from utils.emojis import Emojis, UI, CustomEmojis, ce
 import config
 
 router = Router()
@@ -27,12 +27,12 @@ async def cb_deposit_menu(callback: types.CallbackQuery, state: FSMContext, sess
     current_balance = user.balance if user else 0.0
 
     text = (
-        f"💳 <b>DEPOSIT / WALLET TOP-UP</b>\n"
+        f"{ce(CustomEmojis.WALLET, '💳')} <b>DEPOSIT / WALLET TOP-UP</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"<blockquote>"
         f"💰 <b>Your Current Balance:</b> <b>{config.CURRENCY_SYMBOL}{current_balance:.2f}</b>\n"
         f"⚡ <b>Payment Method:</b> Any UPI App (GPay / PhonePe / Paytm / CRED / BHIM)\n"
-        f"🛡️ <b>Processing:</b> Instant verification & auto-credit"
+        f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Processing:</b> Instant verification & auto-credit"
         f"</blockquote>\n\n"
         f"Select a quick top-up amount below or enter a custom amount:"
     )
@@ -109,9 +109,9 @@ async def initiate_deposit_payment(
             )
 
             text = (
-                f"💳 <b>AUTOMATED INSTANT DEPOSIT #{deposit.id}</b>\n"
+                f"{ce(CustomEmojis.WALLET, '💳')} <b>AUTOMATED INSTANT DEPOSIT #{deposit.id}</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"💰 <b>Amount to Add:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
+                f"{ce(CustomEmojis.SPARKLE, '💰')} <b>Amount to Add:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
                 f"⚡ <b>Gateway:</b> {active_gateway} (Instant Auto-Credit)\n"
                 f"📱 <b>Supported:</b> Google Pay, PhonePe, Paytm, UPI, Cards, Netbanking\n\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -172,7 +172,7 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
         if status_res.get("is_paid"):
             dep, user = await credit_user_deposit_automated(session, deposit.gateway_order_id)
             text = (
-                f"🎉 <b>PAYMENT CONFIRMED & CREDITED!</b>\n"
+                f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & CREDITED!</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"🧾 <b>Deposit ID:</b> #{deposit.id}\n"
                 f"💰 <b>Amount Added:</b> <b>+{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b>\n"

@@ -553,7 +553,7 @@ async def cb_admin_stock_add(callback: types.CallbackQuery, state: FSMContext, s
     )
     await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard("adm_stock"))
 
-@router.message(AdminStockStates.waiting_for_stock_lines)
+@router.message(AdminStockStates.waiting_for_stock_lines, F.text)
 async def msg_admin_stock_lines(message: types.Message, state: FSMContext, session: AsyncSession):
     raw_text = message.text.strip()
     lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
@@ -630,6 +630,15 @@ async def cb_admin_cats(callback: types.CallbackQuery, session: AsyncSession):
         f"Click <b>'Delete'</b> to remove a category or <b>'Add New'</b> to create one:"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_categories_keyboard(categories))
+
+@router.callback_query(F.data.startswith("adm_cat_view_"))
+async def cb_admin_cat_view(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    # Extract cat_id and redirect to view products
+    cat_id = int(callback.data.split("_")[3])
+    callback.data = f"adm_selcat_viewprods_{cat_id}"
+    await cb_admin_cat_viewprods(callback, session)
 
 @router.callback_query(F.data.startswith("adm_cat_del_"))
 async def cb_admin_cat_del(callback: types.CallbackQuery, session: AsyncSession):
@@ -708,6 +717,14 @@ async def cb_admin_cat_viewprods(callback: types.CallbackQuery, session: AsyncSe
         f"Click <b>'Delete'</b> to remove or <b>'Add'</b> to create a new product:"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_products_keyboard(products, cat_id))
+
+@router.callback_query(F.data.startswith("adm_prod_view_"))
+async def cb_admin_prod_view(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    prod_id = int(callback.data.split("_")[3])
+    callback.data = f"adm_selprod_viewvars_{prod_id}"
+    await cb_admin_prod_viewvars(callback, session)
 
 @router.callback_query(F.data.startswith("adm_prod_del_"))
 async def cb_admin_prod_del(callback: types.CallbackQuery, session: AsyncSession):
@@ -801,6 +818,14 @@ async def cb_admin_prod_viewvars(callback: types.CallbackQuery, session: AsyncSe
         f"Click <b>'Delete'</b> or <b>'Add Plan'</b>:"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_variants_keyboard(variants, prod_id))
+
+@router.callback_query(F.data.startswith("adm_var_view_"))
+async def cb_admin_var_view(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    var_id = int(callback.data.split("_")[3])
+    callback.data = f"adm_stock_manage_{var_id}"
+    await cb_admin_stock_manage(callback, session)
 
 @router.callback_query(F.data.startswith("adm_var_del_"))
 async def cb_admin_var_del(callback: types.CallbackQuery, session: AsyncSession):

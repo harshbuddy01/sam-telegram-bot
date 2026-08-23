@@ -3,25 +3,25 @@ from aiogram.filters import CommandStart, Command, CommandObject
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.crud import get_or_create_user, get_user
 from keyboards.user_keyboards import get_main_menu_keyboard
-from utils.emojis import Emojis, UI, format_emoji
+from utils.emojis import Emojis, UI, format_emoji, CustomEmojis, ce
 import config
 
 router = Router()
 
 def get_welcome_text(first_name: str) -> str:
     return (
-        f"👑 <b>{config.STORE_NAME.upper()}</b>\n"
+        f"{ce(CustomEmojis.CROWN, '👑')} <b>{config.STORE_NAME.upper()}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"✨ <i>Verified Digital Subscriptions & Automated Delivery</i>\n\n"
+        f"{ce(CustomEmojis.SPARKLE, '✨')} <i>Verified Digital Subscriptions & Automated Delivery</i>\n\n"
         f"Hey <b>{first_name}</b> 👋 Welcome to our official store!\n\n"
         f"We provide genuine OTT subscriptions, AI subscriptions, VPNs, and tools at wholesale prices with <b>100% instant delivery</b>.\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🛍️ <b>Explore Store</b> ➜ Streaming, AI, VPNs & Utilities\n"
-        f"🔍 <b>Search Item</b> ➜ Find any subscription instantly\n"
-        f"💳 <b>Deposit Wallet</b> ➜ Automatic UPI QR top-up\n"
-        f"📦 <b>Order History</b> ➜ Active accounts & keys\n"
-        f"🎁 <b>Invite & Earn</b> ➜ Get {config.REFERRAL_BONUS_PERCENT}% commission per invite\n"
-        f"🛟 <b>24/7 Support</b> ➜ Warranty replacements & help\n"
+        f"{ce(CustomEmojis.SHOP, '🛍️')} <b>Explore Store</b> ➜ Streaming, AI, VPNs & Utilities\n"
+        f"{ce(CustomEmojis.SEARCH, '🔍')} <b>Search Item</b> ➜ Find any subscription instantly\n"
+        f"{ce(CustomEmojis.WALLET, '💳')} <b>Deposit Wallet</b> ➜ Automatic UPI QR top-up\n"
+        f"{ce(CustomEmojis.ORDERS, '📦')} <b>Order History</b> ➜ Active accounts & keys\n"
+        f"{ce(CustomEmojis.REFER, '🎁')} <b>Invite & Earn</b> ➜ Get {config.REFERRAL_BONUS_PERCENT}% commission per invite\n"
+        f"{ce(CustomEmojis.SUPPORT, '🛟')} <b>24/7 Support</b> ➜ Warranty replacements & help\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"👇 <i>Select an option below to get started:</i>"
     )
@@ -78,14 +78,14 @@ async def cb_nav_home(callback: types.CallbackQuery, session: AsyncSession):
 async def cb_nav_support(callback: types.CallbackQuery):
     await callback.answer()
     text = (
-        f"🛟 <b>24/7 CUSTOMER SUPPORT HELPDESK</b>\n"
+        f"{ce(CustomEmojis.SUPPORT, '🛟')} <b>24/7 CUSTOMER SUPPORT HELPDESK</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"Need assistance with an order, warranty replacement, or deposit?\n\n"
         f"✦ <b>Official Support:</b> {config.SUPPORT_USERNAME}\n"
         f"✦ <b>Official Channel:</b> {config.CHANNEL_LINK}\n"
         f"✦ <b>Community Group:</b> {config.GROUP_LINK}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🛡️ <i>All purchases come with a 100% money-back / replacement guarantee.</i>"
+        f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>All purchases come with a 100% money-back / replacement guarantee.</i>"
     )
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(inline_keyboard=[

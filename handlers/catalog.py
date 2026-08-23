@@ -117,8 +117,9 @@ async def cb_category_products(callback: types.CallbackQuery, session: AsyncSess
     for prod in products:
         stock_counts[prod.id] = await get_product_total_stock_count(session, prod.id)
 
+    cat_emoji = format_emoji(category.emoji, category.custom_emoji_id)
     text = (
-        f"{category.emoji} <b>CATEGORY ➜ {category.name.upper()}</b>\n"
+        f"{cat_emoji} <b>CATEGORY ➜ {category.name.upper()}</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"Select an item to view plans, pricing, and live inventory:\n"
     )
@@ -142,8 +143,9 @@ async def cb_products_page(callback: types.CallbackQuery, session: AsyncSession)
     for prod in products:
         stock_counts[prod.id] = await get_product_total_stock_count(session, prod.id)
 
+    cat_emoji = format_emoji(category.emoji, category.custom_emoji_id) if category else "📁"
     text = (
-        f"{category.emoji if category else '📁'} <b>CATEGORY ➜ {category.name.upper() if category else 'PRODUCTS'}</b>\n"
+        f"{cat_emoji} <b>CATEGORY ➜ {category.name.upper() if category else 'PRODUCTS'}</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"Select an item to view plans, pricing, and live inventory:\n"
     )
@@ -200,6 +202,12 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
     is_manual = (getattr(variant, "fulfillment_type", "AUTOMATIC") == "MANUAL")
     dispatch_time = getattr(variant, "manual_dispatch_time", "1–2 Hours") or "1–2 Hours"
 
+    product = await get_product(session, variant.product_id)
+    prod_title = product.title if product else "Digital Item"
+    prod_icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if product else "📦"
+    stock_count = await get_available_stock_count(session, variant.id)
+    has_stock = (stock_count > 0) or is_manual
+
     if is_manual:
         stock_badge = "🟢 <b>Available for Activation</b>"
         fulfillment_badge = f"⏱️ <b>Manual Activation (Dispatched within {dispatch_time})</b>"
@@ -224,8 +232,25 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
     if variant.detailed_description:
         text += f"{variant.detailed_description}\n"
     else:
+        cat_name = ""
+        if product:
+            cat = await get_category(session, product.category_id)
+            if cat:
+                cat_name = cat.name.upper()
+        
+        if "OTT" in cat_name or "STREAM" in cat_name:
+            quality_text = "Official UHD/HD stream"
+        elif "AI" in cat_name:
+            quality_text = "Official AI subscription access"
+        elif "VPN" in cat_name:
+            quality_text = "High-speed secure VPN connection"
+        elif "GAM" in cat_name or "UTIL" in cat_name:
+            quality_text = "Official premium subscription"
+        else:
+            quality_text = "Official premium digital subscription"
+
         text += (
-            f"✦ <b>Quality:</b> Official UHD/HD stream\n"
+            f"✦ <b>Quality:</b> {quality_text}\n"
             f"✦ <b>Access:</b> Instant login credentials / activation\n"
             f"✦ <b>Warranty:</b> 100% Replacement guarantee during validity\n"
             f"✦ <b>Rules:</b> Use on assigned screen or personal email"

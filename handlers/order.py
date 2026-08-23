@@ -10,7 +10,7 @@ from database.crud import (
     get_available_stock_count
 )
 from utils.states import OrderManualStates
-from utils.emojis import Emojis, UI, format_emoji
+from utils.emojis import Emojis, UI, format_emoji, CustomEmojis, ce
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import config
 
@@ -43,7 +43,7 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"📦 <b>Item:</b> {prod_icon} {prod_title} — <code>{variant.name}</code>\n"
             f"💰 <b>Plan Price:</b> {config.CURRENCY_SYMBOL}{variant.price:.2f}\n"
-            f"💳 <b>Your Balance:</b> {config.CURRENCY_SYMBOL}{user.balance:.2f}\n"
+            f"{ce(CustomEmojis.WALLET, '💳')} <b>Your Balance:</b> {config.CURRENCY_SYMBOL}{user.balance:.2f}\n"
             f"⚠️ <b>Shortfall:</b> {config.CURRENCY_SYMBOL}{shortfall:.2f}\n\n"
             f"<i>Please top up your wallet balance via UPI to complete this purchase.</i>"
         )
@@ -99,18 +99,18 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
     remaining_stock = await get_available_stock_count(session, variant.id)
 
     delivery_text = (
-        f"🎉 <b>ORDER #{order.id} COMPLETED & DELIVERED!</b>\n"
+        f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>ORDER #{order.id} COMPLETED & DELIVERED!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"📦 <b>Product:</b> {prod_icon} {prod_title}\n"
         f"✨ <b>Plan:</b> <code>{variant.name}</code>\n"
         f"💰 <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
         f"💳 <b>Remaining Balance:</b> {config.CURRENCY_SYMBOL}{user.balance - order.amount:.2f}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔑 <b>YOUR DELIVERED ACCOUNT / CODE:</b>\n"
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>YOUR DELIVERED ACCOUNT / CODE:</b>\n"
         f"<i>(Tap the box below to copy automatically)</i>\n\n"
         f"<pre><code>{order.delivered_content}</code></pre>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"🛡️ <b>Warranty Guidelines:</b>\n"
+        f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Warranty Guidelines:</b>\n"
         f"✦ Do not edit account master email or passwords.\n"
         f"✦ Saved permanently in <b>Order History</b>.\n"
         f"✦ For replacement support, contact {config.SUPPORT_USERNAME}\n\n"
@@ -168,7 +168,7 @@ async def msg_order_manual_input(message: types.Message, state: FSMContext, sess
     # Customer Confirmation Receipt
     user = await get_user(session, message.from_user.id)
     receipt_text = (
-        f"⏳ <b>ORDER #{order.id} RECEIVED — MANUAL ACTIVATION</b>\n"
+        f"{ce(CustomEmojis.SPARKLE, '⏳')} <b>ORDER #{order.id} RECEIVED — MANUAL ACTIVATION</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"📦 <b>Product:</b> {prod_title}\n"
         f"✨ <b>Plan:</b> <code>{var_name}</code>\n"

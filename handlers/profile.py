@@ -145,7 +145,6 @@ async def cb_nav_refer(callback: types.CallbackQuery, session: AsyncSession, bot
     referrals_count = await get_user_referrals_count(session, callback.from_user.id)
 
     refer_icon = ce(CustomEmojis.REFER, "🎁")
-    sparkle_icon = ce(CustomEmojis.SPARKLE, "✨")
 
     text = (
         f"{refer_icon} <b>INVITE & EARN PROGRAM</b> {refer_icon}\n"
@@ -165,7 +164,7 @@ async def cb_nav_refer(callback: types.CallbackQuery, session: AsyncSession, bot
 
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢  Share With Friends", url=f"https://t.me/share/url?url={ref_link}&text=Get%20discounted%20OTT%20and%20AI%20subscriptions%20instantly%20on%20SamStore!")],
+        [InlineKeyboardButton(text="📢  Share With Friends", url=f"https://t.me/share/url?url={ref_link}&text=Get%20discounted%20OTT%20and%20AI%20subscriptions%20instantly%20on%20{config.STORE_NAME}!")],
         [InlineKeyboardButton(text="◀️  Back to Main Menu", callback_data="nav_home")]
     ])
     await callback.message.edit_text(text, reply_markup=kb)

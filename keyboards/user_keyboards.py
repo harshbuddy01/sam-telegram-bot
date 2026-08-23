@@ -122,7 +122,7 @@ def get_variants_keyboard(
 ) -> InlineKeyboardMarkup:
     buttons = []
     for var in variants:
-        price_tag = f"{config.CURRENCY_SYMBOL}{var.price:.1f}"
+        price_tag = f"{config.CURRENCY_SYMBOL}{var.price:.0f}"
         buttons.append([
             InlineKeyboardButton(
                 text=f"✨  {var.name}  ➜  {price_tag}",
