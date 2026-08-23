@@ -446,7 +446,38 @@ async def cb_admin_dep_approve(callback: types.CallbackQuery, session: AsyncSess
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(f"✅ Deposit #{deposit.id} APPROVED! Added {config.CURRENCY_SYMBOL}{deposit.amount:.2f} to User <code>{deposit.user_id}</code>.")
 
-    # Notify User
+    # Check if this deposit was created for a Direct 1-Click Purchase
+    if deposit.target_variant_id:
+        target_var = await get_variant(session, deposit.target_variant_id)
+        if target_var:
+            order, err = await fulfill_order(session, user.telegram_id, target_var.id, target_var.price)
+            if order and not err:
+                prod = await get_product(session, target_var.product_id)
+                prod_title = prod.title if prod else "Digital Item"
+                cust_deliv_msg = (
+                    f"🎉 <b>PAYMENT APPROVED & ORDER #{order.id} DELIVERED!</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"📦 <b>Product:</b> <b>{prod_title}</b>\n"
+                    f"✨ <b>Plan:</b> <b>{target_var.name}</b>\n"
+                    f"💰 <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"🔑 <b>YOUR DELIVERED ACCOUNT / CODE:</b>\n\n"
+                    f"<pre><code>{order.delivered_content}</code></pre>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"🛡️ <i>Your subscription is under 100% replacement warranty! Saved permanently in Order History.</i>"
+                )
+                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                cust_kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📜 View in Order History", callback_data="view_orders")],
+                    [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                ])
+                try:
+                    await bot.send_message(deposit.user_id, cust_deliv_msg, reply_markup=cust_kb)
+                except Exception:
+                    pass
+                return
+
+    # Normal Deposit notification
     try:
         user_msg = (
             f"🎉 <b>DEPOSIT APPROVED & CREDITED!</b>\n"

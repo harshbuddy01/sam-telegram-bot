@@ -35,23 +35,81 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
     prod_title = product.title if product else "Digital Item"
     prod_icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if product else "📦"
 
-    # 1. Check Wallet Balance
+    # 1. Check Wallet Balance -> If 0/insufficient, trigger Direct 1-Click Checkout
     if user.balance < variant.price:
-        shortfall = round(variant.price - user.balance, 2)
-        text = (
-            f"❌ <b>INSUFFICIENT WALLET BALANCE</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"📦 <b>Item:</b> {prod_icon} {prod_title} — <code>{variant.name}</code>\n"
-            f"💰 <b>Plan Price:</b> {config.CURRENCY_SYMBOL}{variant.price:.2f}\n"
-            f"{ce(CustomEmojis.WALLET, '💳')} <b>Your Balance:</b> {config.CURRENCY_SYMBOL}{user.balance:.2f}\n"
-            f"⚠️ <b>Shortfall:</b> {config.CURRENCY_SYMBOL}{shortfall:.2f}\n\n"
-            f"<i>Please top up your wallet balance via UPI to complete this purchase.</i>"
+        amount = variant.price
+        customer_name = user.full_name or user.username or f"User {user.telegram_id}"
+        order_ref = f"BUY{user.telegram_id}_{variant.id}_{int(amount)}"
+
+        from payments.manager import payment_manager
+        from utils.qr_generator import generate_upi_qr
+        from aiogram.types import BufferedInputFile
+
+        active_gateway = payment_manager.default_gateway
+
+        # If Razorpay / Cashfree is active
+        if active_gateway in ("RAZORPAY", "CASHFREE"):
+            res = await payment_manager.create_deposit_session(
+                gateway_name=active_gateway,
+                user_id=user.telegram_id,
+                amount=amount,
+                order_id=order_ref,
+                customer_name=customer_name
+            )
+            if res.get("success") and res.get("payment_url"):
+                gateway_order_id = res.get("gateway_order_id") or res.get("order_id")
+                deposit = await create_deposit_gateway(
+                    session=session,
+                    user_id=user.telegram_id,
+                    amount=amount,
+                    gateway=active_gateway,
+                    gateway_order_id=gateway_order_id,
+                    target_variant_id=variant.id
+                )
+
+                text = (
+                    f"⚡ <b>DIRECT 1-CLICK INSTANT CHECKOUT</b>\n"
+                    f"{UI.SECTION_BAR}\n\n"
+                    f"📦 <b>Product:</b> {prod_icon} <b>{prod_title}</b>\n"
+                    f"✨ <b>Plan:</b> <b>{variant.name}</b>\n"
+                    f"💰 <b>Total Amount:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
+                    f"⚡ <b>Delivery:</b> Instant Auto-Delivery upon payment\n\n"
+                    f"<blockquote>"
+                    f"📱 <b>Supported Apps:</b> Google Pay, PhonePe, Paytm, CRED, BHIM, UPI, Netbanking"
+                    f"</blockquote>\n\n"
+                    f"👇 <i>Click the button below to pay securely — your product will be delivered to chat instantly:</i>"
+                )
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=f"PAY {config.CURRENCY_SYMBOL}{amount:.0f} VIA UPI / GPAY / PHONEPE", url=res["payment_url"], icon_custom_emoji_id=CustomEmojis.FIRE)],
+                    [InlineKeyboardButton(text="I Have Paid (Auto-Verify & Deliver)", callback_data=f"chkdep_{deposit.id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
+                    [InlineKeyboardButton(text="Cancel & Return", callback_data=f"var_{variant.id}", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                ])
+                await callback.message.edit_text(text, reply_markup=kb)
+                return
+
+        # Direct Dynamic UPI QR Flow
+        deposit = await create_deposit(session, user_id=user.telegram_id, amount=amount, target_variant_id=variant.id)
+        qr_buffer = generate_upi_qr(amount=amount, note=f"Order_{deposit.id}")
+        input_file = BufferedInputFile(qr_buffer.read(), filename=f"checkout_qr_{deposit.id}.png")
+
+        caption = (
+            f"⚡ <b>DIRECT 1-CLICK INSTANT CHECKOUT</b>\n"
+            f"{UI.SECTION_BAR}\n\n"
+            f"📦 <b>Product:</b> {prod_icon} <b>{prod_title}</b>\n"
+            f"✨ <b>Plan:</b> <b>{variant.name}</b>\n"
+            f"💰 <b>Total Amount:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
+            f"📱 <b>UPI ID:</b> <code>{config.UPI_ID}</code>\n\n"
+            f"<blockquote>"
+            f"💻 <b>Desktop / Web:</b> Scan QR code with your phone camera\n"
+            f"📱 <b>Mobile:</b> Pay {config.CURRENCY_SYMBOL}{amount:.0f} via any UPI app"
+            f"</blockquote>\n\n"
+            f"⚡ <i>Your credentials will be delivered to this chat automatically once paid!</i>"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=f"➕ Deposit {config.CURRENCY_SYMBOL}{shortfall:.0f}+", callback_data="nav_deposit")],
-            [InlineKeyboardButton(text="◀️ Back to Plan", callback_data=f"var_{variant.id}")]
+            [InlineKeyboardButton(text="Submit UTR / Screenshot", callback_data=f"submitproof_{deposit.id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
+            [InlineKeyboardButton(text="Cancel", callback_data=f"var_{variant.id}", icon_custom_emoji_id=CustomEmojis.CROWN)]
         ])
-        await callback.message.edit_text(text, reply_markup=kb)
+        await callback.message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
         return
 
     # 2. Check Fulfillment Mode (MANUAL vs AUTOMATIC)

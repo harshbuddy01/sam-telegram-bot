@@ -519,13 +519,15 @@ async def create_deposit_gateway(
     user_id: int,
     amount: float,
     gateway: str = "MANUAL_UPI",
-    gateway_order_id: Optional[str] = None
+    gateway_order_id: Optional[str] = None,
+    target_variant_id: Optional[int] = None
 ) -> Deposit:
     deposit = Deposit(
         user_id=user_id,
         amount=amount,
         gateway=gateway,
         gateway_order_id=gateway_order_id,
+        target_variant_id=target_variant_id,
         status="PENDING"
     )
     session.add(deposit)
@@ -592,13 +594,15 @@ async def create_deposit(
     user_id: int,
     amount: float,
     utr_number: Optional[str] = None,
-    proof_file_id: Optional[str] = None
+    proof_file_id: Optional[str] = None,
+    target_variant_id: Optional[int] = None
 ) -> Deposit:
     deposit = Deposit(
         user_id=user_id,
         amount=round(amount, 2),
         utr_number=utr_number,
         proof_file_id=proof_file_id,
+        target_variant_id=target_variant_id,
         status="PENDING",
         created_at=datetime.datetime.utcnow()
     )

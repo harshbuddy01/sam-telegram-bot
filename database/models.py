@@ -108,6 +108,7 @@ class Deposit(Base):
     gateway_order_id = Column(String(100), nullable=True)
     gateway_payment_id = Column(String(100), nullable=True)
     status = Column(String(30), default="PENDING") # "PENDING", "APPROVED", "REJECTED", "SUCCESS"
+    target_variant_id = Column(Integer, nullable=True) # Set when direct 1-click checkout is used
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     approved_at = Column(DateTime, nullable=True)
 

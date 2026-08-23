@@ -171,6 +171,39 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
         status_res = await payment_manager.razorpay.verify_payment_status(deposit.gateway_order_id)
         if status_res.get("is_paid"):
             dep, user = await credit_user_deposit_automated(session, deposit.gateway_order_id)
+            
+            # Check if this was a Direct 1-Click Purchase
+            if deposit.target_variant_id:
+                from database.crud import get_variant, fulfill_order, get_product
+                target_var = await get_variant(session, deposit.target_variant_id)
+                if target_var:
+                    order, err = await fulfill_order(session, user.telegram_id, target_var.id, target_var.price)
+                    if order and not err:
+                        prod = await get_product(session, target_var.product_id)
+                        prod_title = prod.title if prod else "Digital Item"
+                        delivery_text = (
+                            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER DELIVERED!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"🧾 <b>Order ID:</b> #{order.id}\n"
+                            f"📦 <b>Product:</b> <b>{prod_title}</b>\n"
+                            f"✨ <b>Plan:</b> <b>{target_var.name}</b>\n"
+                            f"💰 <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"{ce(CustomEmojis.KEY, '🔑')} <b>YOUR DELIVERED ACCOUNT / CODE:</b>\n"
+                            f"<i>(Tap the box below to copy automatically)</i>\n\n"
+                            f"<pre><code>{order.delivered_content}</code></pre>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Full Warranty:</b> Covered throughout validity!\n"
+                            f"❤️ <i>Thank you for shopping with {config.STORE_NAME}!</i>"
+                        )
+                        kb = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="📜 View in Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)],
+                            [InlineKeyboardButton(text="🛍️ Explore Store", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
+                            [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                        ])
+                        await callback.message.edit_text(delivery_text, reply_markup=kb)
+                        return
+
             text = (
                 f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & CREDITED!</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -180,8 +213,8 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
                 f"You can now purchase any subscription instantly from the store!"
             )
             kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🛍️ Explore Store", callback_data="nav_shop")],
-                [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                [InlineKeyboardButton(text="🛍️ Explore Store", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
+                [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
             ])
             await callback.message.edit_text(text, reply_markup=kb)
             return
