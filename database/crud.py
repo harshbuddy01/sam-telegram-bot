@@ -122,6 +122,19 @@ async def create_category(
 async def delete_category(session: AsyncSession, category_id: int) -> bool:
     category = await get_category(session, category_id)
     if category:
+        # Cascade delete all products under this category
+        prods_stmt = select(Product).where(Product.category_id == category_id)
+        prods_res = await session.execute(prods_stmt)
+        products = list(prods_res.scalars().all())
+        for prod in products:
+            # Delete all variants in this product
+            vars_stmt = select(Variant).where(Variant.product_id == prod.id)
+            vars_res = await session.execute(vars_stmt)
+            variants = list(vars_res.scalars().all())
+            for var in variants:
+                await delete_unsold_stock_by_variant(session, var.id)
+                await session.delete(var)
+            await session.delete(prod)
         await session.delete(category)
         await session.commit()
         return True
@@ -186,6 +199,13 @@ async def search_products(session: AsyncSession, query: str) -> List[Product]:
 async def delete_product(session: AsyncSession, product_id: int) -> bool:
     product = await get_product(session, product_id)
     if product:
+        # Delete all variants in this product
+        vars_stmt = select(Variant).where(Variant.product_id == product_id)
+        vars_res = await session.execute(vars_stmt)
+        variants = list(vars_res.scalars().all())
+        for var in variants:
+            await delete_unsold_stock_by_variant(session, var.id)
+            await session.delete(var)
         await session.delete(product)
         await session.commit()
         return True
@@ -233,6 +253,7 @@ async def create_variant(
 async def delete_variant(session: AsyncSession, variant_id: int) -> bool:
     variant = await get_variant(session, variant_id)
     if variant:
+        await delete_unsold_stock_by_variant(session, variant_id)
         await session.delete(variant)
         await session.commit()
         return True
@@ -618,11 +639,16 @@ async def reject_deposit(session: AsyncSession, deposit_id: int) -> Optional[Dep
     await session.refresh(deposit)
     return deposit
 
-async def seed_initial_data(session: AsyncSession):
+async def seed_initial_data(session: AsyncSession, force: bool = False):
     """
-    Seeds complete real SAM STORE catalog across all digital categories
-    with detailed specifications, duration plans, and zero dummy stock.
+    Seeds initial catalog ONLY on fresh database initialization.
+    If categories already exist in the database, it respects admin deletions and does NOT re-create them.
     """
+    existing_count_res = await session.execute(select(func.count(Category.id)))
+    existing_count = existing_count_res.scalar() or 0
+    if existing_count > 0 and not force:
+        return
+
     # 1. Standardize Categories
     cats_data = [
         ("OTT & Streaming", "🍿", 1, CustomEmojis.NETFLIX),
