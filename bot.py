@@ -83,13 +83,15 @@ async def main():
         try:
             await dp.start_polling(
                 bot,
-                polling_timeout=10,
-                handle_signals=False
+                allowed_updates=dp.resolve_used_update_types(),
+                polling_timeout=2,
+                handle_signals=False,
+                close_bot_session=False
             )
             break
         except (TelegramServerError, TelegramNetworkError) as e:
-            logger.warning(f"Telegram connection hiccup ({e}). Reconnecting in 2 seconds...")
-            await asyncio.sleep(2)
+            logger.warning(f"Telegram connection hiccup ({e}). Reconnecting in 1 second...")
+            await asyncio.sleep(1)
         except TelegramRetryAfter as e:
             logger.warning(f"Telegram rate limit: sleeping for {e.retry_after} seconds...")
             await asyncio.sleep(e.retry_after)
