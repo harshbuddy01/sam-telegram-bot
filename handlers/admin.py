@@ -502,11 +502,12 @@ async def cb_admin_stock_select(callback: types.CallbackQuery, state: FSMContext
     variant = await get_variant(session, variant_id)
     current_stock = await get_available_stock_count(session, variant_id)
 
+    prod_title = variant.product.title if variant and variant.product else "Product"
     await state.update_data(variant_id=variant_id)
     await state.set_state(AdminStockStates.waiting_for_stock_lines)
 
     text = (
-        f"🔑 <b>UPLOAD STOCK FOR: {variant.name}</b>\n"
+        f"🔑 <b>UPLOAD STOCK FOR: {prod_title} — {variant.name}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"📊 <b>Current Available Stock:</b> {current_stock} items\n\n"
         f"Send the accounts / keys line-by-line (one per line):\n\n"
@@ -529,10 +530,14 @@ async def msg_admin_stock_lines(message: types.Message, state: FSMContext, sessi
 
     added_count = await add_stock_bulk(session, variant_id, lines)
     total_stock = await get_available_stock_count(session, variant_id)
+    variant = await get_variant(session, variant_id)
+    prod_title = variant.product.title if variant and variant.product else "Product"
 
     await message.answer(
         f"✅ <b>Successfully Added {added_count} Stock Items!</b>\n\n"
-        f"📊 New Available Stock for this plan: <b>{total_stock} items</b>",
+        f"📦 <b>Product:</b> {prod_title}\n"
+        f"✨ <b>Plan:</b> {variant.name if variant else ''}\n"
+        f"📊 <b>New Available Stock:</b> <b>{total_stock} items</b>",
         reply_markup=get_admin_cancel_keyboard("admin_home")
     )
 

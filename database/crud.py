@@ -180,18 +180,20 @@ async def delete_product(session: AsyncSession, product_id: int) -> bool:
 
 # ================= VARIANT CRUD =================
 
+from sqlalchemy.orm import selectinload
+
 async def get_variants_by_product(session: AsyncSession, product_id: int) -> List[Variant]:
-    stmt = select(Variant).where(Variant.product_id == product_id, Variant.is_active == True).order_by(Variant.price)
+    stmt = select(Variant).options(selectinload(Variant.product)).where(Variant.product_id == product_id, Variant.is_active == True).order_by(Variant.price)
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
 async def get_all_variants(session: AsyncSession) -> List[Variant]:
-    stmt = select(Variant).order_by(Variant.id)
+    stmt = select(Variant).options(selectinload(Variant.product)).order_by(Variant.id)
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
 async def get_variant(session: AsyncSession, variant_id: int) -> Optional[Variant]:
-    stmt = select(Variant).where(Variant.id == variant_id)
+    stmt = select(Variant).options(selectinload(Variant.product)).where(Variant.id == variant_id)
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
 

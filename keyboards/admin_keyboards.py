@@ -101,9 +101,10 @@ def get_admin_variants_keyboard(variants: list[Variant], product_id: int) -> Inl
 def get_admin_stock_variant_select_keyboard(variants: list[Variant]) -> InlineKeyboardMarkup:
     buttons = []
     for var in variants:
+        prod_title = var.product.title if var.product else "Product"
         buttons.append([
             InlineKeyboardButton(
-                text=f"{var.product.title if var.product else ''} - {var.name}",
+                text=f"📦 {prod_title} ➜ {var.name}",
                 callback_data=f"adm_stock_select_{var.id}"
             )
         ])
