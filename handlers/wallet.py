@@ -118,9 +118,9 @@ async def initiate_deposit_payment(
                 f"👇 <i>Click the button below to pay securely:</i>"
             )
             kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text=f"⚡  PAY {config.CURRENCY_SYMBOL}{amount:.0f} VIA UPI / GPAY / PHONEPE  ⚡", url=res["payment_url"])],
-                [InlineKeyboardButton(text="🔄  I Have Paid (Verify & Credit)", callback_data=f"chkdep_{deposit.id}")],
-                [InlineKeyboardButton(text="◀️  Cancel & Return", callback_data="nav_home")]
+                [InlineKeyboardButton(text=f"PAY {config.CURRENCY_SYMBOL}{amount:.0f} VIA UPI / GPAY / PHONEPE", url=res["payment_url"], icon_custom_emoji_id=CustomEmojis.FIRE)],
+                [InlineKeyboardButton(text="I Have Paid (Verify & Credit)", callback_data=f"chkdep_{deposit.id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
+                [InlineKeyboardButton(text="Cancel & Return", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
             ])
             await message.answer(text, reply_markup=kb)
             return

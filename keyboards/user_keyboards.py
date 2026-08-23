@@ -161,14 +161,15 @@ def get_variants_keyboard(
         clean_name = clean_button_text(var.name)
         buttons.append([
             InlineKeyboardButton(
-                text=f"✨  {clean_name}  ➜  {price_tag}",
-                callback_data=f"var_{var.id}"
+                text=f"{clean_name}  ➜  {price_tag}",
+                callback_data=f"var_{var.id}",
+                icon_custom_emoji_id=CustomEmojis.SPARKLE
             )
         ])
 
     buttons.append([
-        InlineKeyboardButton(text="◀️  Back to Products", callback_data=f"cat_{category_id}"),
-        InlineKeyboardButton(text="🏠  Home", callback_data="nav_home")
+        InlineKeyboardButton(text="Back to Products", callback_data=f"cat_{category_id}", icon_custom_emoji_id=CustomEmojis.SHOP),
+        InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -184,59 +185,63 @@ def get_product_detail_keyboard(
     if is_manual:
         buttons.append([
             InlineKeyboardButton(
-                text=f"⚡  ORDER ACTIVATION  ({config.CURRENCY_SYMBOL}{price:.2f})  ⚡",
-                callback_data=f"buy_{variant_id}"
+                text=f"ORDER ACTIVATION ({config.CURRENCY_SYMBOL}{price:.2f})",
+                callback_data=f"buy_{variant_id}",
+                icon_custom_emoji_id=CustomEmojis.FIRE
             )
         ])
     elif has_stock:
         buttons.append([
             InlineKeyboardButton(
-                text=f"⚡  PURCHASE NOW  ({config.CURRENCY_SYMBOL}{price:.2f})  ⚡",
-                callback_data=f"buy_{variant_id}"
+                text=f"PURCHASE NOW ({config.CURRENCY_SYMBOL}{price:.2f})",
+                callback_data=f"buy_{variant_id}",
+                icon_custom_emoji_id=CustomEmojis.FIRE
             )
         ])
     else:
         buttons.append([
             InlineKeyboardButton(
-                text="❌  Currently Out of Stock",
-                callback_data="noop"
+                text="Currently Out of Stock",
+                callback_data="noop",
+                icon_custom_emoji_id=CustomEmojis.LOCK
             )
         ])
 
     if is_admin:
         buttons.append([
             InlineKeyboardButton(
-                text="🔑  Admin: ➕ Add Accounts to Stock",
-                callback_data=f"adm_stock_add_{variant_id}"
+                text="Admin: Upload Accounts to Stock",
+                callback_data=f"adm_stock_add_{variant_id}",
+                icon_custom_emoji_id=CustomEmojis.KEY
             )
         ])
 
     buttons.append([
-        InlineKeyboardButton(text="💳  Deposit Funds", callback_data="nav_deposit"),
-        InlineKeyboardButton(text="◀️  Back to Plans", callback_data=f"prod_{product_id}")
+        InlineKeyboardButton(text="Deposit Funds", callback_data="nav_deposit", icon_custom_emoji_id=CustomEmojis.WALLET),
+        InlineKeyboardButton(text="Back to Plans", callback_data=f"prod_{product_id}", icon_custom_emoji_id=CustomEmojis.SPARKLE)
     ])
     buttons.append([
-        InlineKeyboardButton(text="🏠  Return to Main Menu", callback_data="nav_home")
+        InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_deposit_preset_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [
-            InlineKeyboardButton(text=f"💎  {config.CURRENCY_SYMBOL}50", callback_data="depamt_50"),
-            InlineKeyboardButton(text=f"💎  {config.CURRENCY_SYMBOL}100", callback_data="depamt_100"),
-            InlineKeyboardButton(text=f"💎  {config.CURRENCY_SYMBOL}200", callback_data="depamt_200"),
+            InlineKeyboardButton(text=f"{config.CURRENCY_SYMBOL}50", callback_data="depamt_50", icon_custom_emoji_id=CustomEmojis.DIAMOND),
+            InlineKeyboardButton(text=f"{config.CURRENCY_SYMBOL}100", callback_data="depamt_100", icon_custom_emoji_id=CustomEmojis.DIAMOND),
+            InlineKeyboardButton(text=f"{config.CURRENCY_SYMBOL}200", callback_data="depamt_200", icon_custom_emoji_id=CustomEmojis.DIAMOND),
         ],
         [
-            InlineKeyboardButton(text=f"🔥  {config.CURRENCY_SYMBOL}500", callback_data="depamt_500"),
-            InlineKeyboardButton(text=f"🔥  {config.CURRENCY_SYMBOL}1,000", callback_data="depamt_1000"),
-            InlineKeyboardButton(text=f"👑  {config.CURRENCY_SYMBOL}2,000", callback_data="depamt_2000"),
+            InlineKeyboardButton(text=f"{config.CURRENCY_SYMBOL}500", callback_data="depamt_500", icon_custom_emoji_id=CustomEmojis.FIRE),
+            InlineKeyboardButton(text=f"{config.CURRENCY_SYMBOL}1,000", callback_data="depamt_1000", icon_custom_emoji_id=CustomEmojis.FIRE),
+            InlineKeyboardButton(text=f"{config.CURRENCY_SYMBOL}2,000", callback_data="depamt_2000", icon_custom_emoji_id=CustomEmojis.CROWN),
         ],
         [
-            InlineKeyboardButton(text="✍️  Enter Custom Amount", callback_data="depamt_custom")
+            InlineKeyboardButton(text="Enter Custom Amount", callback_data="depamt_custom", icon_custom_emoji_id=CustomEmojis.SPARKLE)
         ],
         [
-            InlineKeyboardButton(text="◀️  Back to Main Menu", callback_data="nav_home")
+            InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -244,10 +249,10 @@ def get_deposit_preset_keyboard() -> InlineKeyboardMarkup:
 def get_deposit_verification_keyboard(deposit_id: int) -> InlineKeyboardMarkup:
     buttons = [
         [
-            InlineKeyboardButton(text="📸  Submit UTR / Screenshot", callback_data=f"submitproof_{deposit_id}")
+            InlineKeyboardButton(text="Submit UTR / Screenshot", callback_data=f"submitproof_{deposit_id}", icon_custom_emoji_id=CustomEmojis.CHECK)
         ],
         [
-            InlineKeyboardButton(text="❌  Cancel Deposit", callback_data="nav_home")
+            InlineKeyboardButton(text="Cancel Deposit", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -255,15 +260,15 @@ def get_deposit_verification_keyboard(deposit_id: int) -> InlineKeyboardMarkup:
 def get_profile_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [
-            InlineKeyboardButton(text="📜  My Order History", callback_data="view_orders"),
-            InlineKeyboardButton(text="➕  Add Funds / Top-Up", callback_data="nav_deposit")
+            InlineKeyboardButton(text="My Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS),
+            InlineKeyboardButton(text="Add Funds / Top-Up", callback_data="nav_deposit", icon_custom_emoji_id=CustomEmojis.WALLET)
         ],
         [
-            InlineKeyboardButton(text="🎁  Referral Link", callback_data="nav_refer"),
-            InlineKeyboardButton(text="🛟  Contact Support", callback_data="nav_support")
+            InlineKeyboardButton(text="Referral Link", callback_data="nav_refer", icon_custom_emoji_id=CustomEmojis.GIFT),
+            InlineKeyboardButton(text="Contact Support", callback_data="nav_support", icon_custom_emoji_id=CustomEmojis.SUPPORT)
         ],
         [
-            InlineKeyboardButton(text="🏠  Main Menu", callback_data="nav_home")
+            InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -273,26 +278,22 @@ def get_orders_list_keyboard(orders: list[Order]) -> InlineKeyboardMarkup:
     for order in orders:
         created_str = order.created_at.strftime("%d/%m %H:%M")
         status = getattr(order, "status", "COMPLETED")
-        if status == "COMPLETED":
-            badge = "🟢"
-        elif status == "PENDING_DISPATCH":
-            badge = "⏳"
-        else:
-            badge = "❌"
+        badge = "🟢" if status == "COMPLETED" else ("⏳" if status == "PENDING_DISPATCH" else "❌")
         buttons.append([
             InlineKeyboardButton(
                 text=f"{badge} #{order.id} • {config.CURRENCY_SYMBOL}{order.amount:.0f} ({created_str})",
-                callback_data=f"orderdetail_{order.id}"
+                callback_data=f"orderdetail_{order.id}",
+                icon_custom_emoji_id=CustomEmojis.ORDERS
             )
         ])
     
     buttons.append([
-        InlineKeyboardButton(text="◀️  Back to Profile", callback_data="nav_profile"),
-        InlineKeyboardButton(text="🏠  Home", callback_data="nav_home")
+        InlineKeyboardButton(text="Back to Profile", callback_data="nav_profile", icon_custom_emoji_id=CustomEmojis.VERIFIED),
+        InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_back_button(callback_data: str = "nav_home") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️  Go Back", callback_data=callback_data)]
+        [InlineKeyboardButton(text="Go Back", callback_data=callback_data, icon_custom_emoji_id=CustomEmojis.CROWN)]
     ])

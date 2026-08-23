@@ -101,9 +101,9 @@ async def cb_nav_support(callback: types.CallbackQuery):
     )
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💬  Contact Support Agent", url=f"https://t.me/{config.SUPPORT_USERNAME.replace('@', '')}")],
-        [InlineKeyboardButton(text="📢  Join Official Channel", url=config.CHANNEL_LINK)],
-        [InlineKeyboardButton(text="◀️  Back to Main Menu", callback_data="nav_home")]
+        [InlineKeyboardButton(text="Contact Support Agent", url=f"https://t.me/{config.SUPPORT_USERNAME.replace('@', '')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+        [InlineKeyboardButton(text="Join Official Channel", url=config.CHANNEL_LINK, icon_custom_emoji_id=CustomEmojis.TELEGRAM if hasattr(CustomEmojis, 'TELEGRAM') else None)],
+        [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
     ])
     await callback.message.edit_text(text, reply_markup=kb)
 
@@ -124,8 +124,8 @@ async def cb_nav_guide(callback: types.CallbackQuery):
     )
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛍️  Explore Store Now", callback_data="nav_shop")],
-        [InlineKeyboardButton(text="◀️  Back to Main Menu", callback_data="nav_home")]
+        [InlineKeyboardButton(text="Explore Store Now", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
+        [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
     ])
     await callback.message.edit_text(text, reply_markup=kb)
 
