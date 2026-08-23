@@ -2,10 +2,18 @@ from aiogram import Router, F, types, Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
-from database.crud import get_user, create_deposit, get_deposit
+from database.crud import (
+    get_user,
+    create_deposit,
+    get_deposit,
+    update_deposit_proof,
+    create_deposit_gateway,
+    credit_user_deposit_automated
+)
 from utils.qr_generator import generate_upi_qr
 from utils.states import DepositStates
 from keyboards.user_keyboards import get_deposit_preset_keyboard, get_deposit_verification_keyboard, get_back_button
+from payments.manager import payment_manager
 from utils.emojis import Emojis, UI
 import config
 
@@ -47,7 +55,7 @@ async def cb_deposit_amount_selected(callback: types.CallbackQuery, state: FSMCo
         return
 
     amount = float(amt_str)
-    await initiate_deposit_payment(callback.message, callback.from_user.id, amount, session, state)
+    await initiate_deposit_payment(callback.message, callback.from_user, amount, session, state)
 
 @router.message(DepositStates.waiting_for_amount)
 async def msg_custom_deposit_amount(message: types.Message, state: FSMContext, session: AsyncSession):
@@ -65,18 +73,60 @@ async def msg_custom_deposit_amount(message: types.Message, state: FSMContext, s
         return
 
     await state.clear()
-    await initiate_deposit_payment(message, message.from_user.id, amount, session, state)
+    await initiate_deposit_payment(message, message.from_user, amount, session, state)
 
 async def initiate_deposit_payment(
     message: types.Message,
-    user_id: int,
+    from_user: types.User,
     amount: float,
     session: AsyncSession,
     state: FSMContext
 ):
-    deposit = await create_deposit(session, user_id=user_id, amount=amount)
+    user_id = from_user.id
+    customer_name = from_user.full_name or from_user.first_name
+    order_ref = f"DEP{user_id}_{int(amount)}_{int(from_user.id % 10000)}"
 
-    # Generate UPI QR Code image
+    # Check if Automated Gateway (Razorpay or Cashfree) is active
+    active_gateway = payment_manager.default_gateway
+
+    if active_gateway in ("RAZORPAY", "CASHFREE"):
+        res = await payment_manager.create_deposit_session(
+            gateway_name=active_gateway,
+            user_id=user_id,
+            amount=amount,
+            order_id=order_ref,
+            customer_name=customer_name
+        )
+
+        if res.get("success") and res.get("payment_url"):
+            gateway_order_id = res.get("gateway_order_id") or res.get("order_id")
+            deposit = await create_deposit_gateway(
+                session=session,
+                user_id=user_id,
+                amount=amount,
+                gateway=active_gateway,
+                gateway_order_id=gateway_order_id
+            )
+
+            text = (
+                f"💳 <b>AUTOMATED INSTANT DEPOSIT #{deposit.id}</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"💰 <b>Amount to Add:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
+                f"⚡ <b>Gateway:</b> {active_gateway} (Instant Auto-Credit)\n"
+                f"📱 <b>Supported:</b> Google Pay, PhonePe, Paytm, UPI, Cards, Netbanking\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"👇 <i>Click the button below to pay securely:</i>"
+            )
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=f"⚡  PAY {config.CURRENCY_SYMBOL}{amount:.0f} VIA UPI / GPAY / PHONEPE  ⚡", url=res["payment_url"])],
+                [InlineKeyboardButton(text="🔄  I Have Paid (Verify & Credit)", callback_data=f"chkdep_{deposit.id}")],
+                [InlineKeyboardButton(text="◀️  Cancel & Return", callback_data="nav_home")]
+            ])
+            await message.answer(text, reply_markup=kb)
+            return
+
+    # Fallback to Direct UPI QR Code Flow
+    deposit = await create_deposit(session, user_id=user_id, amount=amount)
     qr_buffer = generate_upi_qr(amount=amount, note=f"Deposit_{deposit.id}")
     input_file = BufferedInputFile(qr_buffer.read(), filename=f"upi_qr_{deposit.id}.png")
 
@@ -101,6 +151,47 @@ async def initiate_deposit_payment(
         reply_markup=get_deposit_verification_keyboard(deposit.id)
     )
 
+@router.callback_query(F.data.startswith("chkdep_"))
+async def cb_check_automated_deposit(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):
+    await callback.answer("Checking payment status with gateway...", show_alert=False)
+    deposit_id = int(callback.data.split("_")[1])
+    deposit = await get_deposit(session, deposit_id)
+
+    if not deposit:
+        await callback.message.answer("Deposit invoice not found.")
+        return
+
+    if deposit.status in ("APPROVED", "SUCCESS"):
+        await callback.message.answer("✅ This deposit is already verified and credited to your wallet balance!")
+        return
+
+    # Check status via Gateway
+    if deposit.gateway == "RAZORPAY" and deposit.gateway_order_id:
+        from payments.manager import payment_manager
+        status_res = await payment_manager.razorpay.verify_payment_status(deposit.gateway_order_id)
+        if status_res.get("is_paid"):
+            dep, user = await credit_user_deposit_automated(session, deposit.gateway_order_id)
+            text = (
+                f"🎉 <b>PAYMENT CONFIRMED & CREDITED!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"🧾 <b>Deposit ID:</b> #{deposit.id}\n"
+                f"💰 <b>Amount Added:</b> <b>+{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b>\n"
+                f"💳 <b>New Wallet Balance:</b> <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n\n"
+                f"You can now purchase any subscription instantly from the store!"
+            )
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🛍️ Explore Store", callback_data="nav_shop")],
+                [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+            ])
+            await callback.message.edit_text(text, reply_markup=kb)
+            return
+
+    await callback.message.answer(
+        "⏳ <b>Payment Not Detected Yet</b>\n\n"
+        "If you have already paid, please wait a few seconds and tap 'Verify & Credit' again.",
+        show_alert=True
+    )
+
 @router.callback_query(F.data.startswith("submitproof_"))
 async def cb_submit_proof(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -109,98 +200,82 @@ async def cb_submit_proof(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(DepositStates.waiting_for_proof)
 
     text = (
-        f"📸 <b>SUBMIT PROOF FOR DEPOSIT #{deposit_id}</b>\n"
+        f"📸 <b>SUBMIT PAYMENT PROOF FOR DEPOSIT #{deposit_id}</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"Please reply to this message with:\n\n"
-        f"✦ <b>Payment Screenshot</b> (send photo)\n"
-        f"   <i>OR</i>\n"
-        f"✦ <b>12-Digit UPI UTR Number</b> (send text)\n\n"
-        f"<i>Our automated admin system will verify it immediately.</i>"
+        f"Please send the <b>12-digit UPI UTR / Ref Number</b> as text,\n"
+        f"OR send a <b>Screenshot photo</b> of the successful payment."
     )
-    await callback.message.answer(text, reply_markup=get_back_button("nav_deposit"))
+    await callback.message.answer(text, reply_markup=get_back_button("nav_home"))
 
-@router.message(DepositStates.waiting_for_proof, F.photo)
-async def msg_proof_photo(message: types.Message, state: FSMContext, session: AsyncSession, bot: Bot):
+@router.message(DepositStates.waiting_for_proof)
+async def msg_receive_proof(message: types.Message, state: FSMContext, session: AsyncSession, bot: Bot):
     data = await state.get_data()
     deposit_id = data.get("deposit_id")
     await state.clear()
 
-    deposit = await get_deposit(session, deposit_id)
-    if not deposit:
-        await message.answer("Deposit session expired. Please create a new request.")
+    utr_number = None
+    proof_file_id = None
+
+    if message.photo:
+        proof_file_id = message.photo[-1].file_id
+        if message.caption:
+            utr_number = message.caption.strip()
+    elif message.text:
+        utr_number = message.text.strip()
+    else:
+        await message.answer("⚠️ Please send either text (UTR number) or a screenshot image.")
         return
 
-    photo_file_id = message.photo[-1].file_id
-    deposit.proof_file_id = photo_file_id
-    await session.commit()
-
-    await message.answer(
-        f"✅ <b>Payment Proof Received!</b>\n\n"
-        f"Deposit of <b>{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b> (ID: #{deposit.id}) submitted.\n"
-        f"You will get an alert as soon as it is approved!",
-        reply_markup=get_back_button("nav_home")
+    deposit = await update_deposit_proof(
+        session=session,
+        deposit_id=deposit_id,
+        utr_number=utr_number,
+        proof_file_id=proof_file_id
     )
 
-    # Forward to Admin
-    admin_caption = (
-        f"🔔 <b>NEW DEPOSIT PENDING APPROVAL</b>\n"
-        f"{UI.SECTION_BAR}\n"
-        f"🧾 <b>Deposit ID:</b> #{deposit.id}\n"
-        f"👤 <b>User:</b> {message.from_user.full_name} (@{message.from_user.username or 'NoUser'})\n"
-        f"🆔 <b>User ID:</b> <code>{message.from_user.id}</code>\n"
-        f"💰 <b>Amount:</b> <b>{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b>"
-    )
-    from keyboards.admin_keyboards import get_deposit_approval_keyboard
-    for admin_id in config.ADMIN_IDS:
-        try:
-            await bot.send_photo(
-                chat_id=admin_id,
-                photo=photo_file_id,
-                caption=admin_caption,
-                reply_markup=get_deposit_approval_keyboard(deposit.id)
-            )
-        except Exception:
-            pass
-
-@router.message(DepositStates.waiting_for_proof, F.text)
-async def msg_proof_utr_text(message: types.Message, state: FSMContext, session: AsyncSession, bot: Bot):
-    data = await state.get_data()
-    deposit_id = data.get("deposit_id")
-    await state.clear()
-
-    deposit = await get_deposit(session, deposit_id)
     if not deposit:
-        await message.answer("Deposit session expired. Please create a new request.")
+        await message.answer("⚠️ Deposit record not found. Please try again.")
         return
 
-    utr = message.text.strip()
-    deposit.utr_number = utr
-    await session.commit()
-
-    await message.answer(
-        f"✅ <b>UTR #{utr} Received!</b>\n\n"
-        f"Deposit of <b>{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b> (ID: #{deposit.id}) submitted.\n"
-        f"You will get an alert as soon as it is approved!",
-        reply_markup=get_back_button("nav_home")
+    confirm_text = (
+        f"✅ <b>PAYMENT PROOF SUBMITTED SUCCESSFULLY!</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"<blockquote>"
+        f"🧾 <b>Deposit ID:</b> #{deposit.id}\n"
+        f"💰 <b>Amount:</b> {config.CURRENCY_SYMBOL}{deposit.amount:.2f}\n"
+        f"🔢 <b>Submitted UTR:</b> <code>{utr_number or 'Screenshot Provided'}</code>"
+        f"</blockquote>\n\n"
+        f"⏳ Our admin team is reviewing your transaction. Your wallet will be credited within <b>2-5 minutes</b>.\n\n"
+        f"<i>You will receive a notification as soon as it is approved!</i>"
     )
+    await message.answer(confirm_text, reply_markup=get_back_button("nav_home"))
 
-    # Forward to Admin
-    admin_alert = (
-        f"🔔 <b>NEW DEPOSIT PENDING APPROVAL</b>\n"
-        f"{UI.SECTION_BAR}\n"
+    # Send Notification to Admins
+    admin_alert_text = (
+        f"🔔 <b>NEW DEPOSIT PENDING APPROVAL!</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
         f"🧾 <b>Deposit ID:</b> #{deposit.id}\n"
         f"👤 <b>User:</b> {message.from_user.full_name} (@{message.from_user.username or 'NoUser'})\n"
-        f"🆔 <b>User ID:</b> <code>{message.from_user.id}</code>\n"
+        f"🆔 <b>Telegram ID:</b> <code>{message.from_user.id}</code>\n"
         f"💰 <b>Amount:</b> <b>{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b>\n"
-        f"🔢 <b>UTR Number:</b> <code>{utr}</code>"
+        f"🔢 <b>UTR / Note:</b> <code>{utr_number or 'See Attached Photo'}</code>"
     )
     from keyboards.admin_keyboards import get_deposit_approval_keyboard
+
     for admin_id in config.ADMIN_IDS:
         try:
-            await bot.send_message(
-                chat_id=admin_id,
-                text=admin_alert,
-                reply_markup=get_deposit_approval_keyboard(deposit.id)
-            )
+            if proof_file_id:
+                await bot.send_photo(
+                    chat_id=admin_id,
+                    photo=proof_file_id,
+                    caption=admin_alert_text,
+                    reply_markup=get_deposit_approval_keyboard(deposit.id)
+                )
+            else:
+                await bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_alert_text,
+                    reply_markup=get_deposit_approval_keyboard(deposit.id)
+                )
         except Exception:
             pass

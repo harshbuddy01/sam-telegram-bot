@@ -1,0 +1,143 @@
+import hmac
+import hashlib
+import json
+import aiohttp
+import os
+from typing import Optional, Dict, Any
+from payments.base import BasePaymentGateway
+import config
+
+class RazorpayGateway(BasePaymentGateway):
+    """
+    Razorpay Payment Gateway Integration:
+    - Creates Instant Payment Links (UPI, GPay, PhonePe, Cards, NetBanking)
+    - Validates Webhooks for Instant Auto-Credit
+    """
+    def __init__(self):
+        self.key_id = getattr(config, "RAZORPAY_KEY_ID", os.getenv("RAZORPAY_KEY_ID", ""))
+        self.key_secret = getattr(config, "RAZORPAY_KEY_SECRET", os.getenv("RAZORPAY_KEY_SECRET", ""))
+        self.webhook_secret = getattr(config, "RAZORPAY_WEBHOOK_SECRET", os.getenv("RAZORPAY_WEBHOOK_SECRET", ""))
+        self.base_url = "https://api.razorpay.com/v1"
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.key_id and self.key_secret)
+
+    async def create_payment_order(
+        self,
+        user_id: int,
+        amount: float,
+        order_id: str,
+        customer_name: str,
+        customer_phone: Optional[str] = None,
+        customer_email: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Creates a Razorpay Standard Payment Link with 100% UPI support.
+        """
+        if not self.is_configured:
+            return {
+                "success": False,
+                "error": "Razorpay API keys not configured. Please set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET."
+            }
+
+        url = f"{self.base_url}/payment_links"
+        auth = aiohttp.BasicAuth(self.key_id, self.key_secret)
+
+        clean_phone = (customer_phone or "9999999999").replace("+91", "").replace(" ", "").strip()
+        if len(clean_phone) < 10:
+            clean_phone = "9999999999"
+
+        # Amount in paise (1 INR = 100 paise)
+        amount_in_paise = int(round(amount * 100))
+
+        payload = {
+            "amount": amount_in_paise,
+            "currency": "INR",
+            "accept_partial": False,
+            "reference_id": order_id,
+            "description": f"Wallet Top-Up #{order_id} for User {user_id}",
+            "customer": {
+                "name": customer_name or f"Telegram User {user_id}",
+                "contact": f"+91{clean_phone[-10:]}",
+                "email": customer_email or f"user{user_id}@samstore.com"
+            },
+            "notify": {
+                "sms": False,
+                "email": False
+            },
+            "reminder_enable": False,
+            "notes": {
+                "user_id": str(user_id),
+                "deposit_order_id": order_id
+            }
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, auth=auth) as response:
+                    res_data = await response.json()
+                    if response.status in (200, 201):
+                        short_url = res_data.get("short_url")
+                        plink_id = res_data.get("id")
+                        return {
+                            "success": True,
+                            "order_id": order_id,
+                            "gateway_order_id": plink_id,
+                            "payment_url": short_url
+                        }
+                    else:
+                        err = res_data.get("error", {}).get("description", "Razorpay link creation failed.")
+                        return {
+                            "success": False,
+                            "error": err
+                        }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Connection error with Razorpay: {str(e)}"
+            }
+
+    async def verify_payment_status(self, gateway_order_id: str) -> Dict[str, Any]:
+        """
+        Polls Razorpay for the status of a payment link.
+        """
+        if not self.is_configured:
+            return {"is_paid": False, "status": "NOT_CONFIGURED"}
+
+        url = f"{self.base_url}/payment_links/{gateway_order_id}"
+        auth = aiohttp.BasicAuth(self.key_id, self.key_secret)
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, auth=auth) as response:
+                    res_data = await response.json()
+                    if response.status == 200:
+                        status = res_data.get("status") # "created", "paid", "partially_paid", "expired", "cancelled"
+                        is_paid = (status == "paid")
+                        amount = float(res_data.get("amount_paid", 0)) / 100.0
+                        return {
+                            "is_paid": is_paid,
+                            "status": status,
+                            "amount": amount,
+                            "gateway_order_id": gateway_order_id
+                        }
+                    else:
+                        return {"is_paid": False, "status": "NOT_FOUND"}
+        except Exception as e:
+            return {"is_paid": False, "status": "ERROR", "error": str(e)}
+
+    def verify_webhook_signature(self, body_bytes: bytes, signature_header: str) -> bool:
+        """
+        Verifies Razorpay Webhook HMAC SHA256 Signature.
+        """
+        if not self.webhook_secret:
+            return True # If no secret set, accept in dev
+        
+        expected_sig = hmac.new(
+            self.webhook_secret.encode("utf-8"),
+            body_bytes,
+            hashlib.sha256
+        ).hexdigest()
+        
+        return hmac.compare_digest(expected_sig, signature_header)

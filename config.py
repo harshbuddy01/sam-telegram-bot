@@ -23,6 +23,15 @@ CHANNEL_LINK = os.getenv("CHANNEL_LINK", "https://t.me/SamStoreServices")
 GROUP_LINK = os.getenv("GROUP_LINK", "https://t.me/SamStoreServices")
 REFERRAL_BONUS_PERCENT = float(os.getenv("REFERRAL_BONUS_PERCENT", "5.0"))
 
+# Automated Payment Gateways (Razorpay & Cashfree)
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
+RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "")
+
+CASHFREE_APP_ID = os.getenv("CASHFREE_APP_ID", "")
+CASHFREE_SECRET_KEY = os.getenv("CASHFREE_SECRET_KEY", "")
+CASHFREE_ENV = os.getenv("CASHFREE_ENV", "PRODUCTION")
+
 # Database
 DB_PATH = os.getenv("DB_PATH", "store.db")
 DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH}"
