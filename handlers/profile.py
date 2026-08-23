@@ -26,17 +26,17 @@ async def cb_nav_profile(callback: types.CallbackQuery, session: AsyncSession, b
     verified_icon = ce(CustomEmojis.VERIFIED, "✨")
 
     text = (
-        f"👤 <b>CUSTOMER ACCOUNT DASHBOARD</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"🆔 <b>Telegram ID:</b> <code>{user.telegram_id}</code>\n"
-        f"👤 <b>Name:</b> <b>{user.full_name}</b> {verified_icon}\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>CUSTOMER ACCOUNT DASHBOARD</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"{ce(CustomEmojis.VERIFIED, '🆔')} <b>Telegram ID:</b> <code>{user.telegram_id}</code>\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Name:</b> <b>{user.full_name}</b> {verified_icon}\n"
         f"{wallet_icon} <b>Wallet Balance:</b> <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n"
         f"{orders_icon} <b>Total Orders:</b> {len(orders)}\n"
-        f"💳 <b>Total Spent:</b> {config.CURRENCY_SYMBOL}{user.total_spent:.2f}\n"
-        f"👥 <b>Friends Invited:</b> {referrals_count}\n"
-        f"📅 <b>Member Since:</b> {joined_date_str}\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👇 <i>Manage your funds, view previous keys, or invite friends below:</i>"
+        f"{ce(CustomEmojis.CARD, '💳')} <b>Total Spent:</b> {config.CURRENCY_SYMBOL}{user.total_spent:.2f}\n"
+        f"{ce(CustomEmojis.GIFT, '👥')} <b>Friends Invited:</b> {referrals_count}\n"
+        f"{ce(CustomEmojis.STAR, '📅')} <b>Member Since:</b> {joined_date_str}\n\n"
+        f"{UI.SECTION_BAR}\n"
+        f"<i>Manage your funds, view previous keys, or invite friends below:</i>"
     )
 
     await callback.message.edit_text(text, reply_markup=get_profile_keyboard())

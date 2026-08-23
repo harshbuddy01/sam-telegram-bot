@@ -73,7 +73,9 @@ from utils.emojis import (
     format_emoji,
     extract_clean_name_and_emoji,
     extract_emoji_and_custom_id,
-    get_message_html_text
+    get_message_html_text,
+    CustomEmojis,
+    ce
 )
 import config
 
@@ -92,9 +94,9 @@ async def cmd_admin(message: types.Message, state: FSMContext, session: AsyncSes
     pending_orders = len(await get_pending_manual_orders(session))
     
     text = (
-        f"⚡ <b>ADMINISTRATOR CONTROL PANEL</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"Select a management hub below to manage your store:"
+        f"{ce(CustomEmojis.CROWN, '👑')} <b>ADMINISTRATOR CONTROL PANEL</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"<i>Select a management hub below to manage your store:</i>"
     )
     await message.answer(text, reply_markup=get_admin_main_keyboard(pending_deps, pending_orders))
 
@@ -114,9 +116,9 @@ async def cmd_addstock(message: types.Message, state: FSMContext, session: Async
         stock_counts[var.id] = await get_available_stock_count(session, var.id)
 
     text = (
-        f"🔑 <b>SELECT PLAN TO ADD STOCK:</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"Click on any plan below to paste and upload accounts/keys:\n"
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>SELECT PLAN TO ADD STOCK</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"<i>Click on any plan below to paste and upload accounts/keys:</i>\n"
     )
     await message.answer(text, reply_markup=get_admin_stock_inventory_keyboard(variants, stock_counts))
 
@@ -132,10 +134,10 @@ async def cb_admin_home(callback: types.CallbackQuery, state: FSMContext, sessio
     pending_ords = len(await get_pending_manual_orders(session))
     
     text = (
-        f"⚙️ <b>ADMIN MANAGEMENT PANEL</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{ce(CustomEmojis.CROWN, '👑')} <b>ADMIN MANAGEMENT PANEL</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
         f"Welcome, Administrator <b>{callback.from_user.first_name}</b>.\n"
-        f"Select a management option below:"
+        f"<i>Select a management option below:</i>"
     )
     try:
         await callback.message.edit_text(text, reply_markup=get_admin_main_keyboard(pending_deps, pending_ords))
@@ -158,16 +160,18 @@ async def cb_admin_stats(callback: types.CallbackQuery, session: AsyncSession):
     pending_manual = len(await get_pending_manual_orders(session))
 
     text = (
-        f"📊 <b>LIVE STORE METRICS & ANALYTICS</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"👥 <b>Total Registered Customers:</b> {total_users}\n"
-        f"💰 <b>Gross Sales Revenue:</b> <b>{config.CURRENCY_SYMBOL}{total_sales:.2f}</b>\n"
-        f"🧾 <b>All-Time Orders Completed:</b> {total_orders}\n"
-        f"📅 <b>Orders Placed Today:</b> {orders_today}\n"
-        f"📊 <b>Active Unsold Credentials:</b> {total_stock} in stock\n"
-        f"⏳ <b>Pending Manual Orders:</b> {pending_manual}\n"
-        f"💳 <b>Pending Deposit Approvals:</b> {pending_deposits}\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        f"{ce(CustomEmojis.TROPHY, '📊')} <b>LIVE STORE METRICS & ANALYTICS</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"<blockquote>"
+        f"{ce(CustomEmojis.VERIFIED, '👥')} <b>Registered Customers:</b> {total_users}\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Gross Sales Revenue:</b> <b>{config.CURRENCY_SYMBOL}{total_sales:.2f}</b>\n"
+        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>All-Time Orders:</b> {total_orders}\n"
+        f"{ce(CustomEmojis.FIRE, '⚡')} <b>Orders Today:</b> {orders_today}\n"
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>Active Inventory:</b> {total_stock} in stock\n"
+        f"{ce(CustomEmojis.ORDERS, '⏳')} <b>Pending Manual Orders:</b> {pending_manual}\n"
+        f"{ce(CustomEmojis.WALLET, '💳')} <b>Pending Deposits:</b> {pending_deposits}"
+        f"</blockquote>\n\n"
+        f"{UI.SECTION_BAR}"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard("admin_home"))
 

@@ -92,10 +92,10 @@ async def cb_nav_shop(callback: types.CallbackQuery, session: AsyncSession):
     cat_lines = []
     for cat in categories:
         if "<tg-emoji" in cat.name:
-            cat_lines.append(f"• <b>{cat.name}</b>")
+            cat_lines.append(f"{ce(CustomEmojis.SPARKLE, '✨')} <b>{cat.name}</b>")
         else:
             icon = format_emoji(cat.emoji or "📁", cat.custom_emoji_id)
-            cat_lines.append(f"• {icon} <b>{cat.name}</b>")
+            cat_lines.append(f"{ce(CustomEmojis.SPARKLE, '✨')} {icon} <b>{cat.name}</b>")
     cat_block = "\n".join(cat_lines) if cat_lines else "<i>No categories active yet.</i>"
 
     text = (
@@ -104,11 +104,11 @@ async def cb_nav_shop(callback: types.CallbackQuery, session: AsyncSession):
         f"<b>Available Categories:</b>\n"
         f"{cat_block}\n\n"
         f"<blockquote>"
-        f"✦ <b>Instant Delivery:</b> Credentials sent in seconds\n"
-        f"✦ <b>Verified Accounts:</b> 100% Genuine & safe\n"
-        f"✦ <b>Full Warranty:</b> Covered throughout validity"
+        f"{ce(CustomEmojis.FIRE, '⚡')} <b>Instant Delivery:</b> Credentials sent in seconds\n"
+        f"{ce(CustomEmojis.VERIFIED, '🛡️')} <b>Verified Accounts:</b> 100% Genuine & safe\n"
+        f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Full Warranty:</b> Covered throughout validity"
         f"</blockquote>\n\n"
-        f"👇 <i>Choose a category below to explore:</i>"
+        f"<i>Choose a category below to explore:</i>"
     )
     await callback.message.edit_text(text, reply_markup=get_categories_keyboard(categories))
 
@@ -133,24 +133,24 @@ async def cb_category_products(callback: types.CallbackQuery, session: AsyncSess
         stock = stock_counts.get(prod.id, 0)
         stock_str = f"🟢 {stock} In Stock" if stock > 0 else "🔴 Out of Stock"
         if "<tg-emoji" in prod.title:
-            prod_lines.append(f"• <b>{prod.title}</b> — <i>{stock_str}</i>")
+            prod_lines.append(f"{ce(CustomEmojis.FIRE, '🔥')} <b>{prod.title}</b> — <i>{stock_str}</i>")
         else:
             p_icon = format_emoji(prod.emoji or "📦", prod.custom_emoji_id)
-            prod_lines.append(f"• {p_icon} <b>{prod.title}</b> — <i>{stock_str}</i>")
+            prod_lines.append(f"{ce(CustomEmojis.FIRE, '🔥')} {p_icon} <b>{prod.title}</b> — <i>{stock_str}</i>")
     prod_block = "\n".join(prod_lines) if prod_lines else "<i>No products available yet.</i>"
 
     if "<tg-emoji" in category.name:
-        cat_header = f"<b>CATEGORY ➜ {category.name}</b>"
+        cat_header = f"{ce(CustomEmojis.SHOP, '📁')} <b>CATEGORY ➜ {category.name}</b>"
     else:
         cat_emoji = format_emoji(category.emoji, category.custom_emoji_id)
-        cat_header = f"{cat_emoji} <b>CATEGORY ➜ {category.name.upper()}</b>"
+        cat_header = f"{cat_emoji} <b>CATEGORY ➜ {category.name}</b>"
 
     text = (
         f"{cat_header}\n"
         f"{UI.SECTION_BAR}\n\n"
         f"<b>Available Products:</b>\n"
         f"{prod_block}\n\n"
-        f"👇 <i>Select an item below to view plans and pricing:</i>"
+        f"<i>Select an item below to view plans and pricing:</i>"
     )
 
     await callback.message.edit_text(
@@ -174,9 +174,9 @@ async def cb_products_page(callback: types.CallbackQuery, session: AsyncSession)
 
     cat_emoji = format_emoji(category.emoji, category.custom_emoji_id) if category else "📁"
     text = (
-        f"{cat_emoji} <b>CATEGORY ➜ {category.name.upper() if category else 'PRODUCTS'}</b>\n"
+        f"{cat_emoji} <b>CATEGORY ➜ {category.name if category else 'PRODUCTS'}</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"Select an item to view plans, pricing, and live inventory:\n"
+        f"<i>Select an item to view plans, pricing, and live inventory:</i>\n"
     )
 
     await callback.message.edit_text(
@@ -210,7 +210,7 @@ async def cb_product_variants(callback: types.CallbackQuery, session: AsyncSessi
         text += f"<blockquote>{product.description}</blockquote>\n\n"
 
     text += (
-        f"⚡ <b>Select your plan / duration below:</b>\n"
+        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Select your plan / duration below:</b>\n"
         f"<i>(Click on any plan to inspect the detailed specs, warranty & delivery info)</i>"
     )
 
@@ -251,21 +251,21 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
     if is_manual:
         stock_badge = "🟢 <b>Available for Activation</b>"
         fulfillment_badge = f"⏱️ <b>Manual Activation (Dispatched within {dispatch_time})</b>"
-        action_note = "🛡️ <i>Click <b>'ORDER ACTIVATION'</b> to submit your details & buy with wallet balance:</i>"
+        action_note = "🛡️ <i>Click <b>'ORDER ACTIVATION'</b> to submit your details & buy:</i>"
     else:
         stock_badge = f"🟢 <b>In Stock</b> ({stock_count} Available)" if has_stock else "🔴 <b>Out of Stock</b>"
         fulfillment_badge = "⚡ <b>100% Automated Instant Delivery</b>"
-        action_note = "🛡️ <i>Click <b>'PURCHASE NOW'</b> to buy instantly using your wallet balance:</i>"
+        action_note = "🛡️ <i>Click <b>'PURCHASE NOW'</b> to buy:</i>"
 
     text = (
-        f"💎 <b>PRODUCT SPECIFICATION & PRICING</b>\n"
+        f"{ce(CustomEmojis.DIAMOND, '💎')} <b>PRODUCT SPECIFICATION & PRICING</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"📦 <b>Product:</b> {prod_display}\n"
-        f"✨ <b>Plan:</b> <b>{variant.name}</b>\n"
-        f"🏷️ <b>Type:</b> {variant.variant_type}\n"
-        f"💰 <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
-        f"📊 <b>Status:</b> {stock_badge}\n"
-        f"🚀 <b>Fulfillment:</b> {fulfillment_badge}\n\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_display}\n"
+        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
+        f"{ce(CustomEmojis.VERIFIED, '🏷️')} <b>Type:</b> {variant.variant_type}\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
+        f"{ce(CustomEmojis.CHECK, '📊')} <b>Status:</b> {stock_badge}\n"
+        f"{ce(CustomEmojis.FIRE, '⚡')} <b>Fulfillment:</b> {fulfillment_badge}\n\n"
         f"<blockquote>"
     )
 

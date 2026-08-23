@@ -30,11 +30,11 @@ async def cb_deposit_menu(callback: types.CallbackQuery, state: FSMContext, sess
         f"{ce(CustomEmojis.WALLET, '💳')} <b>DEPOSIT / WALLET TOP-UP</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"<blockquote>"
-        f"💰 <b>Your Current Balance:</b> <b>{config.CURRENCY_SYMBOL}{current_balance:.2f}</b>\n"
-        f"⚡ <b>Payment Method:</b> Any UPI App (GPay / PhonePe / Paytm / CRED / BHIM)\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Your Current Balance:</b> <b>{config.CURRENCY_SYMBOL}{current_balance:.2f}</b>\n"
+        f"{ce(CustomEmojis.FIRE, '⚡')} <b>Payment Method:</b> Any UPI App (GPay / PhonePe / Paytm / CRED / BHIM)\n"
         f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Processing:</b> Instant verification & auto-credit"
         f"</blockquote>\n\n"
-        f"Select a quick top-up amount below or enter a custom amount:"
+        f"<i>Select a quick top-up amount below or enter a custom amount:</i>"
     )
     await callback.message.edit_text(text, reply_markup=get_deposit_preset_keyboard())
 
@@ -46,7 +46,7 @@ async def cb_deposit_amount_selected(callback: types.CallbackQuery, state: FSMCo
     if amt_str == "custom":
         await state.set_state(DepositStates.waiting_for_amount)
         await callback.message.edit_text(
-            f"✍️ <b>ENTER CUSTOM DEPOSIT AMOUNT</b>\n"
+            f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>ENTER CUSTOM DEPOSIT AMOUNT</b>\n"
             f"{UI.SECTION_BAR}\n\n"
             f"Please reply with the exact amount you wish to add in {config.CURRENCY_SYMBOL} (e.g. <code>150</code> or <code>750</code>):\n\n"
             f"<i>Minimum deposit amount is {config.CURRENCY_SYMBOL}10.</i>",
@@ -110,12 +110,12 @@ async def initiate_deposit_payment(
 
             text = (
                 f"{ce(CustomEmojis.WALLET, '💳')} <b>AUTOMATED INSTANT DEPOSIT #{deposit.id}</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"{ce(CustomEmojis.SPARKLE, '💰')} <b>Amount to Add:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
-                f"⚡ <b>Gateway:</b> {active_gateway} (Instant Auto-Credit)\n"
-                f"📱 <b>Supported:</b> Google Pay, PhonePe, Paytm, UPI, Cards, Netbanking\n\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"👇 <i>Click the button below to pay securely:</i>"
+                f"{UI.SECTION_BAR}\n\n"
+                f"{ce(CustomEmojis.DIAMOND, '💰')} <b>Amount to Add:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
+                f"{ce(CustomEmojis.FIRE, '⚡')} <b>Gateway:</b> {active_gateway} (Instant Auto-Credit)\n"
+                f"{ce(CustomEmojis.CHECK, '📱')} <b>Supported:</b> Google Pay, PhonePe, Paytm, UPI, Cards, Netbanking\n\n"
+                f"{UI.SECTION_BAR}\n"
+                f"<i>Click the button below to pay securely:</i>"
             )
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=f"PAY {config.CURRENCY_SYMBOL}{amount:.0f} VIA UPI / GPAY / PHONEPE", url=res["payment_url"], icon_custom_emoji_id=CustomEmojis.FIRE)],
@@ -131,18 +131,18 @@ async def initiate_deposit_payment(
     input_file = BufferedInputFile(qr_buffer.read(), filename=f"upi_qr_{deposit.id}.png")
 
     caption = (
-        f"💳 <b>UPI PAYMENT INVOICE #{deposit.id}</b>\n"
+        f"{ce(CustomEmojis.WALLET, '💳')} <b>UPI PAYMENT INVOICE #{deposit.id}</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"<blockquote>"
-        f"💰 <b>Amount to Pay:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
-        f"📱 <b>UPI ID:</b> <code>{config.UPI_ID}</code>\n"
-        f"👤 <b>Payee Name:</b> <code>{config.UPI_NAME}</code>"
+        f"{ce(CustomEmojis.DIAMOND, '💰')} <b>Amount to Pay:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
+        f"{ce(CustomEmojis.CARD, '📱')} <b>UPI ID:</b> <code>{config.UPI_ID}</code>\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Payee Name:</b> <code>{config.UPI_NAME}</code>"
         f"</blockquote>\n\n"
         f"<b>Payment Steps:</b>\n"
         f"1. Scan the QR code above on any UPI app (GPay/PhonePe/Paytm).\n"
         f"2. Pay exactly <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>.\n"
         f"3. Click <b>'Submit UTR / Screenshot'</b> below and upload your proof.\n\n"
-        f"⚡ <i>Your wallet balance will be credited instantly once confirmed!</i>"
+        f"{ce(CustomEmojis.SPARKLE, '⚡')} <i>Your wallet balance will be credited instantly once confirmed!</i>"
     )
 
     await message.answer_photo(
