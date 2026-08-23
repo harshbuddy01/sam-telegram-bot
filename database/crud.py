@@ -480,8 +480,7 @@ async def seed_initial_data(session: AsyncSession):
             await session.flush()
         cats_dict[name] = cat
 
-    # Helper to create product & plans
-    async def ensure_prod(cat_name, title, emoji, desc, variants_list):
+    async def ensure_prod(cat_name, title, emoji, desc, variants_list, custom_emoji_id=None):
         cat = cats_dict.get(cat_name)
         if not cat:
             return
@@ -489,8 +488,11 @@ async def seed_initial_data(session: AsyncSession):
         res = await session.execute(stmt)
         prod = res.scalars().first()
         if not prod:
-            prod = Product(category_id=cat.id, title=title, emoji=emoji, description=desc)
+            prod = Product(category_id=cat.id, title=title, emoji=emoji, description=desc, custom_emoji_id=custom_emoji_id)
             session.add(prod)
+            await session.flush()
+        elif custom_emoji_id:
+            prod.custom_emoji_id = custom_emoji_id
             await session.flush()
         
         for v_name, v_price, v_type, v_spec in variants_list:
@@ -602,7 +604,8 @@ async def seed_initial_data(session: AsyncSession):
              "✦ <b>Features:</b> 1 Year Ad-Free Music\n"
              "✦ <b>Warranty:</b> 1 Year Warranty\n"
              "✦ <b>Delivery:</b> Instant Activation"),
-        ]
+        ],
+        custom_emoji_id="5868508172108435919"
     )
 
     await ensure_prod(

@@ -21,7 +21,7 @@ from keyboards.user_keyboards import (
     get_search_results_keyboard,
     get_back_button
 )
-from utils.emojis import Emojis, UI
+from utils.emojis import Emojis, UI, format_emoji
 import config
 
 router = Router()
@@ -164,9 +164,10 @@ async def cb_product_variants(callback: types.CallbackQuery, session: AsyncSessi
         return
 
     variants = await get_variants_by_product(session, product_id)
+    icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id)
 
     text = (
-        f"📦 <b>{product.title.upper()}</b>\n"
+        f"{icon} <b>{product.title.upper()}</b>\n"
         f"{UI.SECTION_BAR}\n\n"
     )
     if product.description:
@@ -201,11 +202,13 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
     has_stock = stock_count > 0
 
     stock_badge = f"🟢 <b>In Stock</b> ({stock_count} Available)" if has_stock else "🔴 <b>Out of Stock</b>"
+    prod_icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if product else "📦"
+    prod_title = product.title if product else "Product"
 
     text = (
         f"💎 <b>PRODUCT SPECIFICATION & PRICING</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"📦 <b>Product:</b> {product.title if product else 'Product'}\n"
+        f"📦 <b>Product:</b> {prod_icon} {prod_title}\n"
         f"✨ <b>Plan:</b> <code>{variant.name}</code>\n"
         f"🏷️ <b>Type:</b> {variant.variant_type}\n"
         f"💰 <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
