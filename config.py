@@ -24,8 +24,8 @@ GROUP_LINK = os.getenv("GROUP_LINK", "https://t.me/SamStoreServices")
 REFERRAL_BONUS_PERCENT = float(os.getenv("REFERRAL_BONUS_PERCENT", "5.0"))
 
 # Automated Payment Gateways (Razorpay & Cashfree)
-RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "")
-RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "rzp_live_StwhW793CLG6YE")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "8V1TMjVeqK6Y1ngRNu9Bi0Kj")
 RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "")
 
 CASHFREE_APP_ID = os.getenv("CASHFREE_APP_ID", "")
