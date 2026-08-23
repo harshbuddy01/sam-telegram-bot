@@ -58,7 +58,8 @@ class Variant(Base):
     variant_type = Column(String, default="Private Profile") # "Private Profile", "Shared Profile", "Invite Link", "License Key"
     fulfillment_type = Column(String(20), default="AUTOMATIC") # "AUTOMATIC" (stock draw) or "MANUAL" (dispatch within 1-2h)
     manual_dispatch_time = Column(String(50), default="1–2 Hours") # Expected dispatch time for manual orders
-    input_prompt = Column(Text, nullable=True) # Custom prompt e.g. "Please send your Gmail address:"
+    input_type = Column(String(50), default="ANY") # "PHONE_NUMBER", "EMAIL", "EMAIL_OR_PHONE", "USERNAME", "ANY"
+    input_prompt = Column(Text, nullable=True) # Custom prompt e.g. "Please send your mobile number or email:"
     detailed_description = Column(Text, nullable=True) # Full description displayed before payment
     is_active = Column(Boolean, default=True)
 
@@ -87,7 +88,7 @@ class Order(Base):
     variant_id = Column(Integer, ForeignKey("variants.id"), nullable=False)
     amount = Column(Float, nullable=False)
     status = Column(String(30), default="COMPLETED") # "COMPLETED", "PENDING_DISPATCH", "CANCELLED"
-    customer_input = Column(Text, nullable=True) # Target email/details provided by customer
+    customer_input = Column(Text, nullable=True) # Target email/phone/username provided by customer
     delivered_content = Column(Text, nullable=True, default="") # Delivered accounts, PINs, or activation links
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     fulfilled_at = Column(DateTime, nullable=True)
@@ -103,7 +104,10 @@ class Deposit(Base):
     amount = Column(Float, nullable=False)
     utr_number = Column(String, nullable=True)
     proof_file_id = Column(String, nullable=True)
-    status = Column(String, default="PENDING") # "PENDING", "APPROVED", "REJECTED"
+    gateway = Column(String(50), default="MANUAL_UPI") # "MANUAL_UPI", "CASHFREE", "RAZORPAY", "CRYPTO"
+    gateway_order_id = Column(String(100), nullable=True)
+    gateway_payment_id = Column(String(100), nullable=True)
+    status = Column(String(30), default="PENDING") # "PENDING", "APPROVED", "REJECTED", "SUCCESS"
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     approved_at = Column(DateTime, nullable=True)
 

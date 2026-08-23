@@ -14,7 +14,11 @@ def get_admin_main_keyboard(pending_deposits: int = 0, pending_orders: int = 0) 
         ],
         [
             InlineKeyboardButton(text="🔑 Inventory & Stock Hub", callback_data="adm_stock"),
-            InlineKeyboardButton(text="📊 Store Statistics", callback_data="adm_stats")
+            InlineKeyboardButton(text="🧾 Orders & Sales Logs", callback_data="adm_orders_log")
+        ],
+        [
+            InlineKeyboardButton(text="📊 Store Statistics", callback_data="adm_stats"),
+            InlineKeyboardButton(text="👤 User Balance Adjust", callback_data="adm_users")
         ],
         [
             InlineKeyboardButton(text="📁 Manage Categories", callback_data="adm_cats"),
@@ -22,17 +26,37 @@ def get_admin_main_keyboard(pending_deposits: int = 0, pending_orders: int = 0) 
         ],
         [
             InlineKeyboardButton(text="🏷️ Manage Plans & Pricing", callback_data="adm_variants"),
-            InlineKeyboardButton(text="👤 User Balance Adjust", callback_data="adm_users")
+            InlineKeyboardButton(text="📢 Broadcast Announcement", callback_data="adm_broadcast")
         ],
         [
-            InlineKeyboardButton(text="📢 Broadcast Announcement", callback_data="adm_broadcast"),
-            InlineKeyboardButton(text="🧹 Wipe/Reset Demo Data", callback_data="adm_reset_confirm")
-        ],
-        [
+            InlineKeyboardButton(text="🧹 Wipe/Reset Demo Data", callback_data="adm_reset_confirm"),
             InlineKeyboardButton(text="🏠 Exit to Store", callback_data="nav_home")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_admin_recent_orders_keyboard(orders: list[Order]) -> InlineKeyboardMarkup:
+    buttons = []
+    for o in orders:
+        status_icon = "🟢" if o.status == "COMPLETED" else ("⏳" if o.status == "PENDING_DISPATCH" else "❌")
+        var_name = o.variant.name if o.variant else "Plan"
+        user_name = o.user.full_name if o.user else f"User {o.user_id}"
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{status_icon} #{o.id} • {config.CURRENCY_SYMBOL}{o.amount:.0f} • {user_name[:12]}",
+                callback_data=f"adm_audit_{o.id}"
+            )
+        ])
+    buttons.append([
+        InlineKeyboardButton(text=f"{Emojis.BACK} Back to Admin Panel", callback_data="admin_home")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_admin_order_audit_keyboard(order_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Back to Orders Log", callback_data="adm_orders_log")],
+        [InlineKeyboardButton(text="🏠 Admin Home", callback_data="admin_home")]
+    ])
 
 def get_admin_stock_inventory_keyboard(variants: list[Variant], stock_counts: dict[int, int]) -> InlineKeyboardMarkup:
     buttons = []

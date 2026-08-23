@@ -32,6 +32,7 @@ from database.crud import (
     delete_unsold_stock_by_variant,
     get_pending_manual_orders,
     get_order_by_id,
+    get_recent_orders,
     fulfill_manual_order,
     cancel_and_refund_order,
     get_user,
@@ -39,6 +40,8 @@ from database.crud import (
 )
 from keyboards.admin_keyboards import (
     get_admin_main_keyboard,
+    get_admin_recent_orders_keyboard,
+    get_admin_order_audit_keyboard,
     get_admin_categories_keyboard,
     get_admin_category_select_keyboard,
     get_admin_products_keyboard,
@@ -136,7 +139,74 @@ async def cb_admin_stats(callback: types.CallbackQuery, session: AsyncSession):
     )
     await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard("admin_home"))
 
-# ================= 2. PENDING MANUAL ORDERS HUB =================
+# ================= 2. ALL ORDERS & SALES AUDIT LOGS =================
+
+@router.callback_query(F.data == "adm_orders_log")
+async def cb_admin_orders_log(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+
+    orders = await get_recent_orders(session, limit=25)
+    if not orders:
+        text = (
+            f"🧾 <b>ALL ORDERS & SALES AUDIT LOG</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"ℹ️ <i>No customer orders placed yet in the database.</i>"
+        )
+        await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard("admin_home"))
+        return
+
+    text = (
+        f"🧾 <b>RECENT ORDERS & SALES AUDIT LOG ({len(orders)})</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Click any order below to inspect full database proof, customer details & delivered keys:\n"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_recent_orders_keyboard(orders))
+
+@router.callback_query(F.data.startswith("adm_audit_"))
+async def cb_admin_order_audit(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+
+    order_id = int(callback.data.split("_")[2])
+    order = await get_order_by_id(session, order_id)
+    if not order:
+        await callback.message.answer("Order record not found in database.")
+        return
+
+    user = order.user
+    variant = order.variant
+    product = await get_product(session, variant.product_id) if variant else None
+    prod_title = product.title if product else "Digital Item"
+    var_name = variant.name if variant else "Plan"
+    date_str = order.created_at.strftime("%d %b %Y, %H:%M:%S UTC")
+
+    status_badge = "🟢 COMPLETED (DELIVERED)" if order.status == "COMPLETED" else ("⏳ PENDING DISPATCH" if order.status == "PENDING_DISPATCH" else "❌ CANCELLED / REFUNDED")
+
+    text = (
+        f"🔍 <b>DATABASE ORDER AUDIT PROOF #{order.id}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"👤 <b>Customer Name:</b> {user.full_name if user else 'Unknown'}\n"
+        f"🆔 <b>Telegram ID:</b> <code>{order.user_id}</code>\n"
+        f"💬 <b>Username:</b> @{user.username or 'NoUsername' if user else 'None'}\n"
+        f"💰 <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
+        f"📊 <b>Order Status:</b> {status_badge}\n"
+        f"📅 <b>Timestamp:</b> {date_str}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📦 <b>Product:</b> {prod_title}\n"
+        f"✨ <b>Plan:</b> <code>{var_name}</code>\n"
+        f"📱/📧 <b>Customer Input (Phone/Email):</b>\n"
+        f"<code>{order.customer_input or 'None (Auto Stock Plan)'}</code>\n\n"
+        f"🔑 <b>DELIVERED CREDENTIALS / CODE:</b>\n"
+        f"<pre><code>{order.delivered_content or 'Pending dispatch'}</code></pre>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"✅ <i>Verified Authentic Database Record</i>"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_order_audit_keyboard(order.id))
+
+# ================= 3. PENDING MANUAL ORDERS HUB =================
 
 @router.callback_query(F.data == "adm_pending_orders")
 async def cb_admin_pending_orders(callback: types.CallbackQuery, session: AsyncSession):

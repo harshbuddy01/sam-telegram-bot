@@ -32,10 +32,14 @@ async def init_db():
         migrations = [
             "ALTER TABLE variants ADD COLUMN fulfillment_type VARCHAR(20) DEFAULT 'AUTOMATIC'",
             "ALTER TABLE variants ADD COLUMN manual_dispatch_time VARCHAR(50) DEFAULT '1–2 Hours'",
+            "ALTER TABLE variants ADD COLUMN input_type VARCHAR(50) DEFAULT 'ANY'",
             "ALTER TABLE variants ADD COLUMN input_prompt TEXT",
             "ALTER TABLE orders ADD COLUMN status VARCHAR(30) DEFAULT 'COMPLETED'",
             "ALTER TABLE orders ADD COLUMN customer_input TEXT",
             "ALTER TABLE orders ADD COLUMN fulfilled_at DATETIME",
+            "ALTER TABLE deposits ADD COLUMN gateway VARCHAR(50) DEFAULT 'MANUAL_UPI'",
+            "ALTER TABLE deposits ADD COLUMN gateway_order_id VARCHAR(100)",
+            "ALTER TABLE deposits ADD COLUMN gateway_payment_id VARCHAR(100)",
         ]
         for query in migrations:
             try:

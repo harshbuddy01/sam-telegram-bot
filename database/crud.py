@@ -456,9 +456,60 @@ async def get_pending_manual_orders(session: AsyncSession) -> List[Order]:
     return list(result.scalars().all())
 
 async def get_order_by_id(session: AsyncSession, order_id: int) -> Optional[Order]:
-    stmt = select(Order).options(selectinload(Order.variant)).where(Order.id == order_id)
+    stmt = select(Order).options(selectinload(Order.variant), selectinload(Order.user)).where(Order.id == order_id)
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
+
+async def get_recent_orders(session: AsyncSession, limit: int = 30) -> List[Order]:
+    """
+    Admin Audit Log: returns all recent orders (automatic and manual) across the entire store.
+    """
+    stmt = select(Order).options(selectinload(Order.variant), selectinload(Order.user)).order_by(Order.created_at.desc()).limit(limit)
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+async def create_deposit_gateway(
+    session: AsyncSession,
+    user_id: int,
+    amount: float,
+    gateway: str = "MANUAL_UPI",
+    gateway_order_id: Optional[str] = None
+) -> Deposit:
+    deposit = Deposit(
+        user_id=user_id,
+        amount=amount,
+        gateway=gateway,
+        gateway_order_id=gateway_order_id,
+        status="PENDING"
+    )
+    session.add(deposit)
+    await session.commit()
+    await session.refresh(deposit)
+    return deposit
+
+async def credit_user_deposit_automated(
+    session: AsyncSession,
+    gateway_order_id: str,
+    gateway_payment_id: Optional[str] = None
+) -> Tuple[Optional[Deposit], Optional[User]]:
+    stmt = select(Deposit).where(Deposit.gateway_order_id == gateway_order_id)
+    res = await session.execute(stmt)
+    deposit = res.scalar_one_or_none()
+
+    if not deposit or deposit.status in ("APPROVED", "SUCCESS"):
+        return None, None
+
+    deposit.status = "SUCCESS"
+    deposit.gateway_payment_id = gateway_payment_id
+    deposit.approved_at = datetime.datetime.utcnow()
+
+    user = await get_user(session, deposit.user_id)
+    if user:
+        user.balance = round(user.balance + deposit.amount, 2)
+
+    await session.commit()
+    await session.refresh(deposit)
+    return deposit, user
 
 async def get_user_orders(session: AsyncSession, user_id: int, limit: int = 10) -> List[Order]:
     stmt = (
