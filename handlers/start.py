@@ -50,6 +50,12 @@ async def cmd_start(message: types.Message, bot: Bot, session: AsyncSession, com
     is_user_admin = config.is_admin(message.from_user.id)
     text = get_welcome_text(message.from_user.first_name)
 
+    # Attach persistent bottom reply keyboard
+    await message.answer(
+        f"👋 <i>Welcome to {config.STORE_NAME}! Use the quick menu below or tap buttons to explore:</i>",
+        reply_markup=get_persistent_menu_keyboard(is_admin=is_user_admin)
+    )
+
     if config.BANNER_IMAGE_URL and config.BANNER_IMAGE_URL.startswith("http"):
         try:
             await message.answer_photo(
@@ -150,7 +156,7 @@ async def msg_btn_deposit(message: types.Message, state: FSMContext, session: As
     await state.clear()
     from keyboards.user_keyboards import get_deposit_preset_keyboard
     user = await get_user(session, message.from_user.id)
-    balance = user.wallet_balance if user else 0.0
+    balance = user.balance if user else 0.0
     text = (
         f"{ce(CustomEmojis.WALLET, '💳')} <b>WALLET TOP-UP & INSTANT DEPOSIT</b>\n"
         f"{UI.SECTION_BAR}\n\n"
@@ -174,7 +180,7 @@ async def msg_btn_profile(message: types.Message, session: AsyncSession):
         f"{UI.SECTION_BAR}\n\n"
         f"👤 <b>Customer:</b> <b>{message.from_user.full_name}</b>\n"
         f"🆔 <b>Telegram ID:</b> <code>{message.from_user.id}</code>\n"
-        f"{ce(CustomEmojis.WALLET, '💳')} <b>Wallet Balance:</b> <code>{config.CURRENCY_SYMBOL}{user.wallet_balance:.2f}</code>\n"
+        f"{ce(CustomEmojis.WALLET, '💳')} <b>Wallet Balance:</b> <code>{config.CURRENCY_SYMBOL}{user.balance:.2f}</code>\n"
         f"{ce(CustomEmojis.ORDERS, '📦')} <b>Completed Orders:</b> <code>{len(orders)}</code>\n"
         f"{ce(CustomEmojis.REFER, '🎁')} <b>Invited Referrals:</b> <code>{referrals_count}</code>\n"
         f"{ce(CustomEmojis.VERIFIED, '✨')} <b>Account Status:</b> <code>Verified VIP Customer</code>\n\n"
