@@ -6,6 +6,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.exceptions import TelegramServerError, TelegramNetworkError, TelegramRetryAfter
 
 import config
 from database.database import init_db, AsyncSessionLocal
@@ -66,18 +67,32 @@ async def main():
     await on_startup()
 
     logger.info(f"Bot connected as Admin IDs: {config.ADMIN_IDS}")
-    logger.info("Polling for updates...")
 
-    try:
-        # Drop pending updates to avoid processing backlog
+    # Polling loop with automatic reconnection
+    while True:
         try:
-            await bot.delete_webhook(drop_pending_updates=True)
+            try:
+                await bot.delete_webhook(drop_pending_updates=True)
+            except Exception as e:
+                logger.warning(f"Could not delete webhook: {e}")
+
+            logger.info("Polling for updates...")
+            await dp.start_polling(bot, handle_signals=False)
+            break
+        except (TelegramServerError, TelegramNetworkError) as e:
+            logger.warning(f"Telegram server glitch ({e}). Auto-reconnecting in 3 seconds...")
+            await asyncio.sleep(3)
+        except TelegramRetryAfter as e:
+            logger.warning(f"Telegram rate limit: sleeping for {e.retry_after} seconds...")
+            await asyncio.sleep(e.retry_after)
+        except (KeyboardInterrupt, SystemExit):
+            logger.info("Bot shutdown requested.")
+            break
         except Exception as e:
-            logger.warning(f"Could not delete webhook (transient Telegram API glitch): {e}")
-            
-        await dp.start_polling(bot)
-    finally:
-        await bot.session.close()
+            logger.error(f"Polling loop exception: {e}. Reconnecting in 5 seconds...")
+            await asyncio.sleep(5)
+    
+    await bot.session.close()
 
 if __name__ == "__main__":
     try:
