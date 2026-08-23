@@ -279,7 +279,18 @@ async def get_total_active_stock(session: AsyncSession) -> int:
     result = await session.execute(stmt)
     return result.scalar() or 0
 
-# ================= ORDER CRUD =================
+async def get_unsold_stock_by_variant(session: AsyncSession, variant_id: int) -> List[Stock]:
+    stmt = select(Stock).where(Stock.variant_id == variant_id, Stock.is_used == False).order_by(Stock.id.asc())
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+async def delete_unsold_stock_by_variant(session: AsyncSession, variant_id: int) -> int:
+    stmt = delete(Stock).where(Stock.variant_id == variant_id, Stock.is_used == False)
+    result = await session.execute(stmt)
+    await session.commit()
+    return result.rowcount or 0
+
+# ================= ORDER CRUD (AUTOMATIC & MANUAL) =================
 
 async def fulfill_order(
     session: AsyncSession,
@@ -288,7 +299,8 @@ async def fulfill_order(
     amount: float
 ) -> Tuple[Optional[Order], Optional[str]]:
     """
-    Deducts balance, consumes 1 stock item, creates Order, credits referral commission if applicable.
+    Automatic Fulfillment: Deducts balance, consumes 1 pre-loaded stock item, creates Order,
+    credits referral commission if applicable.
     Returns (Order, error_message).
     """
     user = await get_user(session, user_id)
@@ -312,12 +324,16 @@ async def fulfill_order(
     user.total_spent = round(user.total_spent + amount, 2)
 
     # Create order
+    now = datetime.datetime.utcnow()
     order = Order(
         user_id=user_id,
         variant_id=variant_id,
         amount=amount,
+        status="COMPLETED",
+        customer_input=None,
         delivered_content=stock.content,
-        created_at=datetime.datetime.utcnow()
+        created_at=now,
+        fulfilled_at=now
     )
     session.add(order)
     await session.flush() # Flush to populate order.id
@@ -336,9 +352,118 @@ async def fulfill_order(
     await session.refresh(order)
     return order, None
 
+async def create_manual_order(
+    session: AsyncSession,
+    user_id: int,
+    variant_id: int,
+    amount: float,
+    customer_input: str
+) -> Tuple[Optional[Order], Optional[str]]:
+    """
+    Manual Fulfillment: Deducts wallet balance, records user's input/email,
+    and sets status to PENDING_DISPATCH (dispatch within 1-2 hours).
+    """
+    user = await get_user(session, user_id)
+    if not user or user.balance < amount:
+        return None, "Insufficient balance in your wallet."
+
+    variant = await get_variant(session, variant_id)
+    if not variant:
+        return None, "Product variant not found."
+
+    # Deduct balance
+    user.balance = round(user.balance - amount, 2)
+    user.total_spent = round(user.total_spent + amount, 2)
+
+    # Create manual order
+    order = Order(
+        user_id=user_id,
+        variant_id=variant_id,
+        amount=amount,
+        status="PENDING_DISPATCH",
+        customer_input=customer_input.strip(),
+        delivered_content="",
+        created_at=datetime.datetime.utcnow(),
+        fulfilled_at=None
+    )
+    session.add(order)
+    await session.flush()
+
+    # Handle referral commission
+    if user.referrer_id and config.REFERRAL_BONUS_PERCENT > 0:
+        commission = round((amount * config.REFERRAL_BONUS_PERCENT) / 100, 2)
+        if commission > 0:
+            referrer = await get_user(session, user.referrer_id)
+            if referrer:
+                referrer.balance = round(referrer.balance + commission, 2)
+
+    await session.commit()
+    await session.refresh(order)
+    return order, None
+
+async def fulfill_manual_order(
+    session: AsyncSession,
+    order_id: int,
+    delivered_content: str
+) -> Tuple[Optional[Order], Optional[User]]:
+    """
+    Admin fulfills a manual order: sets delivered content, marks COMPLETED,
+    and returns (order, user) for instant dispatch notification.
+    """
+    stmt = select(Order).options(selectinload(Order.variant)).where(Order.id == order_id)
+    res = await session.execute(stmt)
+    order = res.scalar_one_or_none()
+
+    if not order or order.status != "PENDING_DISPATCH":
+        return None, None
+
+    order.delivered_content = delivered_content.strip()
+    order.status = "COMPLETED"
+    order.fulfilled_at = datetime.datetime.utcnow()
+
+    user = await get_user(session, order.user_id)
+    await session.commit()
+    await session.refresh(order)
+    return order, user
+
+async def cancel_and_refund_order(
+    session: AsyncSession,
+    order_id: int
+) -> Tuple[Optional[Order], Optional[User]]:
+    """
+    Cancels a pending manual order and automatically refunds the user's wallet.
+    """
+    stmt = select(Order).where(Order.id == order_id)
+    res = await session.execute(stmt)
+    order = res.scalar_one_or_none()
+
+    if not order or order.status != "PENDING_DISPATCH":
+        return None, None
+
+    order.status = "CANCELLED"
+    user = await get_user(session, order.user_id)
+    if user:
+        user.balance = round(user.balance + order.amount, 2)
+        user.total_spent = max(0.0, round(user.total_spent - order.amount, 2))
+
+    await session.commit()
+    await session.refresh(order)
+    return order, user
+
+async def get_pending_manual_orders(session: AsyncSession) -> List[Order]:
+    stmt = select(Order).options(selectinload(Order.variant)).where(Order.status == "PENDING_DISPATCH").order_by(Order.created_at.asc())
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+async def get_order_by_id(session: AsyncSession, order_id: int) -> Optional[Order]:
+    stmt = select(Order).options(selectinload(Order.variant)).where(Order.id == order_id)
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
 async def get_user_orders(session: AsyncSession, user_id: int, limit: int = 10) -> List[Order]:
     stmt = (
         select(Order)
+        .options(selectinload(Order.variant))
         .where(Order.user_id == user_id)
         .order_by(Order.created_at.desc())
         .limit(limit)
@@ -495,17 +620,33 @@ async def seed_initial_data(session: AsyncSession):
             prod.custom_emoji_id = custom_emoji_id
             await session.flush()
         
-        for v_name, v_price, v_type, v_spec in variants_list:
+        for var_tuple in variants_list:
+            v_name = var_tuple[0]
+            v_price = var_tuple[1]
+            v_type = var_tuple[2]
+            v_spec = var_tuple[3]
+            v_fulf = var_tuple[4] if len(var_tuple) > 4 else "AUTOMATIC"
+            v_time = var_tuple[5] if len(var_tuple) > 5 else "1–2 Hours"
+            v_prompt = var_tuple[6] if len(var_tuple) > 6 else None
+            
             v_stmt = select(Variant).where(Variant.product_id == prod.id, Variant.name == v_name)
             v_res = await session.execute(v_stmt)
-            if not v_res.scalars().first():
+            existing_v = v_res.scalars().first()
+            if not existing_v:
                 session.add(Variant(
                     product_id=prod.id,
                     name=v_name,
                     price=v_price,
                     variant_type=v_type,
-                    detailed_description=v_spec
+                    detailed_description=v_spec,
+                    fulfillment_type=v_fulf,
+                    manual_dispatch_time=v_time,
+                    input_prompt=v_prompt
                 ))
+            else:
+                existing_v.fulfillment_type = v_fulf
+                existing_v.manual_dispatch_time = v_time
+                existing_v.input_prompt = v_prompt
 
     # --- 1. OTT & Streaming ---
     await ensure_prod(
@@ -580,13 +721,17 @@ async def seed_initial_data(session: AsyncSession):
             ("1 Month Family Invite", 49.0, "Invite Link",
              "✨ <b>YouTube Premium - 1 Month Plan</b>\n\n"
              "✦ <b>Features:</b> Ad-Free YouTube + YouTube Music\n"
-             "✦ <b>Playback:</b> Background play & offline downloads\n"
-             "✦ <b>Delivery:</b> Instant activation invite link"),
+             "✦ <b>Activation:</b> Added to your personal Gmail\n"
+             "✦ <b>Warranty:</b> 30 Days Replacement Guarantee\n"
+             "✦ <b>Delivery:</b> Manual Activation within 1–2 Hours",
+             "MANUAL", "1–2 Hours", "📧 Please send your Gmail address for YouTube Family invite activation:"),
             ("12 Months Family Invite", 299.0, "Invite Link",
              "✨ <b>YouTube Premium - 1 Year Plan</b>\n\n"
              "✦ <b>Features:</b> 12 Months Ad-Free YouTube\n"
+             "✦ <b>Activation:</b> Added to your personal Gmail\n"
              "✦ <b>Warranty:</b> 1 Year Full Warranty\n"
-             "✦ <b>Delivery:</b> Instant activation"),
+             "✦ <b>Delivery:</b> Manual Activation within 1–2 Hours",
+             "MANUAL", "1–2 Hours", "📧 Please send your Gmail address for 1 Year YouTube invite activation:"),
         ]
     )
 
@@ -661,12 +806,14 @@ async def seed_initial_data(session: AsyncSession):
              "✦ <b>Features:</b> All Pro Templates, Background Remover, Magic AI\n"
              "✦ <b>Activation:</b> Added to your own existing Canva email\n"
              "✦ <b>Warranty:</b> 1 Year Full Warranty\n"
-             "✦ <b>Delivery:</b> Instant Invitation Link"),
+             "✦ <b>Delivery:</b> Manual Activation within 1–2 Hours",
+             "MANUAL", "1–2 Hours", "📧 Please send your Canva registered email address:"),
             ("Lifetime Pro Access", 199.0, "Invite Link",
              "✨ <b>Canva Pro - Lifetime Access</b>\n\n"
              "✦ <b>Features:</b> Unlimited Pro Tools & AI Suite\n"
              "✦ <b>Warranty:</b> Lifetime Guarantee\n"
-             "✦ <b>Delivery:</b> Instant Activation"),
+             "✦ <b>Delivery:</b> Manual Activation within 1–2 Hours",
+             "MANUAL", "1–2 Hours", "📧 Please send your Canva registered email address:"),
         ]
     )
 
@@ -710,11 +857,13 @@ async def seed_initial_data(session: AsyncSession):
             ("3 Months Gift Code", 499.0, "Gift Link",
              "✨ <b>Telegram Premium - 3 Months</b>\n\n"
              "✦ <b>Features:</b> Custom Emojis, 4GB Uploads, Fast Downloads\n"
-             "✦ <b>Delivery:</b> Instant Gift Link / Activation"),
+             "✦ <b>Delivery:</b> Manual Activation within 1–2 Hours",
+             "MANUAL", "1–2 Hours", "✈️ Please send your Telegram @username for Premium gift activation:"),
             ("12 Months Gift Code", 1499.0, "Gift Link",
              "✨ <b>Telegram Premium - 1 Year</b>\n\n"
              "✦ <b>Features:</b> 1 Year Full Telegram Premium Perks\n"
-             "✦ <b>Delivery:</b> Instant Activation"),
+             "✦ <b>Delivery:</b> Manual Activation within 1–2 Hours",
+             "MANUAL", "1–2 Hours", "✈️ Please send your Telegram @username for 1 Year Premium gift activation:"),
         ]
     )
 

@@ -28,6 +28,12 @@ from database.crud import (
     delete_variant,
     add_stock_bulk,
     get_available_stock_count,
+    get_unsold_stock_by_variant,
+    delete_unsold_stock_by_variant,
+    get_pending_manual_orders,
+    get_order_by_id,
+    fulfill_manual_order,
+    cancel_and_refund_order,
     get_user,
     update_user_balance
 )
@@ -38,7 +44,10 @@ from keyboards.admin_keyboards import (
     get_admin_products_keyboard,
     get_admin_product_select_keyboard,
     get_admin_variants_keyboard,
-    get_admin_stock_variant_select_keyboard,
+    get_admin_stock_inventory_keyboard,
+    get_admin_variant_stock_actions_keyboard,
+    get_admin_pending_orders_keyboard,
+    get_admin_manual_order_detail_keyboard,
     get_deposit_approval_keyboard,
     get_admin_cancel_keyboard
 )
@@ -48,9 +57,10 @@ from utils.states import (
     AdminVariantStates,
     AdminStockStates,
     AdminBroadcastStates,
-    AdminUserManagementStates
+    AdminUserManagementStates,
+    AdminManualOrderStates
 )
-from utils.emojis import Emojis
+from utils.emojis import Emojis, UI, format_emoji
 import config
 
 router = Router()
@@ -63,21 +73,29 @@ async def cmd_admin(message: types.Message, state: FSMContext, session: AsyncSes
     if not check_admin(message.from_user.id):
         return
     await state.clear()
+    
+    pending_deps = len(await get_pending_deposits(session))
+    pending_ords = len(await get_pending_manual_orders(session))
+    
     text = (
         f"⚙️ <b>ADMIN MANAGEMENT PANEL</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Welcome, Administrator <b>{message.from_user.first_name}</b>.\n"
         f"Select a management category below to configure your store:"
     )
-    await message.answer(text, reply_markup=get_admin_main_keyboard())
+    await message.answer(text, reply_markup=get_admin_main_keyboard(pending_deps, pending_ords))
 
 @router.callback_query(F.data == "admin_home")
-async def cb_admin_home(callback: types.CallbackQuery, state: FSMContext):
+async def cb_admin_home(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
     if not check_admin(callback.from_user.id):
         await callback.answer("Unauthorized", show_alert=True)
         return
     await state.clear()
     await callback.answer()
+    
+    pending_deps = len(await get_pending_deposits(session))
+    pending_ords = len(await get_pending_manual_orders(session))
+    
     text = (
         f"⚙️ <b>ADMIN MANAGEMENT PANEL</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -85,9 +103,9 @@ async def cb_admin_home(callback: types.CallbackQuery, state: FSMContext):
         f"Select a management option below:"
     )
     try:
-        await callback.message.edit_text(text, reply_markup=get_admin_main_keyboard())
+        await callback.message.edit_text(text, reply_markup=get_admin_main_keyboard(pending_deps, pending_ords))
     except Exception:
-        await callback.message.answer(text, reply_markup=get_admin_main_keyboard())
+        await callback.message.answer(text, reply_markup=get_admin_main_keyboard(pending_deps, pending_ords))
 
 # ================= 1. STORE STATISTICS =================
 
@@ -98,53 +116,221 @@ async def cb_admin_stats(callback: types.CallbackQuery, session: AsyncSession):
     await callback.answer()
 
     total_users = await get_all_users_count(session)
-    total_orders, total_revenue = await get_total_orders_and_revenue(session)
+    total_orders, total_sales = await get_total_orders_and_revenue(session)
     orders_today = await get_orders_today_count(session)
-    active_stock = await get_total_active_stock(session)
+    total_stock = await get_total_active_stock(session)
     pending_deposits = len(await get_pending_deposits(session))
+    pending_manual = len(await get_pending_manual_orders(session))
 
     text = (
-        f"📊 <b>STORE REAL-TIME METRICS</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👥 <b>Total Registered Users:</b> {total_users}\n"
-        f"🛍️ <b>Total Orders Completed:</b> {total_orders}\n"
-        f"💰 <b>Gross Sales Revenue:</b> {config.CURRENCY_SYMBOL}{total_revenue:.2f}\n"
-        f"📈 <b>Orders Placed Today:</b> {orders_today}\n"
-        f"📦 <b>Active Stock in Inventory:</b> {active_stock} items\n"
-        f"⏳ <b>Pending Deposit Approvals:</b> {pending_deposits}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📊 <b>LIVE STORE METRICS & ANALYTICS</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"👥 <b>Total Registered Customers:</b> {total_users}\n"
+        f"💰 <b>Gross Sales Revenue:</b> <b>{config.CURRENCY_SYMBOL}{total_sales:.2f}</b>\n"
+        f"🧾 <b>All-Time Orders Completed:</b> {total_orders}\n"
+        f"📅 <b>Orders Placed Today:</b> {orders_today}\n"
+        f"📊 <b>Active Unsold Credentials:</b> {total_stock} in stock\n"
+        f"⏳ <b>Pending Manual Orders:</b> {pending_manual}\n"
+        f"💳 <b>Pending Deposit Approvals:</b> {pending_deposits}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard("admin_home"))
 
-# ================= 2. PENDING DEPOSITS =================
+# ================= 2. PENDING MANUAL ORDERS HUB =================
+
+@router.callback_query(F.data == "adm_pending_orders")
+async def cb_admin_pending_orders(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+
+    orders = await get_pending_manual_orders(session)
+    if not orders:
+        text = (
+            f"⏳ <b>PENDING MANUAL ORDERS</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"✅ <i>No pending manual orders right now! All orders have been dispatched.</i>"
+        )
+        await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard("admin_home"))
+        return
+
+    text = (
+        f"⏳ <b>PENDING MANUAL ORDERS ({len(orders)})</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Click an order below to view customer input and deliver credentials/links:"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_pending_orders_keyboard(orders))
+
+@router.callback_query(F.data.startswith("adm_ord_view_"))
+async def cb_admin_ord_view(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+
+    order_id = int(callback.data.split("_")[3])
+    order = await get_order_by_id(session, order_id)
+    if not order:
+        await callback.message.answer("Order not found.")
+        return
+
+    user = await get_user(session, order.user_id)
+    variant = order.variant
+    product = await get_product(session, variant.product_id) if variant else None
+    prod_title = product.title if product else "Product"
+    var_name = variant.name if variant else "Plan"
+
+    text = (
+        f"📋 <b>MANUAL ORDER DETAILS #{order.id}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"👤 <b>Customer:</b> {user.full_name if user else 'User'} (ID: <code>{order.user_id}</code>)\n"
+        f"📦 <b>Item:</b> {prod_title} — {var_name}\n"
+        f"💰 <b>Amount Paid:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f}\n"
+        f"📅 <b>Ordered At:</b> {order.created_at.strftime('%d %b %Y, %H:%M UTC')}\n"
+        f"📊 <b>Status:</b> ⏳ PENDING DISPATCH\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📧 <b>CUSTOMER PROVIDED DETAILS:</b>\n"
+        f"<code>{order.customer_input or 'None'}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<i>Click 'Fulfill' to send the login details/link, or 'Cancel & Refund' to refund customer's balance:</i>"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_manual_order_detail_keyboard(order.id))
+
+@router.callback_query(F.data.startswith("adm_man_ful_"))
+async def cb_admin_man_ful(callback: types.CallbackQuery, state: FSMContext):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+
+    order_id = int(callback.data.split("_")[3])
+    await state.set_state(AdminManualOrderStates.waiting_for_fulfillment_content)
+    await state.update_data(order_id=order_id)
+
+    text = (
+        f"🔑 <b>FULFILL MANUAL ORDER #{order_id}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Please send the login credentials, invite link, or license key to deliver to the customer:\n\n"
+        f"<i>(The bot will format this into a copyable block and notify the user immediately):</i>"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard("adm_pending_orders"))
+
+@router.message(AdminManualOrderStates.waiting_for_fulfillment_content)
+async def msg_admin_man_ful_content(message: types.Message, state: FSMContext, session: AsyncSession, bot: Bot):
+    content = message.text.strip()
+    data = await state.get_data()
+    order_id = data.get("order_id")
+    await state.clear()
+
+    order, user = await fulfill_manual_order(session, order_id, content)
+    if not order:
+        await message.answer("⚠️ Order could not be fulfilled or is no longer pending.")
+        return
+
+    await message.answer(
+        f"✅ <b>Order #{order.id} Dispatched & Fulfilled!</b>\n\n"
+        f"Credentials have been automatically delivered to {user.full_name if user else 'customer'} on Telegram.",
+        reply_markup=get_admin_cancel_keyboard("adm_pending_orders")
+    )
+
+    # Notify Customer with delivery receipt
+    variant = order.variant
+    product = await get_product(session, variant.product_id) if variant else None
+    prod_title = product.title if product else "Digital Service"
+
+    customer_msg = (
+        f"🎉 <b>YOUR ORDER #{order.id} HAS BEEN DISPATCHED!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📦 <b>Product:</b> {prod_title}\n"
+        f"✨ <b>Plan:</b> {variant.name if variant else 'Plan'}\n"
+        f"💰 <b>Amount Paid:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔑 <b>YOUR DELIVERED CREDENTIALS / INVITE LINK:</b>\n\n"
+        f"<pre><code>{order.delivered_content}</code></pre>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🛡️ <i>Your subscription is under 100% replacement warranty! Saved permanently in Order History.</i>"
+    )
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    cust_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📦 View in Order History", callback_data="view_orders")],
+        [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+    ])
+    try:
+        await bot.send_message(order.user_id, customer_msg, reply_markup=cust_kb)
+    except Exception:
+        pass
+
+@router.callback_query(F.data.startswith("adm_man_ref_"))
+async def cb_admin_man_ref(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+
+    order_id = int(callback.data.split("_")[3])
+    order, user = await cancel_and_refund_order(session, order_id)
+
+    if not order:
+        await callback.message.answer("⚠️ Order not found or already processed.")
+        return
+
+    await callback.message.edit_text(
+        f"❌ <b>Order #{order.id} Cancelled & Refunded!</b>\n\n"
+        f"{config.CURRENCY_SYMBOL}{order.amount:.2f} was returned to {user.full_name if user else 'customer'}'s wallet.",
+        reply_markup=get_admin_cancel_keyboard("adm_pending_orders")
+    )
+
+    # Notify customer
+    try:
+        refund_msg = (
+            f"🔔 <b>ORDER #{order.id} CANCELLED & REFUNDED</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"Your order could not be activated and <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b> has been refunded to your wallet balance.\n\n"
+            f"Current Balance: <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n\n"
+            f"Please contact support ({config.SUPPORT_USERNAME}) for details."
+        )
+        await bot.send_message(order.user_id, refund_msg)
+    except Exception:
+        pass
+
+# ================= 3. DEPOSIT APPROVALS =================
 
 @router.callback_query(F.data == "adm_deposits")
 async def cb_admin_deposits(callback: types.CallbackQuery, session: AsyncSession):
     if not check_admin(callback.from_user.id):
         return
     await callback.answer()
-    pending = await get_pending_deposits(session)
 
-    if not pending:
+    deposits = await get_pending_deposits(session)
+    if not deposits:
         await callback.message.edit_text(
-            "💳 <b>PENDING DEPOSITS</b>\n\n"
-            "✅ All deposit requests have been processed. No pending items!",
+            "✅ <b>No pending deposit requests!</b> All requests are reviewed.",
             reply_markup=get_admin_cancel_keyboard("admin_home")
         )
         return
 
-    text = f"💳 <b>PENDING DEPOSITS ({len(pending)})</b>\n\n"
-    for dep in pending:
-        text += (
-            f"• <b>ID #{dep.id}</b> | User <code>{dep.user_id}</code> | "
-            f"<b>{config.CURRENCY_SYMBOL}{dep.amount:.2f}</b> | UTR: <code>{dep.utr_number or 'N/A'}</code>\n"
-        )
-    text += "\n<i>Approve or Reject individual requests via their alert cards.</i>"
+    text = f"💳 <b>PENDING DEPOSIT REQUESTS ({len(deposits)})</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    await callback.message.edit_text(text)
 
-    await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard("admin_home"))
+    for dep in deposits[:5]:
+        dep_text = (
+            f"🧾 <b>Deposit #{dep.id}</b>\n"
+            f"👤 User: <code>{dep.user_id}</code>\n"
+            f"💰 Amount: <b>{config.CURRENCY_SYMBOL}{dep.amount:.2f}</b>\n"
+            f"🔢 UTR: <code>{dep.utr_number or 'Not provided'}</code>\n"
+            f"📅 Date: {dep.created_at.strftime('%d/%m %H:%M')}"
+        )
+        if dep.proof_file_id:
+            try:
+                await callback.message.answer_photo(
+                    photo=dep.proof_file_id,
+                    caption=dep_text,
+                    reply_markup=get_deposit_approval_keyboard(dep.id)
+                )
+                continue
+            except Exception:
+                pass
+        await callback.message.answer(dep_text, reply_markup=get_deposit_approval_keyboard(dep.id))
 
 @router.callback_query(F.data.startswith("adm_dep_appr_"))
-async def cb_admin_approve_deposit(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):
+async def cb_admin_dep_approve(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):
     if not check_admin(callback.from_user.id):
         return
     await callback.answer()
@@ -156,24 +342,24 @@ async def cb_admin_approve_deposit(callback: types.CallbackQuery, session: Async
         return
 
     await callback.message.edit_reply_markup(reply_markup=None)
-    await callback.message.answer(f"✅ Deposit #{deposit.id} for {config.CURRENCY_SYMBOL}{deposit.amount:.2f} has been APPROVED.")
+    await callback.message.answer(f"✅ Deposit #{deposit.id} APPROVED! Added {config.CURRENCY_SYMBOL}{deposit.amount:.2f} to User <code>{deposit.user_id}</code>.")
 
     # Notify User
     try:
         user_msg = (
             f"🎉 <b>DEPOSIT APPROVED & CREDITED!</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🧾 <b>Deposit ID:</b> #{deposit.id}\n"
-            f"💰 <b>Amount Credited:</b> <b>{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b>\n"
-            f"💳 <b>New Wallet Balance:</b> <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n\n"
-            f"<i>You can now browse the shop and place orders!</i>"
+            f"Receipt ID: #{deposit.id}\n"
+            f"Amount Credited: <b>+{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b>\n"
+            f"Current Balance: <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n\n"
+            f"Your funds are ready to use. Tap 'Explore Store' to make a purchase!"
         )
         await bot.send_message(deposit.user_id, user_msg)
     except Exception:
         pass
 
 @router.callback_query(F.data.startswith("adm_dep_rej_"))
-async def cb_admin_reject_deposit(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):
+async def cb_admin_dep_reject(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):
     if not check_admin(callback.from_user.id):
         return
     await callback.answer()
@@ -187,7 +373,6 @@ async def cb_admin_reject_deposit(callback: types.CallbackQuery, session: AsyncS
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(f"❌ Deposit #{deposit.id} has been REJECTED.")
 
-    # Notify User
     try:
         user_msg = (
             f"⚠️ <b>DEPOSIT REJECTED</b>\n"
@@ -200,7 +385,146 @@ async def cb_admin_reject_deposit(callback: types.CallbackQuery, session: AsyncS
     except Exception:
         pass
 
-# ================= 3. CATEGORY MANAGEMENT =================
+# ================= 4. INVENTORY & STOCK MANAGEMENT =================
+
+@router.callback_query(F.data == "adm_stock")
+async def cb_admin_stock(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    variants = await get_all_variants(session)
+
+    if not variants:
+        await callback.message.edit_text(
+            "⚠️ No plans/variants created yet. Create a product and plan first!",
+            reply_markup=get_admin_cancel_keyboard("admin_home")
+        )
+        return
+
+    stock_counts = {}
+    for var in variants:
+        stock_counts[var.id] = await get_available_stock_count(session, var.id)
+
+    text = (
+        f"🔑 <b>INVENTORY & STOCK MANAGEMENT HUB</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Select a subscription plan below to upload stock, view unsold accounts, or clear inventory:\n"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_stock_inventory_keyboard(variants, stock_counts))
+
+@router.callback_query(F.data.startswith("adm_stock_manage_"))
+async def cb_admin_stock_manage(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    variant_id = int(callback.data.split("_")[3])
+    variant = await get_variant(session, variant_id)
+    if not variant:
+        await callback.message.answer("Plan not found.")
+        return
+
+    stock_count = await get_available_stock_count(session, variant_id)
+    is_manual = (getattr(variant, "fulfillment_type", "AUTOMATIC") == "MANUAL")
+    prod_title = variant.product.title if variant.product else "Product"
+
+    text = (
+        f"📦 <b>INVENTORY CONTROLS FOR:</b>\n"
+        f"<b>{prod_title} — {variant.name}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"💰 <b>Price:</b> {config.CURRENCY_SYMBOL}{variant.price:.2f}\n"
+        f"🏷️ <b>Type:</b> {variant.variant_type}\n"
+        f"🚀 <b>Fulfillment Mode:</b> {'⏱️ Manual Dispatch (1-2h)' if is_manual else '⚡ Automated Instant Stock'}\n"
+        f"📊 <b>Current Available Stock:</b> <b>{stock_count} items</b>\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_variant_stock_actions_keyboard(variant_id, is_manual, stock_count))
+
+@router.callback_query(F.data.startswith("adm_stock_add_"))
+async def cb_admin_stock_add(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    variant_id = int(callback.data.split("_")[3])
+    variant = await get_variant(session, variant_id)
+    current_stock = await get_available_stock_count(session, variant_id)
+    prod_title = variant.product.title if variant and variant.product else "Product"
+
+    await state.update_data(variant_id=variant_id)
+    await state.set_state(AdminStockStates.waiting_for_stock_lines)
+
+    text = (
+        f"✍️ <b>UPLOAD STOCK FOR: {prod_title} — {variant.name}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📊 <b>Current Live Stock:</b> {current_stock} accounts\n\n"
+        f"Paste the accounts or license keys <b>line-by-line (one per line)</b>:\n\n"
+        f"<code>email1@netflix.com:Password123 | PIN: 1234 | Screen 1\nemail2@netflix.com:Password456 | PIN: 5678 | Screen 2</code>\n\n"
+        f"<i>(Send your lines below to insert them into live inventory):</i>"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard("adm_stock"))
+
+@router.message(AdminStockStates.waiting_for_stock_lines)
+async def msg_admin_stock_lines(message: types.Message, state: FSMContext, session: AsyncSession):
+    raw_text = message.text.strip()
+    lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
+
+    if not lines:
+        await message.answer("⚠️ No valid accounts found. Send at least one line.")
+        return
+
+    data = await state.get_data()
+    variant_id = data.get("variant_id")
+    await state.clear()
+
+    added_count = await add_stock_bulk(session, variant_id, lines)
+    total_stock = await get_available_stock_count(session, variant_id)
+    variant = await get_variant(session, variant_id)
+    prod_title = variant.product.title if variant and variant.product else "Product"
+
+    await message.answer(
+        f"✅ <b>Successfully Added {added_count} Stock Items!</b>\n\n"
+        f"📦 <b>Product:</b> {prod_title}\n"
+        f"✨ <b>Plan:</b> {variant.name if variant else ''}\n"
+        f"📊 <b>New Live Available Stock:</b> <b>{total_stock} items</b>",
+        reply_markup=get_admin_cancel_keyboard("adm_stock")
+    )
+
+@router.callback_query(F.data.startswith("adm_stock_view_"))
+async def cb_admin_stock_view(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    variant_id = int(callback.data.split("_")[3])
+    variant = await get_variant(session, variant_id)
+    unsold = await get_unsold_stock_by_variant(session, variant_id)
+
+    if not unsold:
+        await callback.message.answer("No unsold stock available for this plan.", show_alert=True)
+        return
+
+    stock_text = f"👁️ <b>UNSOLD INVENTORY ({len(unsold)} items):</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    for idx, s in enumerate(unsold[:20], 1):
+        stock_text += f"{idx}. <code>{s.content}</code>\n"
+
+    if len(unsold) > 20:
+        stock_text += f"\n<i>...and {len(unsold) - 20} more items.</i>"
+
+    await callback.message.edit_text(stock_text, reply_markup=get_admin_cancel_keyboard(f"adm_stock_manage_{variant_id}"))
+
+@router.callback_query(F.data.startswith("adm_stock_clear_"))
+async def cb_admin_stock_clear(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    variant_id = int(callback.data.split("_")[3])
+    deleted_count = await delete_unsold_stock_by_variant(session, variant_id)
+
+    await callback.message.edit_text(
+        f"🗑️ <b>Cleared {deleted_count} unsold stock items</b> from this plan.\n\n"
+        f"Stock count is now 0.",
+        reply_markup=get_admin_cancel_keyboard(f"adm_stock_manage_{variant_id}")
+    )
+
+# ================= 5. CATEGORY MANAGEMENT =================
 
 @router.callback_query(F.data == "adm_cats")
 async def cb_admin_cats(callback: types.CallbackQuery, session: AsyncSession):
@@ -255,14 +579,14 @@ async def msg_admin_cat_emoji(message: types.Message, state: FSMContext, session
     cat_name = data.get("cat_name")
     await state.clear()
 
-    await create_category(session, name=cat_name, emoji=emoji)
+    category = await create_category(session, name=cat_name, emoji=emoji)
     categories = await get_all_categories(session)
     await message.answer(
-        f"✅ Category <b>{emoji} {cat_name}</b> created successfully!",
+        f"✅ Category <b>{category.emoji} {category.name}</b> created successfully!",
         reply_markup=get_admin_categories_keyboard(categories)
     )
 
-# ================= 4. PRODUCT MANAGEMENT =================
+# ================= 6. PRODUCT MANAGEMENT =================
 
 @router.callback_query(F.data == "adm_prods")
 async def cb_admin_prods(callback: types.CallbackQuery, session: AsyncSession):
@@ -273,12 +597,12 @@ async def cb_admin_prods(callback: types.CallbackQuery, session: AsyncSession):
     text = (
         f"📦 <b>PRODUCT MANAGEMENT</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Select a category to view or add products:"
+        f"Select a category to view or add products to it:"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_category_select_keyboard(categories, action="viewprods"))
 
 @router.callback_query(F.data.startswith("adm_selcat_viewprods_"))
-async def cb_admin_view_cat_prods(callback: types.CallbackQuery, session: AsyncSession):
+async def cb_admin_cat_viewprods(callback: types.CallbackQuery, session: AsyncSession):
     if not check_admin(callback.from_user.id):
         return
     await callback.answer()
@@ -287,9 +611,10 @@ async def cb_admin_view_cat_prods(callback: types.CallbackQuery, session: AsyncS
     products = await get_products_by_category(session, cat_id)
 
     text = (
-        f"📦 <b>PRODUCTS IN {category.name.upper() if category else ''}</b>\n"
+        f"📦 <b>PRODUCTS IN: {category.emoji} {category.name}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Total Products: {len(products)}"
+        f"Total Products: {len(products)}\n\n"
+        f"Click <b>'Delete'</b> to remove or <b>'Add'</b> to create a new product:"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_products_keyboard(products, cat_id))
 
@@ -299,8 +624,8 @@ async def cb_admin_prod_del(callback: types.CallbackQuery, session: AsyncSession
         return
     await callback.answer()
     prod_id = int(callback.data.split("_")[3])
-    prod = await get_product(session, prod_id)
-    cat_id = prod.category_id if prod else 0
+    product = await get_product(session, prod_id)
+    cat_id = product.category_id if product else 1
     await delete_product(session, prod_id)
 
     products = await get_products_by_category(session, cat_id)
@@ -318,7 +643,7 @@ async def cb_admin_prod_add(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         "✍️ <b>Add New Product</b>\n\n"
         "Send the <b>Product Title</b> (e.g. <code>Netflix Premium 4K</code>):",
-        reply_markup=get_admin_cancel_keyboard("adm_prods")
+        reply_markup=get_admin_cancel_keyboard(f"adm_selcat_viewprods_{cat_id}")
     )
 
 @router.message(AdminProductStates.waiting_for_title)
@@ -326,14 +651,14 @@ async def msg_admin_prod_title(message: types.Message, state: FSMContext):
     title = message.text.strip()
     await state.update_data(title=title)
     await state.set_state(AdminProductStates.waiting_for_emoji)
-    await message.answer(f"Product Title: <b>{title}</b>\n\nNow send an emoji/icon (e.g. 🍿 or 📦):")
+    await message.answer("Send an <b>Emoji / Icon</b> for this product (e.g. 🍿 or 📦 or 🤖):")
 
 @router.message(AdminProductStates.waiting_for_emoji)
 async def msg_admin_prod_emoji(message: types.Message, state: FSMContext):
     emoji = message.text.strip()
     await state.update_data(emoji=emoji)
     await state.set_state(AdminProductStates.waiting_for_desc)
-    await message.answer("Now send a short description for this product (or send <code>skip</code>):")
+    await message.answer("Send a <b>Short Description</b> for this product (or send <code>skip</code>):")
 
 @router.message(AdminProductStates.waiting_for_desc)
 async def msg_admin_prod_desc(message: types.Message, state: FSMContext, session: AsyncSession):
@@ -350,11 +675,11 @@ async def msg_admin_prod_desc(message: types.Message, state: FSMContext, session
     product = await create_product(session, category_id=cat_id, title=title, emoji=emoji, description=desc)
     products = await get_products_by_category(session, cat_id)
     await message.answer(
-        f"✅ Product <b>{product.title}</b> created successfully!\nNow add plans/variants to it.",
+        f"✅ Product <b>{product.emoji} {product.title}</b> created successfully!",
         reply_markup=get_admin_products_keyboard(products, cat_id)
     )
 
-# ================= 5. VARIANTS / PLANS MANAGEMENT =================
+# ================= 7. PLAN / VARIANT MANAGEMENT =================
 
 @router.callback_query(F.data == "adm_variants")
 async def cb_admin_variants(callback: types.CallbackQuery, session: AsyncSession):
@@ -363,14 +688,14 @@ async def cb_admin_variants(callback: types.CallbackQuery, session: AsyncSession
     await callback.answer()
     products = await get_all_products(session)
     text = (
-        f"🏷️ <b>PLAN & VARIANT MANAGEMENT</b>\n"
+        f"🏷️ <b>MANAGE PLANS & PRICING</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Select a product to view or add its plans/prices:"
+        f"Select a product to view or add subscription plans:"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_product_select_keyboard(products, action="viewvars"))
 
 @router.callback_query(F.data.startswith("adm_selprod_viewvars_"))
-async def cb_admin_view_prod_vars(callback: types.CallbackQuery, session: AsyncSession):
+async def cb_admin_prod_viewvars(callback: types.CallbackQuery, session: AsyncSession):
     if not check_admin(callback.from_user.id):
         return
     await callback.answer()
@@ -379,9 +704,10 @@ async def cb_admin_view_prod_vars(callback: types.CallbackQuery, session: AsyncS
     variants = await get_variants_by_product(session, prod_id)
 
     text = (
-        f"🏷️ <b>PLANS FOR {product.title.upper() if product else ''}</b>\n"
+        f"🏷️ <b>PLANS FOR: {product.emoji} {product.title}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Total Plans: {len(variants)}"
+        f"Total Plans: {len(variants)}\n\n"
+        f"Click <b>'Delete'</b> or <b>'Add Plan'</b>:"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_variants_keyboard(variants, prod_id))
 
@@ -391,8 +717,8 @@ async def cb_admin_var_del(callback: types.CallbackQuery, session: AsyncSession)
         return
     await callback.answer()
     var_id = int(callback.data.split("_")[3])
-    var = await get_variant(session, var_id)
-    prod_id = var.product_id if var else 0
+    variant = await get_variant(session, var_id)
+    prod_id = variant.product_id if variant else 1
     await delete_variant(session, var_id)
 
     variants = await get_variants_by_product(session, prod_id)
@@ -408,9 +734,9 @@ async def cb_admin_var_add(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(AdminVariantStates.waiting_for_name)
 
     await callback.message.edit_text(
-        "✍️ <b>Add New Plan/Variant</b>\n\n"
-        "Send the <b>Plan Name</b> (e.g. <code>1 Month Private Profile</code> or <code>12 Months Shared</code>):",
-        reply_markup=get_admin_cancel_keyboard("adm_variants")
+        "✍️ <b>Add New Plan / Duration</b>\n\n"
+        "Send the <b>Plan Name</b> (e.g. <code>1 Month Private Profile</code> or <code>1 Year Team Invite</code>):",
+        reply_markup=get_admin_cancel_keyboard(f"adm_selprod_viewvars_{prod_id}")
     )
 
 @router.message(AdminVariantStates.waiting_for_name)
@@ -418,19 +744,19 @@ async def msg_admin_var_name(message: types.Message, state: FSMContext):
     name = message.text.strip()
     await state.update_data(name=name)
     await state.set_state(AdminVariantStates.waiting_for_price)
-    await message.answer(f"Plan: <b>{name}</b>\n\nNow send the <b>Price</b> in ₹ (e.g. <code>129</code> or <code>359.50</code>):")
+    await message.answer(f"Plan Name: <b>{name}</b>\n\nNow send the <b>Price</b> in INR (e.g. <code>129.0</code>):")
 
 @router.message(AdminVariantStates.waiting_for_price)
 async def msg_admin_var_price(message: types.Message, state: FSMContext):
     try:
-        price = float(message.text.strip().replace(config.CURRENCY_SYMBOL, ""))
+        price = float(message.text.strip().replace("₹", "").replace("$", ""))
     except ValueError:
-        await message.answer("⚠️ Invalid price. Send a valid number (e.g. 129):")
+        await message.answer("⚠️ Invalid price format. Please enter a number (e.g. <code>129.0</code>):")
         return
 
     await state.update_data(price=price)
     await state.set_state(AdminVariantStates.waiting_for_type)
-    await message.answer("Now send the <b>Variant Type</b> (e.g. <code>Private Profile</code>, <code>Shared Profile</code>, <code>Activation Key</code>):")
+    await message.answer("Now send the <b>Variant Type</b> (e.g. <code>Private Profile</code>, <code>Shared Profile</code>, <code>Invite Link</code>):")
 
 @router.message(AdminVariantStates.waiting_for_type)
 async def msg_admin_var_type(message: types.Message, state: FSMContext):
@@ -439,7 +765,7 @@ async def msg_admin_var_type(message: types.Message, state: FSMContext):
     await state.set_state(AdminVariantStates.waiting_for_detailed_desc)
     await message.answer(
         "📝 <b>Detailed Description Card</b> (Shown to customer before buying):\n\n"
-        "Send the detailed specifications, features, warranty, and rules (supports HTML tags like <code>&lt;b&gt;</code>, <code>&lt;i&gt;</code>):\n\n"
+        "Send the detailed specifications, features, warranty, and rules:\n\n"
         "<i>Or send <code>skip</code> to use the default format.</i>"
     )
 
@@ -470,78 +796,7 @@ async def msg_admin_var_desc(message: types.Message, state: FSMContext, session:
         reply_markup=get_admin_variants_keyboard(variants, prod_id)
     )
 
-# ================= 6. BULK STOCK UPLOADER =================
-
-@router.callback_query(F.data == "adm_stock")
-async def cb_admin_stock(callback: types.CallbackQuery, session: AsyncSession):
-    if not check_admin(callback.from_user.id):
-        return
-    await callback.answer()
-    variants = await get_all_variants(session)
-
-    if not variants:
-        await callback.message.edit_text(
-            "⚠️ No plans/variants created yet. Create a product and plan first!",
-            reply_markup=get_admin_cancel_keyboard("admin_home")
-        )
-        return
-
-    text = (
-        f"🔑 <b>BULK STOCK INVENTORY UPLOAD</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Select the plan you want to add stock/accounts for:"
-    )
-    await callback.message.edit_text(text, reply_markup=get_admin_stock_variant_select_keyboard(variants))
-
-@router.callback_query(F.data.startswith("adm_stock_select_"))
-async def cb_admin_stock_select(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
-    if not check_admin(callback.from_user.id):
-        return
-    await callback.answer()
-    variant_id = int(callback.data.split("_")[3])
-    variant = await get_variant(session, variant_id)
-    current_stock = await get_available_stock_count(session, variant_id)
-
-    prod_title = variant.product.title if variant and variant.product else "Product"
-    await state.update_data(variant_id=variant_id)
-    await state.set_state(AdminStockStates.waiting_for_stock_lines)
-
-    text = (
-        f"🔑 <b>UPLOAD STOCK FOR: {prod_title} — {variant.name}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📊 <b>Current Available Stock:</b> {current_stock} items\n\n"
-        f"Send the accounts / keys line-by-line (one per line):\n\n"
-        f"<code>email1:pass1 | Pin: 1234\nemail2:pass2 | Pin: 5678</code>"
-    )
-    await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard("adm_stock"))
-
-@router.message(AdminStockStates.waiting_for_stock_lines)
-async def msg_admin_stock_lines(message: types.Message, state: FSMContext, session: AsyncSession):
-    raw_text = message.text.strip()
-    lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
-
-    if not lines:
-        await message.answer("⚠️ No valid accounts found. Send at least one line.")
-        return
-
-    data = await state.get_data()
-    variant_id = data.get("variant_id")
-    await state.clear()
-
-    added_count = await add_stock_bulk(session, variant_id, lines)
-    total_stock = await get_available_stock_count(session, variant_id)
-    variant = await get_variant(session, variant_id)
-    prod_title = variant.product.title if variant and variant.product else "Product"
-
-    await message.answer(
-        f"✅ <b>Successfully Added {added_count} Stock Items!</b>\n\n"
-        f"📦 <b>Product:</b> {prod_title}\n"
-        f"✨ <b>Plan:</b> {variant.name if variant else ''}\n"
-        f"📊 <b>New Available Stock:</b> <b>{total_stock} items</b>",
-        reply_markup=get_admin_cancel_keyboard("admin_home")
-    )
-
-# ================= 7. BROADCAST SYSTEM =================
+# ================= 8. BROADCAST SYSTEM =================
 
 @router.callback_query(F.data == "adm_broadcast")
 async def cb_admin_broadcast(callback: types.CallbackQuery, state: FSMContext):
@@ -549,38 +804,39 @@ async def cb_admin_broadcast(callback: types.CallbackQuery, state: FSMContext):
         return
     await callback.answer()
     await state.set_state(AdminBroadcastStates.waiting_for_content)
-
-    await callback.message.edit_text(
-        "📢 <b>BROADCAST ANNOUNCEMENT</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "Send the message (text, image with caption, etc.) that you want to send to ALL registered bot users:",
-        reply_markup=get_admin_cancel_keyboard("admin_home")
+    text = (
+        f"📢 <b>BROADCAST ANNOUNCEMENT TO ALL USERS</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Send the exact message (text, photos, announcements) you want to broadcast to all registered bot users:\n\n"
+        f"<i>(Supports HTML formatting and Telegram emojis)</i>"
     )
+    await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard("admin_home"))
 
 @router.message(AdminBroadcastStates.waiting_for_content)
 async def msg_admin_broadcast_content(message: types.Message, state: FSMContext, session: AsyncSession, bot: Bot):
     await state.clear()
     user_ids = await get_all_user_ids(session)
 
-    status_msg = await message.answer(f"⏳ Broadcasting message to {len(user_ids)} users...")
+    sent_count = 0
+    fail_count = 0
 
-    success = 0
-    failed = 0
+    progress_msg = await message.answer(f"🚀 Broadcasting announcement to {len(user_ids)} users...")
+
     for uid in user_ids:
         try:
             await message.copy_to(chat_id=uid)
-            success += 1
+            sent_count += 1
         except Exception:
-            failed += 1
+            fail_count += 1
 
-    await status_msg.edit_text(
-        f"📢 <b>Broadcast Completed!</b>\n\n"
-        f"✅ Successfully Delivered: {success}\n"
-        f"❌ Failed / Blocked: {failed}",
+    await progress_msg.edit_text(
+        f"📢 <b>BROADCAST FINISHED!</b>\n\n"
+        f"✅ Successfully Delivered: {sent_count}\n"
+        f"❌ Failed / Blocked: {fail_count}",
         reply_markup=get_admin_cancel_keyboard("admin_home")
     )
 
-# ================= 8. USER BALANCE MANAGEMENT =================
+# ================= 9. USER MANAGEMENT =================
 
 @router.callback_query(F.data == "adm_users")
 async def cb_admin_users(callback: types.CallbackQuery, state: FSMContext):
@@ -588,63 +844,59 @@ async def cb_admin_users(callback: types.CallbackQuery, state: FSMContext):
         return
     await callback.answer()
     await state.set_state(AdminUserManagementStates.waiting_for_user_query)
-
-    await callback.message.edit_text(
-        "👤 <b>USER BALANCE MANAGEMENT</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "Send the <b>Telegram User ID</b> of the customer to view/adjust their wallet balance:",
-        reply_markup=get_admin_cancel_keyboard("admin_home")
+    text = (
+        f"👤 <b>USER WALLET ADJUSTMENT</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Send the user's <b>Telegram Numeric ID</b> (e.g. <code>6971497666</code>):"
     )
+    await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard("admin_home"))
 
 @router.message(AdminUserManagementStates.waiting_for_user_query)
 async def msg_admin_user_query(message: types.Message, state: FSMContext, session: AsyncSession):
     query = message.text.strip()
     if not query.isdigit():
-        await message.answer("⚠️ Please send a valid numeric Telegram ID (e.g. <code>6085016731</code>):")
+        await message.answer("⚠️ Please provide a valid numeric Telegram ID.")
         return
 
-    user_id = int(query)
-    user = await get_user(session, user_id)
-
+    target_id = int(query)
+    user = await get_user(session, target_id)
     if not user:
-        await message.answer("❌ User not found in database. Make sure they have started the bot.")
+        await message.answer("⚠️ User not found in database. User must send /start to register.")
         return
 
-    await state.update_data(target_user_id=user_id)
+    await state.update_data(target_id=target_id)
     await state.set_state(AdminUserManagementStates.waiting_for_amount_adjust)
 
     text = (
-        f"👤 <b>USER FOUND: {user.full_name}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🆔 <b>Telegram ID:</b> <code>{user.telegram_id}</code>\n"
-        f"💰 <b>Current Balance:</b> {config.CURRENCY_SYMBOL}{user.balance:.2f}\n"
-        f"💳 <b>Total Spent:</b> {config.CURRENCY_SYMBOL}{user.total_spent:.2f}\n\n"
-        f"Send the amount to add or subtract (e.g. <code>+100</code> or <code>-50</code>):"
+        f"👤 <b>USER FOUND:</b> {user.full_name}\n"
+        f"🆔 Telegram ID: <code>{user.telegram_id}</code>\n"
+        f"💰 Current Balance: <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n\n"
+        f"Send the balance change amount (use <code>+100</code> to add, <code>-50</code> to deduct):"
     )
     await message.answer(text, reply_markup=get_admin_cancel_keyboard("admin_home"))
 
 @router.message(AdminUserManagementStates.waiting_for_amount_adjust)
-async def msg_admin_balance_adjust(message: types.Message, state: FSMContext, session: AsyncSession, bot: Bot):
-    raw_amt = message.text.strip().replace(config.CURRENCY_SYMBOL, "")
+async def msg_admin_user_adjust(message: types.Message, state: FSMContext, session: AsyncSession, bot: Bot):
+    val_str = message.text.strip().replace("₹", "").replace("$", "")
     try:
-        amount_delta = float(raw_amt)
+        amount_delta = float(val_str)
     except ValueError:
-        await message.answer("⚠️ Invalid amount. Send e.g. <code>+100</code> or <code>-50</code>:")
+        await message.answer("⚠️ Invalid amount. Send a number like <code>+100</code> or <code>-50</code>.")
         return
 
     data = await state.get_data()
-    target_id = data.get("target_user_id")
+    target_id = data.get("target_id")
     await state.clear()
 
     user = await update_user_balance(session, target_id, amount_delta)
 
     await message.answer(
         f"✅ <b>Balance Updated!</b>\n\n"
-        f"User <code>{user.telegram_id}</code> new balance: <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>",
+        f"User: {user.full_name}\n"
+        f"New Balance: <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>",
         reply_markup=get_admin_cancel_keyboard("admin_home")
     )
 
-    # Notify User
     try:
         sign = "+" if amount_delta > 0 else ""
         await bot.send_message(
@@ -657,7 +909,7 @@ async def msg_admin_balance_adjust(message: types.Message, state: FSMContext, se
     except Exception:
         pass
 
-# ================= 9. WIPE / RESET DEMO DATA =================
+# ================= 10. WIPE / RESET DEMO DATA =================
 
 @router.callback_query(F.data == "adm_reset_confirm")
 async def cb_admin_reset_confirm(callback: types.CallbackQuery):

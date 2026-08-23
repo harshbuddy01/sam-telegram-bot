@@ -83,18 +83,42 @@ async def cb_order_detail(callback: types.CallbackQuery, session: AsyncSession):
     var_name = variant.name if variant else "Standard Plan"
     date_str = order.created_at.strftime("%d %b %Y, %H:%M UTC")
 
+    status = getattr(order, "status", "COMPLETED")
+    
+    if status == "COMPLETED":
+        status_line = "🟢 <b>Status:</b> Completed & Delivered"
+        middle_block = (
+            f"🔑 <b>DELIVERED CREDENTIALS / KEY:</b>\n"
+            f"<pre><code>{order.delivered_content}</code></pre>\n"
+        )
+        footer_line = f"🛡️ <i>Under 100% Replacement Warranty! Contact support ({config.SUPPORT_USERNAME}) for help.</i>"
+    elif status == "PENDING_DISPATCH":
+        status_line = "⏳ <b>Status:</b> In Progress (Manual Activation within 1–2h)"
+        middle_block = (
+            f"📧 <b>Provided Target Details:</b>\n"
+            f"<code>{order.customer_input or 'None'}</code>\n\n"
+            f"⏱️ <i>Our administration is processing your activation. Credentials will be delivered here automatically!</i>\n"
+        )
+        footer_line = f"💬 <i>Need expedited delivery? Contact support: {config.SUPPORT_USERNAME}</i>"
+    else:
+        status_line = "❌ <b>Status:</b> Cancelled & Refunded to Wallet"
+        middle_block = (
+            f"💰 <i>Amount <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b> has been credited back to your wallet balance.</i>\n"
+        )
+        footer_line = f"💬 <i>Contact support ({config.SUPPORT_USERNAME}) if you have any questions.</i>"
+
     text = (
         f"🧾 <b>ORDER RECEIPT #{order.id}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"📦 <b>Product:</b> {prod_title}\n"
-        f"✨ <b>Plan:</b> {var_name}\n"
+        f"✨ <b>Plan:</b> <code>{var_name}</code>\n"
         f"💰 <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
-        f"📅 <b>Purchased On:</b> {date_str}\n\n"
+        f"📅 <b>Ordered On:</b> {date_str}\n"
+        f"{status_line}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔑 <b>DELIVERED CREDENTIALS / KEY:</b>\n"
-        f"<pre><code>{order.delivered_content}</code></pre>\n"
+        f"{middle_block}"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"🛡️ <i>Under 100% Replacement Warranty! Contact support for assistance.</i>"
+        f"{footer_line}"
     )
 
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton

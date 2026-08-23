@@ -1,29 +1,103 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from database.models import Category, Product, Variant
+from database.models import Category, Product, Variant, Order
 from utils.emojis import Emojis
 import config
 
-def get_admin_main_keyboard() -> InlineKeyboardMarkup:
+def get_admin_main_keyboard(pending_deposits: int = 0, pending_orders: int = 0) -> InlineKeyboardMarkup:
+    dep_badge = f" ({pending_deposits})" if pending_deposits > 0 else ""
+    ord_badge = f" ({pending_orders})" if pending_orders > 0 else ""
+    
     buttons = [
         [
-            InlineKeyboardButton(text="📊 Store Statistics", callback_data="adm_stats"),
-            InlineKeyboardButton(text="💳 Pending Deposits", callback_data="adm_deposits")
+            InlineKeyboardButton(text=f"⏳ Pending Orders{ord_badge}", callback_data="adm_pending_orders"),
+            InlineKeyboardButton(text=f"💳 Deposits{dep_badge}", callback_data="adm_deposits")
+        ],
+        [
+            InlineKeyboardButton(text="🔑 Inventory & Stock Hub", callback_data="adm_stock"),
+            InlineKeyboardButton(text="📊 Store Statistics", callback_data="adm_stats")
         ],
         [
             InlineKeyboardButton(text="📁 Manage Categories", callback_data="adm_cats"),
             InlineKeyboardButton(text="📦 Manage Products", callback_data="adm_prods")
         ],
         [
-            InlineKeyboardButton(text="🏷️ Manage Plans/Variants", callback_data="adm_variants"),
-            InlineKeyboardButton(text="🔑 Upload Stock (Bulk)", callback_data="adm_stock")
-        ],
-        [
-            InlineKeyboardButton(text="📢 Broadcast Announcement", callback_data="adm_broadcast"),
+            InlineKeyboardButton(text="🏷️ Manage Plans & Pricing", callback_data="adm_variants"),
             InlineKeyboardButton(text="👤 User Balance Adjust", callback_data="adm_users")
         ],
         [
-            InlineKeyboardButton(text="🧹 Wipe/Reset Demo Data", callback_data="adm_reset_confirm"),
+            InlineKeyboardButton(text="📢 Broadcast Announcement", callback_data="adm_broadcast"),
+            InlineKeyboardButton(text="🧹 Wipe/Reset Demo Data", callback_data="adm_reset_confirm")
+        ],
+        [
             InlineKeyboardButton(text="🏠 Exit to Store", callback_data="nav_home")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_admin_stock_inventory_keyboard(variants: list[Variant], stock_counts: dict[int, int]) -> InlineKeyboardMarkup:
+    buttons = []
+    for var in variants:
+        prod_title = var.product.title if var.product else "Product"
+        is_manual = (getattr(var, "fulfillment_type", "AUTOMATIC") == "MANUAL")
+        
+        if is_manual:
+            badge = "⏱️ Manual Plan"
+        else:
+            stock = stock_counts.get(var.id, 0)
+            badge = f"🟢 {stock} In Stock" if stock > 0 else "🔴 0 In Stock"
+            
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"📦 {prod_title} ➜ {var.name} [{badge}]",
+                callback_data=f"adm_stock_manage_{var.id}"
+            )
+        ])
+    buttons.append([
+        InlineKeyboardButton(text=f"{Emojis.BACK} Back to Admin Hub", callback_data="admin_home")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_admin_variant_stock_actions_keyboard(variant_id: int, is_manual: bool = False, stock_count: int = 0) -> InlineKeyboardMarkup:
+    buttons = []
+    if not is_manual:
+        buttons.append([
+            InlineKeyboardButton(text="➕ Upload Accounts / Stock (Bulk)", callback_data=f"adm_stock_add_{variant_id}")
+        ])
+        if stock_count > 0:
+            buttons.append([
+                InlineKeyboardButton(text=f"👁️ View Unsold Accounts ({stock_count})", callback_data=f"adm_stock_view_{variant_id}"),
+                InlineKeyboardButton(text="🗑️ Clear Unsold Stock", callback_data=f"adm_stock_clear_{variant_id}")
+            ])
+    buttons.append([
+        InlineKeyboardButton(text="◀️ Back to Stock List", callback_data="adm_stock"),
+        InlineKeyboardButton(text="🏠 Admin Home", callback_data="admin_home")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_admin_pending_orders_keyboard(orders: list[Order]) -> InlineKeyboardMarkup:
+    buttons = []
+    for o in orders:
+        created_str = o.created_at.strftime("%d/%m %H:%M")
+        var_name = o.variant.name if o.variant else "Item"
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"⏳ #{o.id} • {var_name} ({o.customer_input[:15]}...) - {created_str}",
+                callback_data=f"adm_ord_view_{o.id}"
+            )
+        ])
+    buttons.append([
+        InlineKeyboardButton(text=f"{Emojis.BACK} Back to Admin Panel", callback_data="admin_home")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_admin_manual_order_detail_keyboard(order_id: int) -> InlineKeyboardMarkup:
+    buttons = [
+        [
+            InlineKeyboardButton(text="🔑 Fulfill & Send Credentials", callback_data=f"adm_man_ful_{order_id}"),
+            InlineKeyboardButton(text="❌ Cancel & Refund", callback_data=f"adm_man_ref_{order_id}")
+        ],
+        [
+            InlineKeyboardButton(text="◀️ Back to Pending Orders", callback_data="adm_pending_orders")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -95,21 +169,6 @@ def get_admin_variants_keyboard(variants: list[Variant], product_id: int) -> Inl
     ])
     buttons.append([
         InlineKeyboardButton(text=f"{Emojis.BACK} Back to Products", callback_data="adm_variants")
-    ])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-def get_admin_stock_variant_select_keyboard(variants: list[Variant]) -> InlineKeyboardMarkup:
-    buttons = []
-    for var in variants:
-        prod_title = var.product.title if var.product else "Product"
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"📦 {prod_title} ➜ {var.name}",
-                callback_data=f"adm_stock_select_{var.id}"
-            )
-        ])
-    buttons.append([
-        InlineKeyboardButton(text=f"{Emojis.CANCEL} Cancel", callback_data="admin_home")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

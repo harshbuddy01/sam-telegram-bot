@@ -140,10 +140,18 @@ def get_product_detail_keyboard(
     variant_id: int,
     price: float,
     product_id: int,
-    has_stock: bool
+    has_stock: bool,
+    is_manual: bool = False
 ) -> InlineKeyboardMarkup:
     buttons = []
-    if has_stock:
+    if is_manual:
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"⚡  ORDER ACTIVATION  ({config.CURRENCY_SYMBOL}{price:.2f})  ⚡",
+                callback_data=f"buy_{variant_id}"
+            )
+        ])
+    elif has_stock:
         buttons.append([
             InlineKeyboardButton(
                 text=f"⚡  PURCHASE NOW  ({config.CURRENCY_SYMBOL}{price:.2f})  ⚡",
@@ -219,9 +227,16 @@ def get_orders_list_keyboard(orders: list[Order]) -> InlineKeyboardMarkup:
     buttons = []
     for order in orders:
         created_str = order.created_at.strftime("%d/%m %H:%M")
+        status = getattr(order, "status", "COMPLETED")
+        if status == "COMPLETED":
+            badge = "🟢"
+        elif status == "PENDING_DISPATCH":
+            badge = "⏳"
+        else:
+            badge = "❌"
         buttons.append([
             InlineKeyboardButton(
-                text=f"🧾 Order #{order.id}  •  {config.CURRENCY_SYMBOL}{order.amount}  ({created_str})",
+                text=f"{badge} #{order.id} • {config.CURRENCY_SYMBOL}{order.amount:.0f} ({created_str})",
                 callback_data=f"orderdetail_{order.id}"
             )
         ])

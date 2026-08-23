@@ -55,7 +55,10 @@ class Variant(Base):
     product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
     name = Column(String, nullable=False) # e.g. "1 Month Private Profile"
     price = Column(Float, nullable=False)
-    variant_type = Column(String, default="Private") # "Private", "Shared", "Key", "Warranty"
+    variant_type = Column(String, default="Private Profile") # "Private Profile", "Shared Profile", "Invite Link", "License Key"
+    fulfillment_type = Column(String(20), default="AUTOMATIC") # "AUTOMATIC" (stock draw) or "MANUAL" (dispatch within 1-2h)
+    manual_dispatch_time = Column(String(50), default="1–2 Hours") # Expected dispatch time for manual orders
+    input_prompt = Column(Text, nullable=True) # Custom prompt e.g. "Please send your Gmail address:"
     detailed_description = Column(Text, nullable=True) # Full description displayed before payment
     is_active = Column(Boolean, default=True)
 
@@ -68,7 +71,7 @@ class Stock(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     variant_id = Column(Integer, ForeignKey("variants.id", ondelete="CASCADE"), nullable=False)
-    content = Column(Text, nullable=False) # e.g. "email:password", "license_key", etc.
+    content = Column(Text, nullable=False) # e.g. "email:password | PIN: 1234 | Profile: Screen 1"
     is_used = Column(Boolean, default=False, index=True)
     added_at = Column(DateTime, default=datetime.datetime.utcnow)
     sold_at = Column(DateTime, nullable=True)
@@ -83,8 +86,11 @@ class Order(Base):
     user_id = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=False)
     variant_id = Column(Integer, ForeignKey("variants.id"), nullable=False)
     amount = Column(Float, nullable=False)
-    delivered_content = Column(Text, nullable=False)
+    status = Column(String(30), default="COMPLETED") # "COMPLETED", "PENDING_DISPATCH", "CANCELLED"
+    customer_input = Column(Text, nullable=True) # Target email/details provided by customer
+    delivered_content = Column(Text, nullable=True, default="") # Delivered accounts, PINs, or activation links
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    fulfilled_at = Column(DateTime, nullable=True)
 
     user = relationship("User", back_populates="orders")
     variant = relationship("Variant", back_populates="orders")

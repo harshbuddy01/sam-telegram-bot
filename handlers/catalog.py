@@ -197,13 +197,17 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
         await callback.message.answer("Selected plan was not found.")
         return
 
-    product = await get_product(session, variant.product_id)
-    stock_count = await get_available_stock_count(session, variant.id)
-    has_stock = stock_count > 0
+    is_manual = (getattr(variant, "fulfillment_type", "AUTOMATIC") == "MANUAL")
+    dispatch_time = getattr(variant, "manual_dispatch_time", "1–2 Hours") or "1–2 Hours"
 
-    stock_badge = f"🟢 <b>In Stock</b> ({stock_count} Available)" if has_stock else "🔴 <b>Out of Stock</b>"
-    prod_icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if product else "📦"
-    prod_title = product.title if product else "Product"
+    if is_manual:
+        stock_badge = "🟢 <b>Available for Activation</b>"
+        fulfillment_badge = f"⏱️ <b>Manual Activation (Dispatched within {dispatch_time})</b>"
+        action_note = "🛡️ <i>Click <b>'ORDER ACTIVATION'</b> to submit your details & buy with wallet balance:</i>"
+    else:
+        stock_badge = f"🟢 <b>In Stock</b> ({stock_count} Available)" if has_stock else "🔴 <b>Out of Stock</b>"
+        fulfillment_badge = "⚡ <b>100% Automated Instant Delivery</b>"
+        action_note = "🛡️ <i>Click <b>'PURCHASE NOW'</b> to buy instantly using your wallet balance:</i>"
 
     text = (
         f"💎 <b>PRODUCT SPECIFICATION & PRICING</b>\n"
@@ -212,8 +216,8 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
         f"✨ <b>Plan:</b> <code>{variant.name}</code>\n"
         f"🏷️ <b>Type:</b> {variant.variant_type}\n"
         f"💰 <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
-        f"📊 <b>Inventory:</b> {stock_badge}\n"
-        f"⚡ <b>Fulfillment:</b> 100% Automated Instant Delivery\n\n"
+        f"📊 <b>Status:</b> {stock_badge}\n"
+        f"🚀 <b>Fulfillment:</b> {fulfillment_badge}\n\n"
         f"<blockquote>"
     )
 
@@ -222,14 +226,14 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
     else:
         text += (
             f"✦ <b>Quality:</b> Official UHD/HD stream\n"
-            f"✦ <b>Access:</b> Instant login credentials\n"
-            f"✦ <b>Warranty:</b> Replacement guarantee for active duration\n"
-            f"✦ <b>Rules:</b> Use on assigned screen only"
+            f"✦ <b>Access:</b> Instant login credentials / activation\n"
+            f"✦ <b>Warranty:</b> 100% Replacement guarantee during validity\n"
+            f"✦ <b>Rules:</b> Use on assigned screen or personal email"
         )
 
     text += (
         f"</blockquote>\n\n"
-        f"🛡️ <i>Click <b>'PURCHASE NOW'</b> to buy instantly using your wallet balance:</i>"
+        f"{action_note}"
     )
 
     await callback.message.edit_text(
@@ -238,6 +242,7 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
             variant_id=variant.id,
             price=variant.price,
             product_id=variant.product_id,
-            has_stock=has_stock
+            has_stock=has_stock,
+            is_manual=is_manual
         )
     )

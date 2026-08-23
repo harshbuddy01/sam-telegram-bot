@@ -1,5 +1,7 @@
+import os
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import declarative_base
+from sqlalchemy import text
 import config
 
 engine = create_async_engine(
@@ -14,8 +16,6 @@ AsyncSessionLocal = async_sessionmaker(
     expire_on_commit=False
 )
 
-import os
-
 Base = declarative_base()
 
 async def init_db():
@@ -27,3 +27,18 @@ async def init_db():
             pass
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        
+        # Safe column migrations for existing SQLite databases
+        migrations = [
+            "ALTER TABLE variants ADD COLUMN fulfillment_type VARCHAR(20) DEFAULT 'AUTOMATIC'",
+            "ALTER TABLE variants ADD COLUMN manual_dispatch_time VARCHAR(50) DEFAULT '1–2 Hours'",
+            "ALTER TABLE variants ADD COLUMN input_prompt TEXT",
+            "ALTER TABLE orders ADD COLUMN status VARCHAR(30) DEFAULT 'COMPLETED'",
+            "ALTER TABLE orders ADD COLUMN customer_input TEXT",
+            "ALTER TABLE orders ADD COLUMN fulfilled_at DATETIME",
+        ]
+        for query in migrations:
+            try:
+                await conn.execute(text(query))
+            except Exception:
+                pass # Column already exists

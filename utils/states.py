@@ -7,6 +7,12 @@ class DepositStates(StatesGroup):
 class SearchStates(StatesGroup):
     waiting_for_query = State()
 
+class OrderManualStates(StatesGroup):
+    waiting_for_input = State()
+
+class AdminManualOrderStates(StatesGroup):
+    waiting_for_fulfillment_content = State()
+
 class AdminCategoryStates(StatesGroup):
     waiting_for_name = State()
     waiting_for_emoji = State()
