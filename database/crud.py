@@ -250,6 +250,29 @@ async def create_variant(
     await session.refresh(variant)
     return variant
 
+async def update_variant_details(
+    session: AsyncSession,
+    variant_id: int,
+    name: Optional[str] = None,
+    price: Optional[float] = None,
+    variant_type: Optional[str] = None,
+    detailed_description: Optional[str] = None
+) -> Optional[Variant]:
+    variant = await get_variant(session, variant_id)
+    if variant:
+        if name is not None:
+            variant.name = name
+        if price is not None:
+            variant.price = price
+        if variant_type is not None:
+            variant.variant_type = variant_type
+        if detailed_description is not None:
+            variant.detailed_description = detailed_description
+        await session.commit()
+        await session.refresh(variant)
+        return variant
+    return None
+
 async def delete_variant(session: AsyncSession, variant_id: int) -> bool:
     variant = await get_variant(session, variant_id)
     if variant:

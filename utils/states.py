@@ -43,3 +43,8 @@ class AdminBroadcastStates(StatesGroup):
 class AdminUserManagementStates(StatesGroup):
     waiting_for_user_query = State()
     waiting_for_amount_adjust = State()
+
+class AdminVariantEditStates(StatesGroup):
+    waiting_for_new_name = State()
+    waiting_for_new_price = State()
+    waiting_for_new_desc = State()

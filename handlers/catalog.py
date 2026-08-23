@@ -195,10 +195,15 @@ async def cb_product_variants(callback: types.CallbackQuery, session: AsyncSessi
         return
 
     variants = await get_variants_by_product(session, product_id)
-    icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id)
+    
+    if "<tg-emoji" in product.title:
+        title_header = f"<b>{product.title}</b>"
+    else:
+        icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id)
+        title_header = f"{icon} <b>{product.title}</b>"
 
     text = (
-        f"{icon} <b>{product.title.upper()}</b>\n"
+        f"{title_header}\n"
         f"{UI.SECTION_BAR}\n\n"
     )
     if product.description:
@@ -232,8 +237,14 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
     dispatch_time = getattr(variant, "manual_dispatch_time", "1–2 Hours") or "1–2 Hours"
 
     product = await get_product(session, variant.product_id)
-    prod_title = product.title if product else "Digital Item"
-    prod_icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if product else "📦"
+    if product and "<tg-emoji" in product.title:
+        prod_display = product.title
+    elif product:
+        prod_icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id)
+        prod_display = f"{prod_icon} {product.title}"
+    else:
+        prod_display = "📦 Digital Item"
+
     stock_count = await get_available_stock_count(session, variant.id)
     has_stock = (stock_count > 0) or is_manual
 
@@ -249,7 +260,7 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
     text = (
         f"💎 <b>PRODUCT SPECIFICATION & PRICING</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"📦 <b>Product:</b> {prod_icon} {prod_title}\n"
+        f"📦 <b>Product:</b> {prod_display}\n"
         f"✨ <b>Plan:</b> <b>{variant.name}</b>\n"
         f"🏷️ <b>Type:</b> {variant.variant_type}\n"
         f"💰 <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"

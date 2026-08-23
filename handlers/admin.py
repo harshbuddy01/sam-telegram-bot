@@ -26,6 +26,7 @@ from database.crud import (
     get_all_variants,
     get_variant,
     create_variant,
+    update_variant_details,
     delete_variant,
     add_stock_bulk,
     get_available_stock_count,
@@ -48,6 +49,7 @@ from keyboards.admin_keyboards import (
     get_admin_products_keyboard,
     get_admin_product_select_keyboard,
     get_admin_variants_keyboard,
+    get_admin_variant_edit_keyboard,
     get_admin_stock_inventory_keyboard,
     get_admin_variant_stock_actions_keyboard,
     get_admin_pending_orders_keyboard,
@@ -59,6 +61,7 @@ from utils.states import (
     AdminCategoryStates,
     AdminProductStates,
     AdminVariantStates,
+    AdminVariantEditStates,
     AdminStockStates,
     AdminBroadcastStates,
     AdminUserManagementStates,
@@ -852,6 +855,133 @@ async def cb_admin_prod_viewvars(callback: types.CallbackQuery, session: AsyncSe
         f"Click <b>'Delete'</b> or <b>'Add Plan'</b>:"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_variants_keyboard(variants, prod_id))
+
+@router.callback_query(F.data.startswith("adm_var_edit_"))
+async def cb_admin_var_edit(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    var_id = int(callback.data.split("_")[3])
+    variant = await get_variant(session, var_id)
+    if not variant:
+        await callback.message.answer("Plan not found.")
+        return
+
+    text = (
+        f"✏️ <b>EDIT SUBSCRIPTION PLAN</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📦 <b>Product:</b> <b>{variant.product.title if variant.product else 'Digital Item'}</b>\n"
+        f"✨ <b>Plan Name:</b> <b>{variant.name}</b>\n"
+        f"💰 <b>Current Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>\n"
+        f"🏷️ <b>Plan Type:</b> <code>{variant.variant_type}</code>\n"
+        f"📝 <b>Description:</b> <i>{variant.detailed_description or 'Default template'}</i>\n\n"
+        f"What would you like to edit?"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_variant_edit_keyboard(var_id, variant.product_id))
+
+@router.callback_query(F.data.startswith("adm_varedit_name_"))
+async def cb_admin_varedit_name(callback: types.CallbackQuery, state: FSMContext):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    var_id = int(callback.data.split("_")[3])
+    await state.update_data(edit_var_id=var_id)
+    await state.set_state(AdminVariantEditStates.waiting_for_new_name)
+    await callback.message.edit_text(
+        "✏️ <b>Edit Plan Name</b>\n\n"
+        "Send the new <b>Plan Name</b> (e.g. <code>1 Month Private Profile</code>):",
+        reply_markup=get_admin_cancel_keyboard(f"adm_var_edit_{var_id}")
+    )
+
+@router.message(AdminVariantEditStates.waiting_for_new_name, F.text)
+async def msg_admin_varedit_name(message: types.Message, state: FSMContext, session: AsyncSession):
+    data = await state.get_data()
+    var_id = data.get("edit_var_id")
+    await state.clear()
+    
+    new_name = get_message_html_text(message)
+    variant = await update_variant_details(session, var_id, name=new_name)
+    if variant:
+        await message.answer(
+            f"✅ <b>Plan Name Updated!</b>\n\n"
+            f"✨ <b>New Name:</b> <b>{variant.name}</b>\n"
+            f"💰 <b>Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>",
+            reply_markup=get_admin_variant_edit_keyboard(variant.id, variant.product_id)
+        )
+    else:
+        await message.answer("⚠️ Failed to update plan.")
+
+@router.callback_query(F.data.startswith("adm_varedit_price_"))
+async def cb_admin_varedit_price(callback: types.CallbackQuery, state: FSMContext):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    var_id = int(callback.data.split("_")[3])
+    await state.update_data(edit_var_id=var_id)
+    await state.set_state(AdminVariantEditStates.waiting_for_new_price)
+    await callback.message.edit_text(
+        "💰 <b>Edit Plan Price</b>\n\n"
+        "Send the new <b>Price in INR</b> (e.g. <code>149.0</code> or <code>199</code>):",
+        reply_markup=get_admin_cancel_keyboard(f"adm_var_edit_{var_id}")
+    )
+
+@router.message(AdminVariantEditStates.waiting_for_new_price, F.text)
+async def msg_admin_varedit_price(message: types.Message, state: FSMContext, session: AsyncSession):
+    try:
+        new_price = float(message.text.strip().replace("₹", "").replace("$", ""))
+    except ValueError:
+        await message.answer("⚠️ Invalid price format. Send a valid number (e.g. <code>149.0</code>):")
+        return
+
+    data = await state.get_data()
+    var_id = data.get("edit_var_id")
+    await state.clear()
+
+    variant = await update_variant_details(session, var_id, price=new_price)
+    if variant:
+        await message.answer(
+            f"✅ <b>Plan Price Updated!</b>\n\n"
+            f"✨ <b>Plan:</b> <b>{variant.name}</b>\n"
+            f"💰 <b>New Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>",
+            reply_markup=get_admin_variant_edit_keyboard(variant.id, variant.product_id)
+        )
+    else:
+        await message.answer("⚠️ Failed to update plan.")
+
+@router.callback_query(F.data.startswith("adm_varedit_desc_"))
+async def cb_admin_varedit_desc(callback: types.CallbackQuery, state: FSMContext):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    var_id = int(callback.data.split("_")[3])
+    await state.update_data(edit_var_id=var_id)
+    await state.set_state(AdminVariantEditStates.waiting_for_new_desc)
+    await callback.message.edit_text(
+        "📝 <b>Edit Plan Description Card</b>\n\n"
+        "Send the new detailed specifications and warranty details (supports HTML & emojis — or send <code>skip</code> for default):",
+        reply_markup=get_admin_cancel_keyboard(f"adm_var_edit_{var_id}")
+    )
+
+@router.message(AdminVariantEditStates.waiting_for_new_desc, F.text)
+async def msg_admin_varedit_desc(message: types.Message, state: FSMContext, session: AsyncSession):
+    new_desc = get_message_html_text(message)
+    if message.text.strip().lower() == "skip":
+        new_desc = None
+
+    data = await state.get_data()
+    var_id = data.get("edit_var_id")
+    await state.clear()
+
+    variant = await update_variant_details(session, var_id, detailed_description=new_desc)
+    if variant:
+        await message.answer(
+            f"✅ <b>Plan Description Updated!</b>\n\n"
+            f"✨ <b>Plan:</b> <b>{variant.name}</b>\n"
+            f"💰 <b>Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>",
+            reply_markup=get_admin_variant_edit_keyboard(variant.id, variant.product_id)
+        )
+    else:
+        await message.answer("⚠️ Failed to update plan.")
 
 @router.callback_query(F.data.startswith("adm_var_view_"))
 async def cb_admin_var_view(callback: types.CallbackQuery, session: AsyncSession):

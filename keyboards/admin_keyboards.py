@@ -216,7 +216,8 @@ def get_admin_variants_keyboard(variants: list[Variant], product_id: int) -> Inl
     for var in variants:
         clean_name = clean_button_text(var.name)
         buttons.append([
-            InlineKeyboardButton(text=f"✨ {clean_name} ({config.CURRENCY_SYMBOL}{var.price:.0f})", callback_data=f"adm_var_view_{var.id}"),
+            InlineKeyboardButton(text=f"✨ {clean_name} ({config.CURRENCY_SYMBOL}{var.price:.0f})", callback_data=f"adm_var_edit_{var.id}"),
+            InlineKeyboardButton(text="✏️ Edit", callback_data=f"adm_var_edit_{var.id}"),
             InlineKeyboardButton(text="🗑️ Delete", callback_data=f"adm_var_del_{var.id}")
         ])
     
@@ -226,6 +227,23 @@ def get_admin_variants_keyboard(variants: list[Variant], product_id: int) -> Inl
     buttons.append([
         InlineKeyboardButton(text=f"{Emojis.BACK} Back to Products", callback_data="adm_variants")
     ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_admin_variant_edit_keyboard(variant_id: int, product_id: int) -> InlineKeyboardMarkup:
+    buttons = [
+        [
+            InlineKeyboardButton(text="🏷️ Edit Plan Name", callback_data=f"adm_varedit_name_{variant_id}"),
+            InlineKeyboardButton(text="💰 Edit Price", callback_data=f"adm_varedit_price_{variant_id}")
+        ],
+        [
+            InlineKeyboardButton(text="📝 Edit Description", callback_data=f"adm_varedit_desc_{variant_id}"),
+            InlineKeyboardButton(text="🔑 Manage Stock", callback_data=f"adm_stock_manage_{variant_id}")
+        ],
+        [
+            InlineKeyboardButton(text="◀️ Back to Plans", callback_data=f"adm_selprod_viewvars_{product_id}"),
+            InlineKeyboardButton(text="🏠 Admin Home", callback_data="admin_home")
+        ]
+    ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_deposit_approval_keyboard(deposit_id: int) -> InlineKeyboardMarkup:
