@@ -3,6 +3,7 @@ Telegram Premium & Aesthetic UI Helper
 Provides custom emoji tags, luxury formatting, borders, and typography.
 """
 
+import re
 from typing import Optional
 
 class CustomEmojis:
