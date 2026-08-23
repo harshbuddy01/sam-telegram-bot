@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database.crud import get_user, get_user_orders, get_user_referrals_count, get_variant, get_product
 from database.models import Order
 from keyboards.user_keyboards import get_profile_keyboard, get_orders_list_keyboard, get_back_button
-from utils.emojis import Emojis, UI
+from utils.emojis import Emojis, UI, CustomEmojis, ce, format_emoji
 import config
 
 router = Router()
@@ -20,13 +20,17 @@ async def cb_nav_profile(callback: types.CallbackQuery, session: AsyncSession, b
     referrals_count = await get_user_referrals_count(session, user.telegram_id)
     joined_date_str = user.joined_at.strftime("%d %b %Y")
 
+    wallet_icon = ce(CustomEmojis.WALLET, "💰")
+    orders_icon = ce(CustomEmojis.ORDERS, "📦")
+    verified_icon = ce(CustomEmojis.VERIFIED, "✨")
+
     text = (
         f"👤 <b>CUSTOMER ACCOUNT DASHBOARD</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"🆔 <b>Telegram ID:</b> <code>{user.telegram_id}</code>\n"
-        f"👤 <b>Name:</b> <b>{user.full_name}</b>\n"
-        f"💰 <b>Wallet Balance:</b> <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n"
-        f"🛒 <b>Total Orders:</b> {len(orders)}\n"
+        f"👤 <b>Name:</b> <b>{user.full_name}</b> {verified_icon}\n"
+        f"{wallet_icon} <b>Wallet Balance:</b> <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n"
+        f"{orders_icon} <b>Total Orders:</b> {len(orders)}\n"
         f"💳 <b>Total Spent:</b> {config.CURRENCY_SYMBOL}{user.total_spent:.2f}\n"
         f"👥 <b>Friends Invited:</b> {referrals_count}\n"
         f"📅 <b>Member Since:</b> {joined_date_str}\n\n"
@@ -56,8 +60,9 @@ async def cb_view_orders(callback: types.CallbackQuery, session: AsyncSession):
         await callback.message.edit_text(text, reply_markup=kb)
         return
 
+    orders_icon = ce(CustomEmojis.ORDERS, "📦")
     text = (
-        f"📦 <b>YOUR ORDER HISTORY (Recent {len(orders)})</b>\n"
+        f"{orders_icon} <b>YOUR ORDER HISTORY (Recent {len(orders)})</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"Tap on any order below to inspect your delivered credentials, PINs & warranty info:\n"
     )
@@ -80,18 +85,21 @@ async def cb_order_detail(callback: types.CallbackQuery, session: AsyncSession):
     variant = await get_variant(session, order.variant_id)
     product = await get_product(session, variant.product_id) if variant else None
     prod_title = product.title if product else "Digital Service"
+    prod_icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if product else "📦"
     var_name = variant.name if variant else "Standard Plan"
     date_str = order.created_at.strftime("%d %b %Y, %H:%M UTC")
 
     status = getattr(order, "status", "COMPLETED")
+    key_icon = ce(CustomEmojis.KEY, "🔑")
+    warranty_icon = ce(CustomEmojis.WARRANTY, "🛡️")
     
     if status == "COMPLETED":
         status_line = "🟢 <b>Status:</b> Completed & Delivered"
         middle_block = (
-            f"🔑 <b>DELIVERED CREDENTIALS / KEY:</b>\n"
+            f"{key_icon} <b>DELIVERED CREDENTIALS / KEY:</b>\n"
             f"<pre><code>{order.delivered_content}</code></pre>\n"
         )
-        footer_line = f"🛡️ <i>Under 100% Replacement Warranty! Contact support ({config.SUPPORT_USERNAME}) for help.</i>"
+        footer_line = f"{warranty_icon} <i>Under 100% Replacement Warranty! Contact support ({config.SUPPORT_USERNAME}) for help.</i>"
     elif status == "PENDING_DISPATCH":
         status_line = "⏳ <b>Status:</b> In Progress (Manual Activation within 1–2h)"
         middle_block = (
@@ -110,7 +118,7 @@ async def cb_order_detail(callback: types.CallbackQuery, session: AsyncSession):
     text = (
         f"🧾 <b>ORDER RECEIPT #{order.id}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📦 <b>Product:</b> {prod_title}\n"
+        f"📦 <b>Product:</b> {prod_icon} {prod_title}\n"
         f"✨ <b>Plan:</b> <code>{var_name}</code>\n"
         f"💰 <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
         f"📅 <b>Ordered On:</b> {date_str}\n"
@@ -136,8 +144,11 @@ async def cb_nav_refer(callback: types.CallbackQuery, session: AsyncSession, bot
     ref_link = f"https://t.me/{bot_info.username}?start=ref_{callback.from_user.id}"
     referrals_count = await get_user_referrals_count(session, callback.from_user.id)
 
+    refer_icon = ce(CustomEmojis.REFER, "🎁")
+    sparkle_icon = ce(CustomEmojis.SPARKLE, "✨")
+
     text = (
-        f"🎁 <b>INVITE & EARN PROGRAM</b> 🎁\n"
+        f"{refer_icon} <b>INVITE & EARN PROGRAM</b> {refer_icon}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Share your referral link with friends and earn wallet rewards when they top up or buy!\n\n"
         f"💰 <b>Per-Order Reward:</b> <b>{config.REFERRAL_BONUS_PERCENT}% Cash Commission</b>\n"

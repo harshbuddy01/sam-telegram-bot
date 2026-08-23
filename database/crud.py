@@ -2,7 +2,9 @@ import datetime
 from typing import Optional, List, Tuple
 from sqlalchemy import select, func, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from database.models import User, Category, Product, Variant, Stock, Order, Deposit
+from utils.emojis import Emojis, CustomEmojis
 import config
 
 # ================= USER CRUD =================
@@ -753,7 +755,8 @@ async def seed_initial_data(session: AsyncSession):
              "✦ <b>Screen:</b> Shared Profile\n"
              "✦ <b>Warranty:</b> 30 Days Replacement Guarantee\n"
              "✦ <b>Delivery:</b> Instant Automated Delivery"),
-        ]
+        ],
+        custom_emoji_id=CustomEmojis.NETFLIX
     )
 
     await ensure_prod(
@@ -779,7 +782,8 @@ async def seed_initial_data(session: AsyncSession):
              "✦ <b>Screen:</b> 1 Dedicated Screen\n"
              "✦ <b>Warranty:</b> 365 Days Replacement Guarantee\n"
              "✦ <b>Delivery:</b> Instant Automated Delivery"),
-        ]
+        ],
+        custom_emoji_id=CustomEmojis.PRIME
     )
 
     await ensure_prod(
@@ -800,7 +804,8 @@ async def seed_initial_data(session: AsyncSession):
              "✦ <b>Warranty:</b> 1 Year Full Warranty\n"
              "✦ <b>Delivery:</b> Manual Activation within 1–2 Hours",
              "MANUAL", "1–2 Hours", "📧 Please send your Gmail address for 1 Year YouTube invite activation:"),
-        ]
+        ],
+        custom_emoji_id=CustomEmojis.YOUTUBE
     )
 
     await ensure_prod(
@@ -818,7 +823,7 @@ async def seed_initial_data(session: AsyncSession):
              "✦ <b>Warranty:</b> 1 Year Warranty\n"
              "✦ <b>Delivery:</b> Instant Activation"),
         ],
-        custom_emoji_id="5868508172108435919"
+        custom_emoji_id=CustomEmojis.SPOTIFY
     )
 
     await ensure_prod(
@@ -835,7 +840,8 @@ async def seed_initial_data(session: AsyncSession):
              "✦ <b>Quality:</b> 1080p Full Access\n"
              "✦ <b>Warranty:</b> 365 Days Warranty\n"
              "✦ <b>Delivery:</b> Instant Delivery"),
-        ]
+        ],
+        custom_emoji_id=CustomEmojis.CRUNCHYROLL
     )
 
     # --- 2. AI Tools & Productivity ---
@@ -849,7 +855,8 @@ async def seed_initial_data(session: AsyncSession):
              "✦ <b>Access:</b> Dedicated Private Login (Email+Pass)\n"
              "✦ <b>Warranty:</b> 30 Days Full Replacement\n"
              "✦ <b>Delivery:</b> Instant Delivery"),
-        ]
+        ],
+        custom_emoji_id=CustomEmojis.CHATGPT
     )
 
     await ensure_prod(
@@ -862,7 +869,8 @@ async def seed_initial_data(session: AsyncSession):
              "✦ <b>Access:</b> Dedicated Private Login\n"
              "✦ <b>Warranty:</b> 30 Days Replacement\n"
              "✦ <b>Delivery:</b> Instant Delivery"),
-        ]
+        ],
+        custom_emoji_id=CustomEmojis.CLAUDE
     )
 
     await ensure_prod(
@@ -882,7 +890,8 @@ async def seed_initial_data(session: AsyncSession):
              "✦ <b>Warranty:</b> Lifetime Guarantee\n"
              "✦ <b>Delivery:</b> Manual Activation within 1–2 Hours",
              "MANUAL", "1–2 Hours", "📧 Please send your Canva registered email address:"),
-        ]
+        ],
+        custom_emoji_id=CustomEmojis.CANVA
     )
 
     await ensure_prod(
@@ -900,7 +909,8 @@ async def seed_initial_data(session: AsyncSession):
              "✦ <b>Features:</b> 12 Months All Pro Effects & Tools\n"
              "✦ <b>Warranty:</b> 365 Days Warranty\n"
              "✦ <b>Delivery:</b> Instant Delivery"),
-        ]
+        ],
+        custom_emoji_id=CustomEmojis.CAPCUT
     )
 
     # --- 3. VPN Services ---
@@ -914,7 +924,8 @@ async def seed_initial_data(session: AsyncSession):
              "✦ <b>Features:</b> Double VPN, CyberSec, AdBlock\n"
              "✦ <b>Warranty:</b> 365 Days Replacement Guarantee\n"
              "✦ <b>Delivery:</b> Instant Delivery"),
-        ]
+        ],
+        custom_emoji_id=CustomEmojis.NORDVPN
     )
 
     # --- 4. Gaming & Utilities ---
@@ -932,7 +943,8 @@ async def seed_initial_data(session: AsyncSession):
              "✦ <b>Features:</b> 1 Year Full Telegram Premium Perks\n"
              "✦ <b>Delivery:</b> Manual Activation within 1–2 Hours",
              "MANUAL", "1–2 Hours", "✈️ Please send your Telegram @username for 1 Year Premium gift activation:"),
-        ]
+        ],
+        custom_emoji_id=CustomEmojis.TELEGRAM
     )
 
     await ensure_prod(
@@ -943,7 +955,8 @@ async def seed_initial_data(session: AsyncSession):
              "✨ <b>Discord Nitro - 1 Month</b>\n\n"
              "✦ <b>Features:</b> 2 Server Boosts, 500MB Uploads, HD Stream\n"
              "✦ <b>Delivery:</b> Instant Gift Link"),
-        ]
+        ],
+        custom_emoji_id=CustomEmojis.DISCORD
     )
 
     await session.commit()

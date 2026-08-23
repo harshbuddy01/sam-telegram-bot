@@ -3,25 +3,34 @@ from aiogram.filters import CommandStart, Command, CommandObject
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.crud import get_or_create_user, get_user
 from keyboards.user_keyboards import get_main_menu_keyboard
-from utils.emojis import Emojis, UI
+from utils.emojis import Emojis, UI, CustomEmojis, ce
 import config
 
 router = Router()
 
 def get_welcome_text(first_name: str) -> str:
+    crown = ce(CustomEmojis.CROWN, "👑")
+    verified = ce(CustomEmojis.VERIFIED, "✨")
+    shop = ce(CustomEmojis.SHOP, "🛍️")
+    search = ce(CustomEmojis.SEARCH, "🔍")
+    wallet = ce(CustomEmojis.WALLET, "💳")
+    orders = ce(CustomEmojis.ORDERS, "📦")
+    refer = ce(CustomEmojis.REFER, "🎁")
+    support = ce(CustomEmojis.SUPPORT, "🛟")
+
     return (
-        f"👑 <b>{config.STORE_NAME.upper()}</b>\n"
+        f"{crown} <b>{config.STORE_NAME.upper()}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"✨ <i>Verified Digital Subscriptions & Automated Delivery</i>\n\n"
+        f"{verified} <i>Verified Digital Subscriptions & Automated Delivery</i>\n\n"
         f"Hey <b>{first_name}</b> 👋 Welcome to our official store!\n\n"
         f"We provide genuine OTT subscriptions, AI subscriptions, VPNs, and tools at wholesale prices with <b>100% instant delivery</b>.\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🛍️ <b>Explore Store</b> ➜ Streaming, AI, VPNs & Utilities\n"
-        f"🔍 <b>Search Item</b> ➜ Find any subscription instantly\n"
-        f"💳 <b>Deposit Wallet</b> ➜ Automatic UPI QR top-up\n"
-        f"📦 <b>Order History</b> ➜ Active accounts & keys\n"
-        f"🎁 <b>Invite & Earn</b> ➜ Get {config.REFERRAL_BONUS_PERCENT}% commission per invite\n"
-        f"🛟 <b>24/7 Support</b> ➜ Warranty replacements & help\n"
+        f"{shop} <b>Explore Store</b> ➜ Streaming, AI, VPNs & Utilities\n"
+        f"{search} <b>Search Item</b> ➜ Find any subscription instantly\n"
+        f"{wallet} <b>Deposit Wallet</b> ➜ Automatic UPI QR top-up\n"
+        f"{orders} <b>Order History</b> ➜ Active accounts & keys\n"
+        f"{refer} <b>Invite & Earn</b> ➜ Get {config.REFERRAL_BONUS_PERCENT}% commission per invite\n"
+        f"{support} <b>24/7 Support</b> ➜ Warranty replacements & help\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"👇 <i>Select an option below to get started:</i>"
     )
