@@ -1,7 +1,21 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from database.models import Category, Product, Variant, Order
 from utils.emojis import Emojis, UI, clean_button_text
 import config
+
+def get_persistent_menu_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
+    """
+    Persistent bottom menu keyboard shown at bottom of user chat on mobile/desktop.
+    Matches the layout shown in screenshot: Shop, Deposit, My Profile, Support, Refer & Earn.
+    """
+    buttons = [
+        [KeyboardButton(text="🛍️  Shop")],
+        [KeyboardButton(text="💳  Deposit"), KeyboardButton(text="👤  My Profile")],
+        [KeyboardButton(text="🚨  Support"), KeyboardButton(text="🌟  Refer & Earn")]
+    ]
+    if is_admin:
+        buttons.append([KeyboardButton(text="⚡  Admin Control Panel")])
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, is_persistent=True)
 
 def get_main_menu_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:
     buttons = [

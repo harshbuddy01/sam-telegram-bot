@@ -1,8 +1,8 @@
-from aiogram import Router, F, types
+from aiogram import Router, F, types, Bot
 from aiogram.filters import CommandStart, Command, CommandObject
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.crud import get_or_create_user, get_user
-from keyboards.user_keyboards import get_main_menu_keyboard
+from keyboards.user_keyboards import get_main_menu_keyboard, get_persistent_menu_keyboard
 from utils.emojis import Emojis, UI, format_emoji, CustomEmojis, ce
 import config
 
@@ -23,16 +23,21 @@ def get_welcome_text(first_name: str) -> str:
         f"{ce(CustomEmojis.REFER, '🎁')} <b>Invite & Earn</b> ➜ Get {config.REFERRAL_BONUS_PERCENT}% commission per invite\n"
         f"{ce(CustomEmojis.SUPPORT, '🛟')} <b>24/7 Support</b> ➜ Warranty replacements & help\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"👇 <i>Select an option below to get started:</i>"
+        f"👇 <b>Select an option from the menu below:</b>"
     )
 
 @router.message(CommandStart())
-async def cmd_start(message: types.Message, command: CommandObject, session: AsyncSession):
+async def cmd_start(message: types.Message, bot: Bot, session: AsyncSession, command: CommandObject = None):
     referrer_id = None
-    if command.args and command.args.startswith("ref_"):
-        ref_str = command.args.replace("ref_", "")
-        if ref_str.isdigit():
-            referrer_id = int(ref_str)
+    if command and command.args:
+        args = command.args.strip()
+        if args.startswith("ref_"):
+            try:
+                referrer_id = int(args.split("_")[1])
+                if referrer_id == message.from_user.id:
+                    referrer_id = None
+            except ValueError:
+                pass
 
     user, is_new = await get_or_create_user(
         session=session,
@@ -116,6 +121,108 @@ async def cb_nav_guide(callback: types.CallbackQuery):
         [InlineKeyboardButton(text="◀️  Back to Main Menu", callback_data="nav_home")]
     ])
     await callback.message.edit_text(text, reply_markup=kb)
+
+# Persistent Bottom Menu Shortcuts
+@router.message(F.text.in_(["🛍️  Shop", "🛍️ Shop", "Shop", "🏪 Shop"]))
+async def msg_btn_shop(message: types.Message, session: AsyncSession):
+    from database.crud import get_active_categories
+    from keyboards.user_keyboards import get_categories_keyboard
+    categories = await get_active_categories(session)
+    cat_lines = []
+    for cat in categories:
+        if "<tg-emoji" in cat.name:
+            cat_lines.append(f"• <b>{cat.name}</b>")
+        else:
+            icon = format_emoji(cat.emoji or "📁", cat.custom_emoji_id)
+            cat_lines.append(f"• {icon} <b>{cat.name}</b>")
+    cat_block = "\n".join(cat_lines) if cat_lines else "<i>No categories active yet.</i>"
+    text = (
+        f"{ce(CustomEmojis.SHOP, '🛍️')} <b>PREMIUM DIGITAL STORE CATALOG</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"<b>Available Categories:</b>\n"
+        f"{cat_block}\n\n"
+        f"👇 <i>Choose a category below to explore:</i>"
+    )
+    await message.answer(text, reply_markup=get_categories_keyboard(categories))
+
+@router.message(F.text.in_(["💳  Deposit", "💳 Deposit", "Deposit", "💼 Deposit"]))
+async def msg_btn_deposit(message: types.Message, state: FSMContext, session: AsyncSession):
+    await state.clear()
+    from keyboards.user_keyboards import get_deposit_preset_keyboard
+    user = await get_user(session, message.from_user.id)
+    balance = user.wallet_balance if user else 0.0
+    text = (
+        f"{ce(CustomEmojis.WALLET, '💳')} <b>WALLET TOP-UP & INSTANT DEPOSIT</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"💰 <b>Current Balance:</b> <code>{config.CURRENCY_SYMBOL}{balance:.2f}</code>\n\n"
+        f"Choose an instant top-up preset below (Automated UPI QR):"
+    )
+    await message.answer(text, reply_markup=get_deposit_preset_keyboard())
+
+@router.message(F.text.in_(["👤  My Profile", "👤 My Profile", "My Profile", "Profile"]))
+async def msg_btn_profile(message: types.Message, session: AsyncSession):
+    from database.crud import get_user_orders, get_user_referrals_count
+    from keyboards.user_keyboards import get_profile_keyboard
+    user = await get_user(session, message.from_user.id)
+    if not user:
+        await message.answer("Please send /start first.")
+        return
+    orders = await get_user_orders(session, user.telegram_id, limit=50)
+    referrals_count = await get_user_referrals_count(session, user.telegram_id)
+    text = (
+        f"{ce(CustomEmojis.CROWN, '👑')} <b>CUSTOMER ACCOUNT DASHBOARD</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"👤 <b>Customer:</b> <b>{message.from_user.full_name}</b>\n"
+        f"🆔 <b>Telegram ID:</b> <code>{message.from_user.id}</code>\n"
+        f"{ce(CustomEmojis.WALLET, '💳')} <b>Wallet Balance:</b> <code>{config.CURRENCY_SYMBOL}{user.wallet_balance:.2f}</code>\n"
+        f"{ce(CustomEmojis.ORDERS, '📦')} <b>Completed Orders:</b> <code>{len(orders)}</code>\n"
+        f"{ce(CustomEmojis.REFER, '🎁')} <b>Invited Referrals:</b> <code>{referrals_count}</code>\n"
+        f"{ce(CustomEmojis.VERIFIED, '✨')} <b>Account Status:</b> <code>Verified VIP Customer</code>\n\n"
+        f"{UI.SECTION_BAR}"
+    )
+    await message.answer(text, reply_markup=get_profile_keyboard())
+
+@router.message(F.text.in_(["🚨  Support", "🚨 Support", "Support", "🛟 Support"]))
+async def msg_btn_support(message: types.Message):
+    text = (
+        f"{ce(CustomEmojis.SUPPORT, '🛟')} <b>24/7 CUSTOMER SUPPORT HELPDESK</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"✦ <b>Official Support:</b> {config.SUPPORT_USERNAME}\n"
+        f"✦ <b>Official Channel:</b> {config.CHANNEL_LINK}\n\n"
+        f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>All purchases come with a 100% money-back / replacement guarantee.</i>"
+    )
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💬  Contact Support Agent", url=f"https://t.me/{config.SUPPORT_USERNAME.replace('@', '')}")],
+        [InlineKeyboardButton(text="◀️  Back to Main Menu", callback_data="nav_home")]
+    ])
+    await message.answer(text, reply_markup=kb)
+
+@router.message(F.text.in_(["🌟  Refer & Earn", "🌟 Refer & Earn", "Refer & Earn", "Refer"]))
+async def msg_btn_refer(message: types.Message, session: AsyncSession):
+    bot_info = await message.bot.get_me()
+    ref_link = f"https://t.me/{bot_info.username}?start=ref_{message.from_user.id}"
+    text = (
+        f"{ce(CustomEmojis.REFER, '🎁')} <b>INVITE FRIENDS & EARN REWARDS</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"Earn <b>{config.REFERRAL_BONUS_PERCENT}% wallet credit</b> on every purchase made by your invited friends!\n\n"
+        f"🔗 <b>Your Exclusive Referral Link:</b>\n"
+        f"<code>{ref_link}</code>"
+    )
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔗 Share Referral Link", url=f"https://t.me/share/url?url={ref_link}&text=Join%20SAM%20Store%20for%20genuine%20OTT%20and%20AI%20subscriptions!")],
+        [InlineKeyboardButton(text="◀️ Back to Main Menu", callback_data="nav_home")]
+    ])
+    await message.answer(text, reply_markup=kb)
+
+@router.message(F.text.in_(["⚡  Admin Control Panel", "⚡ Admin Control Panel", "Admin"]))
+async def msg_btn_admin(message: types.Message):
+    if not config.is_admin(message.from_user.id):
+        return
+    from handlers.admin import cmd_admin
+    # invoke admin command directly
+    await message.answer("Redirecting to Admin Panel... Send /admin to view.")
 
 def extract_custom_emoji_ids(message: types.Message) -> list[str]:
     """Extracts custom_emoji_id from entities, stickers, and replied messages."""
