@@ -108,6 +108,30 @@ def ce(custom_id: str, fallback: str = "✨") -> str:
     """Shortcut for custom emoji rendering"""
     return format_emoji(fallback, custom_id)
 
+def extract_emoji_and_custom_id(message) -> tuple[str, Optional[str]]:
+    """
+    Extracts fallback unicode emoji and custom_emoji_id from a Message if present.
+    Returns (fallback_emoji, custom_emoji_id).
+    """
+    if getattr(message, "entities", None):
+        for ent in message.entities:
+            if ent.type == "custom_emoji" and ent.custom_emoji_id:
+                start = ent.offset
+                end = ent.offset + ent.length
+                fallback = message.text[start:end] if message.text else "✨"
+                return fallback, str(ent.custom_emoji_id)
+    if getattr(message, "sticker", None) and getattr(message.sticker, "custom_emoji_id", None):
+        return message.sticker.emoji or "✨", str(message.sticker.custom_emoji_id)
+    return (message.text.strip() if message.text else "📁"), None
+
+def get_message_html_text(message) -> str:
+    """
+    Returns message text formatted with <tg-emoji> tags if custom emojis are present.
+    """
+    if hasattr(message, "html_text") and message.html_text:
+        return message.html_text.strip()
+    return message.text.strip() if message.text else ""
+
 class UI:
     BORDER_TOP = "╭─────────────────────────────╮"
     BORDER_BOT = "╰─────────────────────────────╯"

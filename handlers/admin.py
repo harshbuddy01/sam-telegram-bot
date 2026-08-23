@@ -63,7 +63,13 @@ from utils.states import (
     AdminUserManagementStates,
     AdminManualOrderStates
 )
-from utils.emojis import Emojis, UI, format_emoji
+from utils.emojis import (
+    Emojis,
+    UI,
+    format_emoji,
+    extract_emoji_and_custom_id,
+    get_message_html_text
+)
 import config
 
 router = Router()
@@ -662,27 +668,42 @@ async def cb_admin_cat_add(callback: types.CallbackQuery, state: FSMContext):
         reply_markup=get_admin_cancel_keyboard("adm_cats")
     )
 
-@router.message(AdminCategoryStates.waiting_for_name)
+@router.message(AdminCategoryStates.waiting_for_name, F.text)
 async def msg_admin_cat_name(message: types.Message, state: FSMContext):
     cat_name = message.text.strip()
-    await state.update_data(cat_name=cat_name)
+    html_name = get_message_html_text(message)
+    fallback_icon, custom_emoji_id = extract_emoji_and_custom_id(message)
+    await state.update_data(
+        cat_name=cat_name,
+        cat_custom_emoji_id=custom_emoji_id
+    )
     await state.set_state(AdminCategoryStates.waiting_for_emoji)
     await message.answer(
-        f"📁 Category Name: <b>{cat_name}</b>\n\n"
-        f"Now send an <b>Emoji / Icon</b> for this category (e.g. 🎬 or 🛡️ or 🤖):"
+        f"📁 Category Name: <b>{html_name}</b>\n\n"
+        f"Now send an <b>Emoji / Icon</b> for this category (send any standard or Telegram Premium custom emoji):"
     )
 
-@router.message(AdminCategoryStates.waiting_for_emoji)
+@router.message(AdminCategoryStates.waiting_for_emoji, F.text)
 async def msg_admin_cat_emoji(message: types.Message, state: FSMContext, session: AsyncSession):
-    emoji = message.text.strip()
     data = await state.get_data()
     cat_name = data.get("cat_name")
+    cat_custom_id = data.get("cat_custom_emoji_id")
+
+    emoji, custom_emoji_id = extract_emoji_and_custom_id(message)
+    final_custom_id = custom_emoji_id or cat_custom_id
+
     await state.clear()
 
-    category = await create_category(session, name=cat_name, emoji=emoji)
+    category = await create_category(
+        session,
+        name=cat_name,
+        emoji=emoji,
+        custom_emoji_id=final_custom_id
+    )
     categories = await get_all_categories(session)
+    rendered_icon = format_emoji(category.emoji, category.custom_emoji_id)
     await message.answer(
-        f"✅ Category <b>{category.emoji} {category.name}</b> created successfully!",
+        f"✅ Category <b>{rendered_icon} {category.name}</b> created successfully!",
         reply_markup=get_admin_categories_keyboard(categories)
     )
 
@@ -710,8 +731,11 @@ async def cb_admin_cat_viewprods(callback: types.CallbackQuery, session: AsyncSe
     category = await get_category(session, cat_id)
     products = await get_products_by_category(session, cat_id)
 
+    cat_icon = format_emoji(category.emoji if category else "📁", category.custom_emoji_id if category else None)
+    cat_name = category.name if category else "Category"
+
     text = (
-        f"📦 <b>PRODUCTS IN: {category.emoji} {category.name}</b>\n"
+        f"📦 <b>PRODUCTS IN: {cat_icon} {cat_name}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Total Products: {len(products)}\n\n"
         f"Click <b>'Delete'</b> to remove or <b>'Add'</b> to create a new product:"
@@ -754,21 +778,30 @@ async def cb_admin_prod_add(callback: types.CallbackQuery, state: FSMContext):
         reply_markup=get_admin_cancel_keyboard(f"adm_selcat_viewprods_{cat_id}")
     )
 
-@router.message(AdminProductStates.waiting_for_title)
+@router.message(AdminProductStates.waiting_for_title, F.text)
 async def msg_admin_prod_title(message: types.Message, state: FSMContext):
     title = message.text.strip()
-    await state.update_data(title=title)
+    fallback_icon, custom_emoji_id = extract_emoji_and_custom_id(message)
+    await state.update_data(
+        title=title,
+        prod_custom_emoji_id=custom_emoji_id
+    )
     await state.set_state(AdminProductStates.waiting_for_emoji)
-    await message.answer("Send an <b>Emoji / Icon</b> for this product (e.g. 🍿 or 📦 or 🤖):")
+    await message.answer("Send an <b>Emoji / Icon</b> for this product (send any standard or Telegram Premium custom emoji):")
 
-@router.message(AdminProductStates.waiting_for_emoji)
+@router.message(AdminProductStates.waiting_for_emoji, F.text)
 async def msg_admin_prod_emoji(message: types.Message, state: FSMContext):
-    emoji = message.text.strip()
-    await state.update_data(emoji=emoji)
+    data = await state.get_data()
+    prod_custom_id = data.get("prod_custom_emoji_id")
+
+    emoji, custom_emoji_id = extract_emoji_and_custom_id(message)
+    final_custom_id = custom_emoji_id or prod_custom_id
+
+    await state.update_data(emoji=emoji, custom_emoji_id=final_custom_id)
     await state.set_state(AdminProductStates.waiting_for_desc)
     await message.answer("Send a <b>Short Description</b> for this product (or send <code>skip</code>):")
 
-@router.message(AdminProductStates.waiting_for_desc)
+@router.message(AdminProductStates.waiting_for_desc, F.text)
 async def msg_admin_prod_desc(message: types.Message, state: FSMContext, session: AsyncSession):
     desc = message.text.strip()
     if desc.lower() == "skip":
@@ -778,12 +811,21 @@ async def msg_admin_prod_desc(message: types.Message, state: FSMContext, session
     cat_id = data.get("cat_id")
     title = data.get("title")
     emoji = data.get("emoji")
+    custom_emoji_id = data.get("custom_emoji_id")
     await state.clear()
 
-    product = await create_product(session, category_id=cat_id, title=title, emoji=emoji, description=desc)
+    product = await create_product(
+        session,
+        category_id=cat_id,
+        title=title,
+        emoji=emoji,
+        description=desc,
+        custom_emoji_id=custom_emoji_id
+    )
     products = await get_products_by_category(session, cat_id)
+    rendered_icon = format_emoji(product.emoji, product.custom_emoji_id)
     await message.answer(
-        f"✅ Product <b>{product.emoji} {product.title}</b> created successfully!",
+        f"✅ Product <b>{rendered_icon} {product.title}</b> created successfully!",
         reply_markup=get_admin_products_keyboard(products, cat_id)
     )
 
