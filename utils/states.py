@@ -48,3 +48,10 @@ class AdminVariantEditStates(StatesGroup):
     waiting_for_new_name = State()
     waiting_for_new_price = State()
     waiting_for_new_desc = State()
+
+class AdminCategoryEditStates(StatesGroup):
+    waiting_for_new_name = State()
+
+class AdminProductEditStates(StatesGroup):
+    waiting_for_new_title = State()
+    waiting_for_new_desc = State()

@@ -16,11 +16,13 @@ from database.crud import (
     get_all_categories,
     get_category,
     create_category,
+    update_category_details,
     delete_category,
     get_products_by_category,
     get_all_products,
     get_product,
     create_product,
+    update_product_details,
     delete_product,
     get_variants_by_product,
     get_all_variants,
@@ -45,8 +47,10 @@ from keyboards.admin_keyboards import (
     get_admin_recent_orders_keyboard,
     get_admin_order_audit_keyboard,
     get_admin_categories_keyboard,
+    get_admin_category_edit_keyboard,
     get_admin_category_select_keyboard,
     get_admin_products_keyboard,
+    get_admin_product_edit_keyboard,
     get_admin_product_select_keyboard,
     get_admin_variants_keyboard,
     get_admin_variant_edit_keyboard,
@@ -59,7 +63,9 @@ from keyboards.admin_keyboards import (
 )
 from utils.states import (
     AdminCategoryStates,
+    AdminCategoryEditStates,
     AdminProductStates,
+    AdminProductEditStates,
     AdminVariantStates,
     AdminVariantEditStates,
     AdminStockStates,
@@ -677,6 +683,66 @@ async def cb_admin_cats(callback: types.CallbackQuery, session: AsyncSession):
     )
     await callback.message.edit_text(text, reply_markup=get_admin_categories_keyboard(categories))
 
+@router.callback_query(F.data.startswith("adm_cat_edit_"))
+async def cb_admin_cat_edit(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    cat_id = int(callback.data.split("_")[3])
+    category = await get_category(session, cat_id)
+    if not category:
+        await callback.message.answer("Category not found.")
+        return
+
+    text = (
+        f"{ce(CustomEmojis.SHOP, '📁')} <b>EDIT CATEGORY</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"📁 <b>Current Name:</b> <b>{category.name}</b>\n"
+        f"🆔 <b>Category ID:</b> <code>{category.id}</code>\n\n"
+        f"<i>What would you like to do?</i>"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_category_edit_keyboard(cat_id))
+
+@router.callback_query(F.data.startswith("adm_catedit_name_"))
+async def cb_admin_catedit_name(callback: types.CallbackQuery, state: FSMContext):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    cat_id = int(callback.data.split("_")[3])
+    await state.update_data(edit_cat_id=cat_id)
+    await state.set_state(AdminCategoryEditStates.waiting_for_new_name)
+    await callback.message.edit_text(
+        "✏️ <b>Edit Category Name & Emojis</b>\n\n"
+        "Send the new <b>Category Name</b> (with emojis if you like):\n"
+        "e.g. <code>🍿 Streaming Services</code> or <code>🤖 AI Tools</code>",
+        reply_markup=get_admin_cancel_keyboard(f"adm_cat_edit_{cat_id}")
+    )
+
+@router.message(AdminCategoryEditStates.waiting_for_new_name, F.text)
+async def msg_admin_catedit_name(message: types.Message, state: FSMContext, session: AsyncSession):
+    data = await state.get_data()
+    cat_id = data.get("edit_cat_id")
+    await state.clear()
+
+    html_name = get_message_html_text(message)
+    _, fallback_icon, custom_emoji_id = extract_clean_name_and_emoji(message)
+
+    category = await update_category_details(
+        session,
+        category_id=cat_id,
+        name=html_name,
+        emoji=fallback_icon or "📁",
+        custom_emoji_id=custom_emoji_id
+    )
+    if category:
+        await message.answer(
+            f"✅ <b>Category Updated Successfully!</b>\n\n"
+            f"📁 <b>New Name:</b> <b>{category.name}</b>",
+            reply_markup=get_admin_category_edit_keyboard(category.id)
+        )
+    else:
+        await message.answer("⚠️ Failed to update category.")
+
 @router.callback_query(F.data.startswith("adm_cat_view_"))
 async def cb_admin_cat_view(callback: types.CallbackQuery, session: AsyncSession):
     if not check_admin(callback.from_user.id):
@@ -767,9 +833,108 @@ async def cb_admin_cat_viewprods(callback: types.CallbackQuery, session: AsyncSe
         f"📦 <b>PRODUCTS IN: {cat_name}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Total Products: {len(products)}\n\n"
-        f"Click <b>'Delete'</b> to remove or <b>'Add'</b> to create a new product:"
+        f"Click <b>'Edit'</b> or <b>'Delete'</b> to manage products:"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_products_keyboard(products, cat_id))
+
+@router.callback_query(F.data.startswith("adm_prod_edit_"))
+async def cb_admin_prod_edit(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    prod_id = int(callback.data.split("_")[3])
+    product = await get_product(session, prod_id)
+    if not product:
+        await callback.message.answer("Product not found.")
+        return
+
+    text = (
+        f"{ce(CustomEmojis.SPARKLE, '📦')} <b>EDIT PRODUCT</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"📦 <b>Current Title:</b> <b>{product.title}</b>\n"
+        f"🆔 <b>Product ID:</b> <code>{product.id}</code>\n"
+        f"📝 <b>Description:</b> <i>{product.description or 'No description'}</i>\n\n"
+        f"<i>What would you like to edit?</i>"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_product_edit_keyboard(prod_id, product.category_id))
+
+@router.callback_query(F.data.startswith("adm_prodedit_title_"))
+async def cb_admin_prodedit_title(callback: types.CallbackQuery, state: FSMContext):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    prod_id = int(callback.data.split("_")[3])
+    await state.update_data(edit_prod_id=prod_id)
+    await state.set_state(AdminProductEditStates.waiting_for_new_title)
+    await callback.message.edit_text(
+        "✏️ <b>Edit Product Title & Emojis</b>\n\n"
+        "Send the new <b>Product Title</b> (with emojis if you like):\n"
+        "e.g. <code>Netflix Premium 4K</code> or <code>Prime Video HD</code>",
+        reply_markup=get_admin_cancel_keyboard(f"adm_prod_edit_{prod_id}")
+    )
+
+@router.message(AdminProductEditStates.waiting_for_new_title, F.text)
+async def msg_admin_prodedit_title(message: types.Message, state: FSMContext, session: AsyncSession):
+    data = await state.get_data()
+    prod_id = data.get("edit_prod_id")
+    await state.clear()
+
+    html_title = get_message_html_text(message)
+    _, fallback_icon, custom_emoji_id = extract_clean_name_and_emoji(message)
+
+    product = await update_product_details(
+        session,
+        product_id=prod_id,
+        title=html_title,
+        emoji=fallback_icon or "📦",
+        custom_emoji_id=custom_emoji_id
+    )
+    if product:
+        await message.answer(
+            f"✅ <b>Product Title Updated!</b>\n\n"
+            f"📦 <b>New Title:</b> <b>{product.title}</b>",
+            reply_markup=get_admin_product_edit_keyboard(product.id, product.category_id)
+        )
+    else:
+        await message.answer("⚠️ Failed to update product.")
+
+@router.callback_query(F.data.startswith("adm_prodedit_desc_"))
+async def cb_admin_prodedit_desc(callback: types.CallbackQuery, state: FSMContext):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    prod_id = int(callback.data.split("_")[3])
+    await state.update_data(edit_prod_id=prod_id)
+    await state.set_state(AdminProductEditStates.waiting_for_new_desc)
+    await callback.message.edit_text(
+        "📝 <b>Edit Product Description</b>\n\n"
+        "Send the new short description for this product (or send <code>skip</code> to clear):",
+        reply_markup=get_admin_cancel_keyboard(f"adm_prod_edit_{prod_id}")
+    )
+
+@router.message(AdminProductEditStates.waiting_for_new_desc, F.text)
+async def msg_admin_prodedit_desc(message: types.Message, state: FSMContext, session: AsyncSession):
+    data = await state.get_data()
+    prod_id = data.get("edit_prod_id")
+    await state.clear()
+
+    html_desc = get_message_html_text(message)
+    if message.text.strip().lower() == "skip":
+        html_desc = None
+
+    product = await update_product_details(
+        session,
+        product_id=prod_id,
+        description=html_desc
+    )
+    if product:
+        await message.answer(
+            f"✅ <b>Product Description Updated!</b>\n\n"
+            f"📦 <b>Product:</b> <b>{product.title}</b>",
+            reply_markup=get_admin_product_edit_keyboard(product.id, product.category_id)
+        )
+    else:
+        await message.answer("⚠️ Failed to update product.")
 
 @router.callback_query(F.data.startswith("adm_prod_view_"))
 async def cb_admin_prod_view(callback: types.CallbackQuery, session: AsyncSession):

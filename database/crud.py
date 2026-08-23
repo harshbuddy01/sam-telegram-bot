@@ -196,6 +196,48 @@ async def search_products(session: AsyncSession, query: str) -> List[Product]:
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
+async def update_category_details(
+    session: AsyncSession,
+    category_id: int,
+    name: str,
+    emoji: Optional[str] = "📁",
+    custom_emoji_id: Optional[str] = None
+) -> Optional[Category]:
+    category = await get_category(session, category_id)
+    if category:
+        category.name = name
+        if emoji:
+            category.emoji = emoji
+        if custom_emoji_id:
+            category.custom_emoji_id = custom_emoji_id
+        await session.commit()
+        await session.refresh(category)
+        return category
+    return None
+
+async def update_product_details(
+    session: AsyncSession,
+    product_id: int,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    emoji: Optional[str] = None,
+    custom_emoji_id: Optional[str] = None
+) -> Optional[Product]:
+    product = await get_product(session, product_id)
+    if product:
+        if title:
+            product.title = title
+        if description is not None:
+            product.description = description
+        if emoji:
+            product.emoji = emoji
+        if custom_emoji_id:
+            product.custom_emoji_id = custom_emoji_id
+        await session.commit()
+        await session.refresh(product)
+        return product
+    return None
+
 async def delete_product(session: AsyncSession, product_id: int) -> bool:
     product = await get_product(session, product_id)
     if product:

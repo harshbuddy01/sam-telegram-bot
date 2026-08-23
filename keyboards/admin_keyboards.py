@@ -134,7 +134,7 @@ def get_admin_categories_keyboard(categories: list[Category]) -> InlineKeyboardM
         clean_name = clean_button_text(cat.name)
         btn_kwargs = {
             "text": clean_name,
-            "callback_data": f"adm_cat_view_{cat.id}"
+            "callback_data": f"adm_cat_edit_{cat.id}"
         }
         if cat.custom_emoji_id and str(cat.custom_emoji_id).isdigit():
             btn_kwargs["icon_custom_emoji_id"] = str(cat.custom_emoji_id)
@@ -143,15 +143,29 @@ def get_admin_categories_keyboard(categories: list[Category]) -> InlineKeyboardM
 
         buttons.append([
             InlineKeyboardButton(**btn_kwargs),
+            InlineKeyboardButton(text="✏️ Edit", callback_data=f"adm_cat_edit_{cat.id}"),
             InlineKeyboardButton(text="🗑️ Delete", callback_data=f"adm_cat_del_{cat.id}")
         ])
     
     buttons.append([
-        InlineKeyboardButton(text="➕ Add New Category", callback_data="adm_cat_add")
+        InlineKeyboardButton(text="➕ Add New Category", callback_data="adm_cat_add", icon_custom_emoji_id=CustomEmojis.SPARKLE)
     ])
     buttons.append([
-        InlineKeyboardButton(text=f"{Emojis.BACK} Back to Admin Panel", callback_data="admin_home")
+        InlineKeyboardButton(text="Back to Admin Panel", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
     ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_admin_category_edit_keyboard(category_id: int) -> InlineKeyboardMarkup:
+    buttons = [
+        [
+            InlineKeyboardButton(text="🏷️ Edit Name & Emojis", callback_data=f"adm_catedit_name_{category_id}", icon_custom_emoji_id=CustomEmojis.SPARKLE),
+            InlineKeyboardButton(text="📦 View Products", callback_data=f"adm_selcat_viewprods_{category_id}", icon_custom_emoji_id=CustomEmojis.SHOP)
+        ],
+        [
+            InlineKeyboardButton(text="🗑️ Delete Category", callback_data=f"adm_cat_del_{category_id}", icon_custom_emoji_id=CustomEmojis.LOCK),
+            InlineKeyboardButton(text="◀️ Back to Categories", callback_data="adm_cats", icon_custom_emoji_id=CustomEmojis.CROWN)
+        ]
+    ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_admin_category_select_keyboard(categories: list[Category], action: str = "addprod") -> InlineKeyboardMarkup:
@@ -171,7 +185,7 @@ def get_admin_category_select_keyboard(categories: list[Category], action: str =
             InlineKeyboardButton(**btn_kwargs)
         ])
     buttons.append([
-        InlineKeyboardButton(text=f"{Emojis.CANCEL} Cancel", callback_data="admin_home")
+        InlineKeyboardButton(text="Cancel", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -181,7 +195,7 @@ def get_admin_products_keyboard(products: list[Product], category_id: int) -> In
         clean_title = clean_button_text(prod.title)
         btn_kwargs = {
             "text": clean_title,
-            "callback_data": f"adm_prod_view_{prod.id}"
+            "callback_data": f"adm_prod_edit_{prod.id}"
         }
         if prod.custom_emoji_id and str(prod.custom_emoji_id).isdigit():
             btn_kwargs["icon_custom_emoji_id"] = str(prod.custom_emoji_id)
@@ -190,15 +204,33 @@ def get_admin_products_keyboard(products: list[Product], category_id: int) -> In
 
         buttons.append([
             InlineKeyboardButton(**btn_kwargs),
+            InlineKeyboardButton(text="✏️ Edit", callback_data=f"adm_prod_edit_{prod.id}"),
             InlineKeyboardButton(text="🗑️ Delete", callback_data=f"adm_prod_del_{prod.id}")
         ])
     
     buttons.append([
-        InlineKeyboardButton(text="➕ Add Product to this Category", callback_data=f"adm_prod_add_{category_id}")
+        InlineKeyboardButton(text="➕ Add Product to this Category", callback_data=f"adm_prod_add_{category_id}", icon_custom_emoji_id=CustomEmojis.SPARKLE)
     ])
     buttons.append([
-        InlineKeyboardButton(text=f"{Emojis.BACK} Back to Categories", callback_data="adm_prods")
+        InlineKeyboardButton(text="Back to Categories", callback_data="adm_prods", icon_custom_emoji_id=CustomEmojis.SHOP)
     ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_admin_product_edit_keyboard(product_id: int, category_id: int) -> InlineKeyboardMarkup:
+    buttons = [
+        [
+            InlineKeyboardButton(text="🏷️ Edit Title & Emojis", callback_data=f"adm_prodedit_title_{product_id}", icon_custom_emoji_id=CustomEmojis.SPARKLE),
+            InlineKeyboardButton(text="📝 Edit Description", callback_data=f"adm_prodedit_desc_{product_id}", icon_custom_emoji_id=CustomEmojis.DIAMOND)
+        ],
+        [
+            InlineKeyboardButton(text="✨ Manage Plans & Pricing", callback_data=f"adm_selprod_viewvars_{product_id}", icon_custom_emoji_id=CustomEmojis.KEY),
+            InlineKeyboardButton(text="🗑️ Delete Product", callback_data=f"adm_prod_del_{product_id}", icon_custom_emoji_id=CustomEmojis.LOCK)
+        ],
+        [
+            InlineKeyboardButton(text="◀️ Back to Products", callback_data=f"adm_selcat_viewprods_{category_id}", icon_custom_emoji_id=CustomEmojis.SHOP),
+            InlineKeyboardButton(text="🏠 Admin Home", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+        ]
+    ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_admin_product_select_keyboard(products: list[Product], action: str = "addvar") -> InlineKeyboardMarkup:
@@ -206,10 +238,10 @@ def get_admin_product_select_keyboard(products: list[Product], action: str = "ad
     for prod in products:
         clean_title = clean_button_text(prod.title)
         buttons.append([
-            InlineKeyboardButton(text=f"{prod.emoji} {clean_title}", callback_data=f"adm_selprod_{action}_{prod.id}")
+            InlineKeyboardButton(text=f"{clean_title}", callback_data=f"adm_selprod_{action}_{prod.id}", icon_custom_emoji_id=CustomEmojis.SPARKLE)
         ])
     buttons.append([
-        InlineKeyboardButton(text=f"{Emojis.CANCEL} Cancel", callback_data="admin_home")
+        InlineKeyboardButton(text="Cancel", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
