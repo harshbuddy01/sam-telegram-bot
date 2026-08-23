@@ -897,14 +897,14 @@ async def cb_admin_var_add(callback: types.CallbackQuery, state: FSMContext):
         reply_markup=get_admin_cancel_keyboard(f"adm_selprod_viewvars_{prod_id}")
     )
 
-@router.message(AdminVariantStates.waiting_for_name)
+@router.message(AdminVariantStates.waiting_for_name, F.text)
 async def msg_admin_var_name(message: types.Message, state: FSMContext):
-    name = message.text.strip()
+    name = get_message_html_text(message)
     await state.update_data(name=name)
     await state.set_state(AdminVariantStates.waiting_for_price)
     await message.answer(f"Plan Name: <b>{name}</b>\n\nNow send the <b>Price</b> in INR (e.g. <code>129.0</code>):")
 
-@router.message(AdminVariantStates.waiting_for_price)
+@router.message(AdminVariantStates.waiting_for_price, F.text)
 async def msg_admin_var_price(message: types.Message, state: FSMContext):
     try:
         price = float(message.text.strip().replace("₹", "").replace("$", ""))
@@ -916,21 +916,21 @@ async def msg_admin_var_price(message: types.Message, state: FSMContext):
     await state.set_state(AdminVariantStates.waiting_for_type)
     await message.answer("Now send the <b>Variant Type</b> (e.g. <code>Private Profile</code>, <code>Shared Profile</code>, <code>Invite Link</code>):")
 
-@router.message(AdminVariantStates.waiting_for_type)
+@router.message(AdminVariantStates.waiting_for_type, F.text)
 async def msg_admin_var_type(message: types.Message, state: FSMContext):
-    variant_type = message.text.strip()
+    variant_type = get_message_html_text(message)
     await state.update_data(variant_type=variant_type)
     await state.set_state(AdminVariantStates.waiting_for_detailed_desc)
     await message.answer(
         "📝 <b>Detailed Description Card</b> (Shown to customer before buying):\n\n"
         "Send the detailed specifications, features, warranty, and rules:\n\n"
-        "<i>Or send <code>skip</code> to use the default format.</i>"
+        "<i>(Supports Telegram Premium emojis and HTML tags — or send <code>skip</code> to use the default format.)</i>"
     )
 
-@router.message(AdminVariantStates.waiting_for_detailed_desc)
+@router.message(AdminVariantStates.waiting_for_detailed_desc, F.text)
 async def msg_admin_var_desc(message: types.Message, state: FSMContext, session: AsyncSession):
-    detailed_desc = message.text.strip()
-    if detailed_desc.lower() == "skip":
+    detailed_desc = get_message_html_text(message)
+    if message.text.strip().lower() == "skip":
         detailed_desc = None
 
     data = await state.get_data()

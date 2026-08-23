@@ -119,7 +119,7 @@ async def cb_order_detail(callback: types.CallbackQuery, session: AsyncSession):
         f"🧾 <b>ORDER RECEIPT #{order.id}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"📦 <b>Product:</b> {prod_icon} {prod_title}\n"
-        f"✨ <b>Plan:</b> <code>{var_name}</code>\n"
+        f"✨ <b>Plan:</b> <b>{var_name}</b>\n"
         f"💰 <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
         f"📅 <b>Ordered On:</b> {date_str}\n"
         f"{status_line}\n\n"

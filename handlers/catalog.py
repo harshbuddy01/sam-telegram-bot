@@ -221,7 +221,7 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
         f"💎 <b>PRODUCT SPECIFICATION & PRICING</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"📦 <b>Product:</b> {prod_icon} {prod_title}\n"
-        f"✨ <b>Plan:</b> <code>{variant.name}</code>\n"
+        f"✨ <b>Plan:</b> <b>{variant.name}</b>\n"
         f"🏷️ <b>Type:</b> {variant.variant_type}\n"
         f"💰 <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
         f"📊 <b>Status:</b> {stock_badge}\n"

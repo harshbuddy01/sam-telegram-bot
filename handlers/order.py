@@ -73,15 +73,15 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
             f"✍️ <b>ACTIVATION DETAILS REQUIRED</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"📦 <b>Product:</b> {prod_icon} {prod_title}\n"
-            f"✨ <b>Plan:</b> <code>{variant.name}</code>\n"
+            f"✨ <b>Plan:</b> <b>{variant.name}</b>\n"
             f"💰 <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
-            f"⏱️ <b>Dispatch Time:</b> Within {variant.manual_dispatch_time or '1–2 Hours'}\n\n"
+            f"⏱️ <b>Dispatch Time:</b> within {getattr(variant, 'manual_dispatch_time', '1–2 Hours')}\n\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"👉 <b>{prompt_msg}</b>\n\n"
-            f"<i>(Type your details below to place this order):</i>"
+            f"<i>(Reply to this message with your details to complete your order)</i>"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Cancel", callback_data=f"var_{variant.id}")]
+            [InlineKeyboardButton(text="◀️  Cancel & Go Back", callback_data=f"var_{variant.id}")]
         ])
         await callback.message.edit_text(text, reply_markup=kb)
         return
@@ -102,7 +102,7 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
         f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>ORDER #{order.id} COMPLETED & DELIVERED!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"📦 <b>Product:</b> {prod_icon} {prod_title}\n"
-        f"✨ <b>Plan:</b> <code>{variant.name}</code>\n"
+        f"✨ <b>Plan:</b> <b>{variant.name}</b>\n"
         f"💰 <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
         f"💳 <b>Remaining Balance:</b> {config.CURRENCY_SYMBOL}{user.balance - order.amount:.2f}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
