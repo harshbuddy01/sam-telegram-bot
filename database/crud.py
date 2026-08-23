@@ -80,9 +80,20 @@ async def get_user_referrals_count(session: AsyncSession, telegram_id: int) -> i
 # ================= CATEGORY CRUD =================
 
 async def get_active_categories(session: AsyncSession) -> List[Category]:
-    stmt = select(Category).where(Category.is_active == True).order_by(Category.sort_order, Category.id)
+    stmt = (
+        select(Category)
+        .join(Product, Category.id == Product.category_id)
+        .where(Category.is_active == True, Product.is_active == True)
+        .distinct()
+        .order_by(Category.sort_order, Category.id)
+    )
     result = await session.execute(stmt)
-    return list(result.scalars().all())
+    cats = list(result.scalars().all())
+    if not cats:
+        stmt_all = select(Category).where(Category.is_active == True).order_by(Category.sort_order, Category.id)
+        res_all = await session.execute(stmt_all)
+        cats = list(res_all.scalars().all())
+    return cats
 
 async def get_all_categories(session: AsyncSession) -> List[Category]:
     stmt = select(Category).order_by(Category.sort_order, Category.id)
@@ -412,220 +423,309 @@ async def reject_deposit(session: AsyncSession, deposit_id: int) -> Optional[Dep
     await session.refresh(deposit)
     return deposit
 
-# ================= SEED INITIAL STORE DATA =================
-
 async def seed_initial_data(session: AsyncSession):
     """
-    Seeds initial categories and products matching the screenshots
-    if the database is currently empty.
+    Seeds complete real SAM STORE catalog across all digital categories
+    with detailed specifications, duration plans, and zero dummy stock.
     """
-    cat_check = await session.execute(select(func.count(Category.id)))
-    if (cat_check.scalar() or 0) > 0:
-        return # Already seeded
+    # 1. Standardize Categories
+    cats_data = [
+        ("OTT & Streaming", "🍿", 1),
+        ("AI Tools & Productivity", "🤖", 2),
+        ("VPN Services", "🛡️", 3),
+        ("Education & Developer", "🎓", 4),
+        ("Gaming & Utilities", "🎮", 5),
+        ("Freebies & Deals", "🎁", 6),
+    ]
 
-    # Seed Categories
-    cat1 = Category(name="Streaming Services", emoji="🎬", sort_order=1)
-    cat2 = Category(name="Legally paid services", emoji="💼", sort_order=2)
-    cat3 = Category(name="Education & Tools", emoji="🎓", sort_order=3)
-    cat4 = Category(name="Vpn Services", emoji="🛡️", sort_order=4)
-    cat5 = Category(name="Freebies", emoji="🎁", sort_order=5)
-    cat6 = Category(name="Ai tools", emoji="🤖", sort_order=6)
-    cat7 = Category(name="PS5 Games", emoji="🎮", sort_order=7)
-
-    session.add_all([cat1, cat2, cat3, cat4, cat5, cat6, cat7])
+    # Clean old duplicate legacy category names if any
+    legacy_cleanup = ["Streaming Services", "Legally paid services", "Education & Tools", "Vpn Services", "Freebies", "Ai tools", "PS5 Games", "🎬 OTT & Streaming", "🤖 🤖 AI Tools & Productivity", "🛡️ 🛡️ VPN Services", "🎓 🎓 Education & Developer", "🎮 🎮 Gaming & Utilities", "🎁 🎁 Freebies & Deals"]
+    for old_name in legacy_cleanup:
+        old_cat = (await session.execute(select(Category).where(Category.name == old_name))).scalar_one_or_none()
+        if old_cat:
+            # Check if any products under it
+            prods = (await session.execute(select(Product).where(Product.category_id == old_cat.id))).scalars().all()
+            if not prods:
+                await session.delete(old_cat)
+            else:
+                # rename to clean version if applicable
+                if "Streaming" in old_name:
+                    old_cat.name = "🍿 OTT & Streaming"
+                    old_cat.emoji = "🍿"
+                elif "AI" in old_name or "Ai" in old_name:
+                    old_cat.name = "🤖 AI Tools & Productivity"
+                    old_cat.emoji = "🤖"
+                elif "VPN" in old_name or "Vpn" in old_name:
+                    old_cat.name = "🛡️ VPN Services"
+                    old_cat.emoji = "🛡️"
+                elif "Education" in old_name:
+                    old_cat.name = "🎓 Education & Developer"
+                    old_cat.emoji = "🎓"
+                elif "Gaming" in old_name or "PS5" in old_name:
+                    old_cat.name = "🎮 Gaming & Utilities"
+                    old_cat.emoji = "🎮"
+                elif "Freebie" in old_name:
+                    old_cat.name = "🎁 Freebies & Deals"
+                    old_cat.emoji = "🎁"
     await session.commit()
 
-    # Seed Products under Streaming Services
-    p_prime = Product(
-        category_id=cat1.id,
-        title="Prime Video",
-        emoji="📦",
-        description="Amazon Prime Video Premium subscriptions with 4K UHD streaming."
-    )
-    p_yt = Product(
-        category_id=cat1.id,
-        title="YouTube Premium",
-        emoji="📦",
-        description="Ad-free YouTube & YouTube Music with background playback."
-    )
-    p_netflix = Product(
-        category_id=cat1.id,
-        title="Netflix Premium 4K",
-        emoji="📦",
-        description="Official Netflix Ultra HD 4K streaming accounts with private or shared profiles."
-    )
-    p_spotify = Product(
-        category_id=cat1.id,
-        title="Spotify Promocodes",
-        emoji="📦",
-        description="Spotify Premium individual or family redeem codes."
-    )
-    p_zee5 = Product(
-        category_id=cat1.id,
-        title="Zee5 Premium",
-        emoji="📦",
-        description="Zee5 All-Access plan with HD streaming and movies."
-    )
-    p_apple = Product(
-        category_id=cat1.id,
-        title="Apple Music",
-        emoji="📦",
-        description="Apple Music Lossless audio subscriptions."
-    )
-    p_hotstar = Product(
-        category_id=cat1.id,
-        title="Jio Hotstar Super/Premium",
-        emoji="📦",
-        description="Disney+ Hotstar live cricket & movie streaming plans."
-    )
-    p_crunchy = Product(
-        category_id=cat1.id,
-        title="Crunchyroll Mega Fan",
-        emoji="📦",
-        description="Ad-free anime in 1080p with offline viewing."
+    cats_dict = {}
+    for name, emoji, order in cats_data:
+        stmt = select(Category).where(Category.name == name)
+        res = await session.execute(stmt)
+        cat = res.scalars().first()
+        if not cat:
+            cat = Category(name=name, emoji=emoji, sort_order=order)
+            session.add(cat)
+            await session.flush()
+        cats_dict[name] = cat
+
+    # Helper to create product & plans
+    async def ensure_prod(cat_name, title, emoji, desc, variants_list):
+        cat = cats_dict.get(cat_name)
+        if not cat:
+            return
+        stmt = select(Product).where(Product.title == title)
+        res = await session.execute(stmt)
+        prod = res.scalars().first()
+        if not prod:
+            prod = Product(category_id=cat.id, title=title, emoji=emoji, description=desc)
+            session.add(prod)
+            await session.flush()
+        
+        for v_name, v_price, v_type, v_spec in variants_list:
+            v_stmt = select(Variant).where(Variant.product_id == prod.id, Variant.name == v_name)
+            v_res = await session.execute(v_stmt)
+            if not v_res.scalars().first():
+                session.add(Variant(
+                    product_id=prod.id,
+                    name=v_name,
+                    price=v_price,
+                    variant_type=v_type,
+                    detailed_description=v_spec
+                ))
+
+    # --- 1. OTT & Streaming ---
+    await ensure_prod(
+        "OTT & Streaming", "Netflix Premium 4K UHD", "🍿",
+        "Official Netflix Ultra HD 4K streaming accounts with private or shared profiles.",
+        [
+            ("1 Month Private Profile", 129.0, "Private Profile",
+             "✨ <b>Netflix 4K UHD - 1 Month Private Profile</b>\n\n"
+             "✦ <b>Quality:</b> 4K Ultra HD + HDR & Dolby Atmos\n"
+             "✦ <b>Screen:</b> 1 Dedicated Screen (Pin Locked)\n"
+             "✦ <b>Devices:</b> Smart TV, Mobile, Laptop, Tablet, PC\n"
+             "✦ <b>Warranty:</b> 30 Days Replacement Guarantee\n"
+             "✦ <b>Rules:</b> Do not change password or email\n"
+             "✦ <b>Delivery:</b> Instant Automated Delivery"),
+            ("3 Months Private Profile", 359.0, "Private Profile",
+             "✨ <b>Netflix 4K UHD - 3 Months Private Profile</b>\n\n"
+             "✦ <b>Quality:</b> 4K Ultra HD + HDR\n"
+             "✦ <b>Screen:</b> 1 Dedicated Screen (Your Own Pin)\n"
+             "✦ <b>Warranty:</b> 90 Days Full Warranty\n"
+             "✦ <b>Delivery:</b> Instant Automated Delivery"),
+            ("6 Months Private Profile", 679.0, "Private Profile",
+             "✨ <b>Netflix 4K UHD - 6 Months Private Profile</b>\n\n"
+             "✦ <b>Quality:</b> Ultra HD 4K Quality\n"
+             "✦ <b>Screen:</b> 1 Dedicated Screen\n"
+             "✦ <b>Warranty:</b> 180 Days Full Warranty\n"
+             "✦ <b>Delivery:</b> Instant Automated Delivery"),
+            ("12 Months Private Profile", 1249.0, "Private Profile",
+             "✨ <b>Netflix 4K UHD - 12 Months (1 Year)</b>\n\n"
+             "✦ <b>Quality:</b> Ultra HD 4K Quality (1 Year)\n"
+             "✦ <b>Screen:</b> 1 Dedicated Pin-locked Profile\n"
+             "✦ <b>Warranty:</b> 365 Days Replacement Guarantee\n"
+             "✦ <b>Delivery:</b> Instant Automated Delivery"),
+            ("1 Month Shared Profile", 99.0, "Shared Profile",
+             "✨ <b>Netflix 4K UHD - 1 Month Shared Profile</b>\n\n"
+             "✦ <b>Quality:</b> Ultra HD 4K Quality\n"
+             "✦ <b>Screen:</b> Shared Profile\n"
+             "✦ <b>Warranty:</b> 30 Days Replacement Guarantee\n"
+             "✦ <b>Delivery:</b> Instant Automated Delivery"),
+        ]
     )
 
-    session.add_all([p_prime, p_yt, p_netflix, p_spotify, p_zee5, p_apple, p_hotstar, p_crunchy])
-    await session.commit()
-
-    # Seed Variants for Netflix with rich descriptions (matching image 5)
-    v1 = Variant(
-        product_id=p_netflix.id,
-        name="1 Month Private Profile",
-        price=129.0,
-        variant_type="Private Profile",
-        detailed_description=(
-            "✨ <b>Netflix 4K UHD - 1 Month Private Profile</b>\n\n"
-            "✦ <b>Quality:</b> 4K Ultra HD + HDR & Dolby Atmos\n"
-            "✦ <b>Screen:</b> 1 Dedicated Screen (Pin Locked)\n"
-            "✦ <b>Devices:</b> Smart TV, Mobile, Laptop, Tablet, PC\n"
-            "✦ <b>Warranty:</b> 30 Days Replacement Guarantee\n"
-            "✦ <b>Rules:</b> Do not change password or email\n"
-            "✦ <b>Delivery:</b> Instant Automated Delivery upon purchase"
-        )
-    )
-    v2 = Variant(
-        product_id=p_netflix.id,
-        name="3 Months Private Profile",
-        price=359.0,
-        variant_type="Private Profile",
-        detailed_description=(
-            "✨ <b>Netflix 4K UHD - 3 Months Private Profile</b>\n\n"
-            "✦ <b>Quality:</b> 4K Ultra HD + HDR\n"
-            "✦ <b>Screen:</b> 1 Dedicated Screen (Your Own Pin)\n"
-            "✦ <b>Warranty:</b> 90 Days Full Warranty\n"
-            "✦ <b>Delivery:</b> Instant Automated Delivery"
-        )
-    )
-    v3 = Variant(
-        product_id=p_netflix.id,
-        name="6 Months Private Profile",
-        price=679.0,
-        variant_type="Private Profile",
-        detailed_description=(
-            "✨ <b>Netflix 4K UHD - 6 Months Private Profile</b>\n\n"
-            "✦ <b>Quality:</b> Ultra HD 4K Quality\n"
-            "✦ <b>Screen:</b> 1 Dedicated Screen\n"
-            "✦ <b>Warranty:</b> 180 Days Full Warranty\n"
-            "✦ <b>Delivery:</b> Instant Automated Delivery"
-        )
-    )
-    v4 = Variant(
-        product_id=p_netflix.id,
-        name="12 Months Private Profile",
-        price=1249.0,
-        variant_type="Private Profile",
-        detailed_description=(
-            "✨ <b>Netflix 4K UHD - 12 Months Private Profile</b>\n\n"
-            "✦ <b>Quality:</b> Ultra HD 4K Quality (1 Year)\n"
-            "✦ <b>Screen:</b> 1 Dedicated Pin-locked Profile\n"
-            "✦ <b>Warranty:</b> 365 Days Replacement Guarantee\n"
-            "✦ <b>Delivery:</b> Instant Automated Delivery"
-        )
-    )
-    v5 = Variant(
-        product_id=p_netflix.id,
-        name="1 Month Shared Profile",
-        price=99.0,
-        variant_type="Shared Profile",
-        detailed_description=(
-            "✨ <b>Netflix 4K UHD - 1 Month Shared Profile</b>\n\n"
-            "✦ <b>Quality:</b> Ultra HD 4K Quality\n"
-            "✦ <b>Screen:</b> Shared Profile\n"
-            "✦ <b>Warranty:</b> 30 Days Replacement Guarantee\n"
-            "✦ <b>Delivery:</b> Instant Automated Delivery"
-        )
+    await ensure_prod(
+        "OTT & Streaming", "Amazon Prime Video", "📦",
+        "Amazon Prime Video Premium with 4K UHD HDR streaming.",
+        [
+            ("1 Month Private Profile", 79.0, "Private Profile",
+             "✨ <b>Amazon Prime Video - 1 Month Private Profile</b>\n\n"
+             "✦ <b>Quality:</b> 4K Ultra HD + HDR\n"
+             "✦ <b>Screen:</b> 1 Dedicated Screen (Pin Locked)\n"
+             "✦ <b>Devices:</b> Smart TV, Mobile, Laptop, PC\n"
+             "✦ <b>Warranty:</b> 30 Days Full Replacement Warranty\n"
+             "✦ <b>Delivery:</b> Instant Automated Delivery"),
+            ("6 Months Private Profile", 299.0, "Private Profile",
+             "✨ <b>Amazon Prime Video - 6 Months Private Profile</b>\n\n"
+             "✦ <b>Quality:</b> 4K Ultra HD Streaming\n"
+             "✦ <b>Screen:</b> 1 Dedicated Screen\n"
+             "✦ <b>Warranty:</b> 180 Days Replacement Guarantee\n"
+             "✦ <b>Delivery:</b> Instant Automated Delivery"),
+            ("12 Months Private Profile", 499.0, "Private Profile",
+             "✨ <b>Amazon Prime Video - 12 Months (1 Year)</b>\n\n"
+             "✦ <b>Quality:</b> 4K Ultra HD Streaming\n"
+             "✦ <b>Screen:</b> 1 Dedicated Screen\n"
+             "✦ <b>Warranty:</b> 365 Days Replacement Guarantee\n"
+             "✦ <b>Delivery:</b> Instant Automated Delivery"),
+        ]
     )
 
-    # Seed Variants for Prime Video
-    pv1 = Variant(
-        product_id=p_prime.id,
-        name="1 Month Private Profile",
-        price=79.0,
-        variant_type="Private Profile",
-        detailed_description=(
-            "✨ <b>Amazon Prime Video - 1 Month Private Profile</b>\n\n"
-            "✦ <b>Quality:</b> 4K Ultra HD + HDR\n"
-            "✦ <b>Screen:</b> 1 Dedicated Screen (Pin Locked)\n"
-            "✦ <b>Devices:</b> Smart TV, Mobile, Laptop, PC\n"
-            "✦ <b>Warranty:</b> 30 Days Full Replacement Warranty\n"
-            "✦ <b>Delivery:</b> Instant Automated Delivery"
-        )
-    )
-    pv2 = Variant(
-        product_id=p_prime.id,
-        name="6 Months Private Profile",
-        price=299.0,
-        variant_type="Private Profile",
-        detailed_description=(
-            "✨ <b>Amazon Prime Video - 6 Months Private Profile</b>\n\n"
-            "✦ <b>Quality:</b> 4K Ultra HD Streaming\n"
-            "✦ <b>Screen:</b> 1 Dedicated Screen\n"
-            "✦ <b>Warranty:</b> 180 Days Replacement Guarantee\n"
-            "✦ <b>Delivery:</b> Instant Automated Delivery"
-        )
-    )
-    pv3 = Variant(
-        product_id=p_prime.id,
-        name="12 Months Private Profile",
-        price=499.0,
-        variant_type="Private Profile",
-        detailed_description=(
-            "✨ <b>Amazon Prime Video - 12 Months (1 Year)</b>\n\n"
-            "✦ <b>Quality:</b> 4K Ultra HD Streaming\n"
-            "✦ <b>Screen:</b> 1 Dedicated Screen\n"
-            "✦ <b>Warranty:</b> 365 Days Replacement Guarantee\n"
-            "✦ <b>Delivery:</b> Instant Automated Delivery"
-        )
+    await ensure_prod(
+        "OTT & Streaming", "YouTube Premium", "🔴",
+        "Ad-free YouTube & YouTube Music with background playback & downloads.",
+        [
+            ("1 Month Family Invite", 49.0, "Invite Link",
+             "✨ <b>YouTube Premium - 1 Month Plan</b>\n\n"
+             "✦ <b>Features:</b> Ad-Free YouTube + YouTube Music\n"
+             "✦ <b>Playback:</b> Background play & offline downloads\n"
+             "✦ <b>Delivery:</b> Instant activation invite link"),
+            ("12 Months Family Invite", 299.0, "Invite Link",
+             "✨ <b>YouTube Premium - 1 Year Plan</b>\n\n"
+             "✦ <b>Features:</b> 12 Months Ad-Free YouTube\n"
+             "✦ <b>Warranty:</b> 1 Year Full Warranty\n"
+             "✦ <b>Delivery:</b> Instant activation"),
+        ]
     )
 
-    # Seed Variants for YouTube Premium
-    yt1 = Variant(
-        product_id=p_yt.id,
-        name="1 Month Family Invite",
-        price=49.0,
-        variant_type="Invitation Link",
-        detailed_description=(
-            "✨ <b>YouTube Premium - 1 Month Plan</b>\n\n"
-            "✦ <b>Features:</b> Ad-Free YouTube + YouTube Music\n"
-            "✦ <b>Playback:</b> Background play & offline downloads\n"
-            "✦ <b>Delivery:</b> Instant activation invite link"
-        )
-    )
-    yt2 = Variant(
-        product_id=p_yt.id,
-        name="12 Months Family Invite",
-        price=299.0,
-        variant_type="Invitation Link",
-        detailed_description=(
-            "✨ <b>YouTube Premium - 1 Year Plan</b>\n\n"
-            "✦ <b>Features:</b> 12 Months Ad-Free YouTube\n"
-            "✦ <b>Warranty:</b> 1 Year Full Warranty\n"
-            "✦ <b>Delivery:</b> Instant activation"
-        )
+    await ensure_prod(
+        "OTT & Streaming", "Spotify Premium", "🎵",
+        "Spotify Premium individual & family promo codes with high quality audio.",
+        [
+            ("3 Months Promo Code", 99.0, "Redeem Code",
+             "✨ <b>Spotify Premium - 3 Months Code</b>\n\n"
+             "✦ <b>Quality:</b> 320kbps Lossless Audio\n"
+             "✦ <b>Features:</b> Ad-free music & unlimited skips\n"
+             "✦ <b>Delivery:</b> Instant Redeem Link"),
+            ("12 Months Individual", 299.0, "Redeem Code",
+             "✨ <b>Spotify Premium - 1 Year Code</b>\n\n"
+             "✦ <b>Features:</b> 1 Year Ad-Free Music\n"
+             "✦ <b>Warranty:</b> 1 Year Warranty\n"
+             "✦ <b>Delivery:</b> Instant Activation"),
+        ]
     )
 
-    session.add_all([v1, v2, v3, v4, v5, pv1, pv2, pv3, yt1, yt2])
+    await ensure_prod(
+        "OTT & Streaming", "Crunchyroll Mega Fan", "🍥",
+        "Ad-free anime streaming in full HD with offline downloads.",
+        [
+            ("1 Month Mega Fan", 69.0, "Private Account",
+             "✨ <b>Crunchyroll Mega Fan - 1 Month</b>\n\n"
+             "✦ <b>Quality:</b> 1080p HD Anime Streaming\n"
+             "✦ <b>Features:</b> Simulcast 1 hour after Japan\n"
+             "✦ <b>Delivery:</b> Instant Delivery"),
+            ("12 Months Mega Fan", 399.0, "Private Account",
+             "✨ <b>Crunchyroll Mega Fan - 1 Year</b>\n\n"
+             "✦ <b>Quality:</b> 1080p Full Access\n"
+             "✦ <b>Warranty:</b> 365 Days Warranty\n"
+             "✦ <b>Delivery:</b> Instant Delivery"),
+        ]
+    )
+
+    # --- 2. AI Tools & Productivity ---
+    await ensure_prod(
+        "AI Tools & Productivity", "ChatGPT Plus (GPT-4o)", "🤖",
+        "Official OpenAI ChatGPT Plus subscription with GPT-4o, DALL-E 3 & plugins.",
+        [
+            ("1 Month Private Account", 499.0, "Private Account",
+             "✨ <b>ChatGPT Plus - 1 Month Private</b>\n\n"
+             "✦ <b>Model:</b> GPT-4o, GPT-4, DALL-E 3, Browsing\n"
+             "✦ <b>Access:</b> Dedicated Private Login (Email+Pass)\n"
+             "✦ <b>Warranty:</b> 30 Days Full Replacement\n"
+             "✦ <b>Delivery:</b> Instant Delivery"),
+        ]
+    )
+
+    await ensure_prod(
+        "AI Tools & Productivity", "Claude 3.5 Sonnet Pro", "🧠",
+        "Anthropic Claude Pro with 5x usage on Claude 3.5 Sonnet & Artifacts.",
+        [
+            ("1 Month Private Account", 549.0, "Private Account",
+             "✨ <b>Claude 3.5 Sonnet Pro - 1 Month</b>\n\n"
+             "✦ <b>Features:</b> Claude 3.5 Sonnet & Opus, Projects\n"
+             "✦ <b>Access:</b> Dedicated Private Login\n"
+             "✦ <b>Warranty:</b> 30 Days Replacement\n"
+             "✦ <b>Delivery:</b> Instant Delivery"),
+        ]
+    )
+
+    await ensure_prod(
+        "AI Tools & Productivity", "Canva Pro", "🎨",
+        "Unlock 100M+ premium photos, templates, fonts & brand kits on Canva.",
+        [
+            ("1 Year Team Invite", 99.0, "Invite Link",
+             "✨ <b>Canva Pro - 1 Year Plan</b>\n\n"
+             "✦ <b>Features:</b> All Pro Templates, Background Remover, Magic AI\n"
+             "✦ <b>Activation:</b> Added to your own existing Canva email\n"
+             "✦ <b>Warranty:</b> 1 Year Full Warranty\n"
+             "✦ <b>Delivery:</b> Instant Invitation Link"),
+            ("Lifetime Pro Access", 199.0, "Invite Link",
+             "✨ <b>Canva Pro - Lifetime Access</b>\n\n"
+             "✦ <b>Features:</b> Unlimited Pro Tools & AI Suite\n"
+             "✦ <b>Warranty:</b> Lifetime Guarantee\n"
+             "✦ <b>Delivery:</b> Instant Activation"),
+        ]
+    )
+
+    await ensure_prod(
+        "AI Tools & Productivity", "CapCut Pro", "✂️",
+        "CapCut Pro video editor with premium AI filters, effects & cloud storage.",
+        [
+            ("6 Months Private Login", 299.0, "Private Account",
+             "✨ <b>CapCut Pro - 6 Months Plan</b>\n\n"
+             "✦ <b>Features:</b> Auto Captions, 4K 60FPS Export, AI Tools\n"
+             "✦ <b>Devices:</b> PC, Mac, Android, iOS\n"
+             "✦ <b>Warranty:</b> 180 Days Full Warranty\n"
+             "✦ <b>Delivery:</b> Instant Delivery"),
+            ("12 Months Private Login", 499.0, "Private Account",
+             "✨ <b>CapCut Pro - 1 Year Plan</b>\n\n"
+             "✦ <b>Features:</b> 12 Months All Pro Effects & Tools\n"
+             "✦ <b>Warranty:</b> 365 Days Warranty\n"
+             "✦ <b>Delivery:</b> Instant Delivery"),
+        ]
+    )
+
+    # --- 3. VPN Services ---
+    await ensure_prod(
+        "VPN Services", "NordVPN Premium", "🌐",
+        "High-speed ultra secure VPN with Threat Protection & Meshnet.",
+        [
+            ("1 Year Premium Account", 199.0, "Private Account",
+             "✨ <b>NordVPN Premium - 1 Year Plan</b>\n\n"
+             "✦ <b>Servers:</b> 6000+ Servers in 110 Countries\n"
+             "✦ <b>Features:</b> Double VPN, CyberSec, AdBlock\n"
+             "✦ <b>Warranty:</b> 365 Days Replacement Guarantee\n"
+             "✦ <b>Delivery:</b> Instant Delivery"),
+        ]
+    )
+
+    # --- 4. Gaming & Utilities ---
+    await ensure_prod(
+        "Gaming & Utilities", "Telegram Premium", "✈️",
+        "Official Telegram Premium subscription for 4GB uploads, custom emojis & badges.",
+        [
+            ("3 Months Gift Code", 499.0, "Gift Link",
+             "✨ <b>Telegram Premium - 3 Months</b>\n\n"
+             "✦ <b>Features:</b> Custom Emojis, 4GB Uploads, Fast Downloads\n"
+             "✦ <b>Delivery:</b> Instant Gift Link / Activation"),
+            ("12 Months Gift Code", 1499.0, "Gift Link",
+             "✨ <b>Telegram Premium - 1 Year</b>\n\n"
+             "✦ <b>Features:</b> 1 Year Full Telegram Premium Perks\n"
+             "✦ <b>Delivery:</b> Instant Activation"),
+        ]
+    )
+
+    await ensure_prod(
+        "Gaming & Utilities", "Discord Nitro", "💬",
+        "Discord Nitro with 2 Server Boosts, HD streaming, custom emojis & stickers.",
+        [
+            ("1 Month Nitro with 2 Boosts", 149.0, "Gift Link",
+             "✨ <b>Discord Nitro - 1 Month</b>\n\n"
+             "✦ <b>Features:</b> 2 Server Boosts, 500MB Uploads, HD Stream\n"
+             "✦ <b>Delivery:</b> Instant Gift Link"),
+        ]
+    )
+
     await session.commit()
 
 async def purge_old_dummy_stocks(session: AsyncSession):

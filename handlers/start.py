@@ -11,15 +11,16 @@ router = Router()
 def get_welcome_text(first_name: str) -> str:
     return (
         f"👑 <b>{config.STORE_NAME.upper()}</b>\n"
-        f"<i>Premium Subscriptions & Instant Automated Delivery</i>\n\n"
-        f"Hey <b>{first_name}</b> 👋\n\n"
-        f"Welcome to our official store! Explore our genuine digital subscriptions, streaming accounts, AI tools, and VPNs with <b>100% instant delivery</b>.\n\n"
+        f"<i>Verified Digital Subscriptions & Automated Delivery</i>\n\n"
+        f"Hey <b>{first_name}</b> 👋 Welcome to our official store!\n\n"
+        f"We provide genuine OTT subscriptions, AI subscriptions, VPNs, and tools at the best wholesale prices with <b>instant delivery directly in Telegram</b>.\n\n"
         f"<blockquote>"
-        f"🛍️ <b>Explore Store</b> — Streaming, AI, VPNs & Services\n"
-        f"💳 <b>Deposit Funds</b> — Fast UPI wallet top-up\n"
-        f"👤 <b>My Account</b> — Balance, orders & live accounts\n"
-        f"🎁 <b>Refer & Earn</b> — Get {config.REFERRAL_BONUS_PERCENT}% cash on every order\n"
-        f"🛟 <b>24/7 Support</b> — Instant warranty & assistance"
+        f"🛍️ <b>Explore Store</b> — Browse all subscriptions & plans\n"
+        f"🔍 <b>Search Item</b> — Fast keyword search\n"
+        f"💳 <b>Deposit Wallet</b> — Instant UPI auto-credit\n"
+        f"📦 <b>Order History</b> — View active accounts & keys\n"
+        f"🎁 <b>Invite & Earn</b> — Earn {config.REFERRAL_BONUS_PERCENT}% cash per referral\n"
+        f"🛟 <b>24/7 Support</b> — Dedicated warranty & assistance"
         f"</blockquote>\n\n"
         f"👇 <i>Select an option below to get started:</i>"
     )
@@ -71,13 +72,13 @@ async def cb_nav_guide(callback: types.CallbackQuery):
         f"Follow these simple steps to buy subscriptions with instant delivery:\n\n"
         f"<blockquote>"
         f"1️⃣ <b>Step 1 — Deposit Funds:</b>\n"
-        f"Click <b>'💳 Deposit Wallet'</b>, select an amount, and scan our UPI QR code. Submit your UTR/screenshot to get your balance credited in minutes.\n\n"
-        f"2️⃣ <b>Step 2 — Browse Catalog or Search:</b>\n"
-        f"Click <b>'🛍️ Explore Store'</b> or <b>'🔍 Search Product'</b> to find your subscription (Netflix, Prime, YouTube, VPN, etc.).\n\n"
-        f"3️⃣ <b>Step 3 — Inspect Details & Purchase:</b>\n"
-        f"Click on your plan to see full specifications, rules, and warranty. Click <b>'⚡ Purchase Now'</b>.\n\n"
-        f"4️⃣ <b>Step 4 — Instant Delivery:</b>\n"
-        f"Your login credentials or license key will be sent <b>immediately in the chat</b> and permanently saved in <b>'📦 Order History'</b>!"
+        f"Click <b>'💳 Deposit Wallet'</b>, choose an amount, and pay via any UPI app (GPay / PhonePe / Paytm / CRED). Submit UTR or screenshot to get balance credited.\n\n"
+        f"2️⃣ <b>Step 2 — Pick Your Subscription:</b>\n"
+        f"Click <b>'🛍️ Explore Store'</b> or <b>'🔍 Search Product'</b> to select your service (Netflix, Prime, YouTube, ChatGPT, Canva, etc.).\n\n"
+        f"3️⃣ <b>Step 3 — Inspect Specs & Buy:</b>\n"
+        f"Review the full specifications, warranty duration, and rules. Click <b>'⚡ Purchase Now'</b>.\n\n"
+        f"4️⃣ <b>Step 4 — Automated Instant Delivery:</b>\n"
+        f"Your login credentials or license key will be delivered <b>instantly in chat</b> and permanently stored in <b>'📦 Order History'</b>!"
         f"</blockquote>\n\n"
         f"💡 <i>Need assistance? Click 'Help & Support' below anytime.</i>"
     )
@@ -110,36 +111,66 @@ async def cb_nav_support(callback: types.CallbackQuery):
     ])
     await callback.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
 
+# ================= ENHANCED TELEGRAM CUSTOM EMOJI EXTRACTOR =================
+
+def extract_custom_emoji_ids(message: types.Message) -> list[str]:
+    """Extracts custom_emoji_id from entities, stickers, and replied messages."""
+    ids = []
+    
+    # Check message entities
+    for ent in (message.entities or []):
+        if ent.type == "custom_emoji" and ent.custom_emoji_id:
+            ids.append(str(ent.custom_emoji_id))
+
+    # Check caption entities
+    for ent in (message.caption_entities or []):
+        if ent.type == "custom_emoji" and ent.custom_emoji_id:
+            ids.append(str(ent.custom_emoji_id))
+
+    # Check stickers
+    if message.sticker and getattr(message.sticker, "custom_emoji_id", None):
+        ids.append(str(message.sticker.custom_emoji_id))
+
+    # Check replied message
+    if message.reply_to_message:
+        rep = message.reply_to_message
+        for ent in (rep.entities or []):
+            if ent.type == "custom_emoji" and ent.custom_emoji_id:
+                ids.append(str(ent.custom_emoji_id))
+        for ent in (rep.caption_entities or []):
+            if ent.type == "custom_emoji" and ent.custom_emoji_id:
+                ids.append(str(ent.custom_emoji_id))
+        if rep.sticker and getattr(rep.sticker, "custom_emoji_id", None):
+            ids.append(str(rep.sticker.custom_emoji_id))
+
+    # Remove duplicates
+    return list(dict.fromkeys(ids))
+
 @router.message(Command("getemoji"))
 async def cmd_getemoji(message: types.Message):
     if not config.is_admin(message.from_user.id):
         return
 
-    emoji_ids = []
-    entities = message.entities or []
-    for ent in entities:
-        if ent.type == "custom_emoji" and ent.custom_emoji_id:
-            emoji_ids.append(ent.custom_emoji_id)
-
-    if message.reply_to_message and message.reply_to_message.entities:
-        for ent in message.reply_to_message.entities:
-            if ent.type == "custom_emoji" and ent.custom_emoji_id:
-                emoji_ids.append(ent.custom_emoji_id)
+    emoji_ids = extract_custom_emoji_ids(message)
 
     if not emoji_ids:
         await message.answer(
             "ℹ️ <b>Custom Emoji Extractor Tool</b>\n\n"
-            "Send or reply to a message containing a <b>Telegram Premium Custom Emoji</b> with <code>/getemoji</code> to get its ID."
+            "<b>How to use:</b>\n"
+            "1. Send your Telegram Premium animated emoji in chat, then <b>reply to it</b> with <code>/getemoji</code>.\n"
+            "2. Or type <code>/getemoji</code> followed by a space and your premium emoji."
         )
         return
 
-    result = "✨ <b>Detected Telegram Premium Emoji ID(s):</b>\n\n"
+    result = "✨ <b>Detected Telegram Premium Custom Emoji ID(s):</b>\n\n"
     for eid in emoji_ids:
-        result += f"• <b>Custom ID:</b> <code>{eid}</code>\n"
-        result += f"  <b>Live Preview:</b> <tg-emoji emoji-id=\"{eid}\">✨</tg-emoji>\n"
-        result += f"  <b>HTML Tag:</b> <code>&lt;tg-emoji emoji-id=\"{eid}\"&gt;✨&lt;/tg-emoji&gt;</code>\n\n"
+        result += (
+            f"• <b>Emoji ID:</b> <code>{eid}</code>\n"
+            f"  <b>Live Render:</b> <tg-emoji emoji-id=\"{eid}\">✨</tg-emoji>\n"
+            f"  <b>HTML Code:</b> <code>&lt;tg-emoji emoji-id=\"{eid}\"&gt;✨&lt;/tg-emoji&gt;</code>\n\n"
+        )
 
-    result += "<i>You can paste this &lt;tg-emoji&gt; tag into any product title, category name, or plan description!</i>"
+    result += "<i>Copy the HTML code to paste into any product title or description!</i>"
     await message.answer(result)
 
 @router.message(Command("testemoji"))
@@ -152,7 +183,7 @@ async def cmd_testemoji(message: types.Message):
         "✦ <b>HTML Parse Mode:</b> Enabled ✅\n"
         "✦ <b>&lt;tg-emoji&gt; Tag Support:</b> Integrated ✅\n"
         "✦ <b>Bot Custom Emoji Capability:</b> Active ✅\n\n"
-        "<i>Send any Premium emoji using <code>/getemoji &lt;emoji&gt;</code> to extract its ID for your products!</i>"
+        "<i>Send or reply to any Premium emoji with <code>/getemoji</code> to grab its ID!</i>"
     )
     await message.answer(text)
 

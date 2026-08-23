@@ -1,6 +1,6 @@
 """
 Telegram Premium & Aesthetic UI Helper
-Provides custom emoji tags, unicode styling, banners, and layout dividers.
+Provides custom emoji tags, luxury formatting, borders, and typography.
 """
 
 from typing import Optional
@@ -15,23 +15,27 @@ def format_emoji(fallback: str, custom_id: Optional[str] = None) -> str:
     return fallback
 
 class UI:
-    # Decorative Borders & Headers
-    HEADER_START = "╭━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╮"
-    HEADER_END   = "╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╯"
-    DIVIDER      = "───────────────────────────────"
-    SECTION_BAR  = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    # Modern Minimalist Dividers & Headers
+    BORDER_TOP = "╭─────────────────────────────╮"
+    BORDER_BOT = "╰─────────────────────────────╯"
+    LINE       = "───────────────────────────────"
+    BAR        = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    SECTION_BAR = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
     # Bullet points & Badges
     BULLET = "✦"
-    STAR = "★"
-    DIAMOND = "◈"
-    CHECK = "✔"
-    ARROW = "➜"
-    DOT = "•"
+    STAR   = "★"
+    DIAMOND= "◈"
+    CHECK  = "✔"
+    ARROW  = "➜"
+    DOT    = "•"
+    FIRE   = "🔥"
+    CROWN  = "👑"
 
 class Emojis:
     # Navigation & Actions
     SHOP = "🛍️"
+    SEARCH = "🔍"
     WALLET = "💳"
     PROFILE = "👤"
     SUPPORT = "🛟"
@@ -46,6 +50,8 @@ class Emojis:
     SPARKLES = "✨"
     DIAMOND = "💎"
     CROWN = "👑"
+    GUIDE = "📖"
+    ORDERS = "📦"
     
     # Store & Products
     CATEGORY = "📁"
@@ -63,26 +69,23 @@ class Emojis:
     CART = "🛒"
     
     # Category Icons
-    STREAMING = "🎬"
+    STREAMING = "🍿"
     VPN = "🛡️"
     EDUCATION = "🎓"
     AI_TOOLS = "🤖"
     GAMING = "🎮"
     MUSIC = "🎵"
     UTILITIES = "🛠️"
-    PAID_SERVICES = "💼"
-    FREEBIES = "🎁"
+    DESIGN = "🎨"
+    TELEGRAM = "✈️"
 
     # User & Stats
     ID = "🆔"
     CALENDAR = "📅"
     STATS = "📊"
     NOTIFICATION = "🔔"
-    ORDERS = "📜"
     WITHDRAW = "📤"
     API = "⚙️"
     LINK = "🔗"
-    ARROW_RIGHT = "➡️"
-    ARROW_DOWN = "⬇️"
     DOT = "•"
     BULLET = "✦"
