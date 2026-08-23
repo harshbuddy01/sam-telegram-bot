@@ -11,17 +11,18 @@ router = Router()
 def get_welcome_text(first_name: str) -> str:
     return (
         f"👑 <b>{config.STORE_NAME.upper()}</b>\n"
-        f"<i>Verified Digital Subscriptions & Automated Delivery</i>\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"✨ <i>Verified Digital Subscriptions & Automated Delivery</i>\n\n"
         f"Hey <b>{first_name}</b> 👋 Welcome to our official store!\n\n"
-        f"We provide genuine OTT subscriptions, AI subscriptions, VPNs, and tools at the best wholesale prices with <b>instant delivery directly in Telegram</b>.\n\n"
-        f"<blockquote>"
-        f"🛍️ <b>Explore Store</b> — Browse all subscriptions & plans\n"
-        f"🔍 <b>Search Item</b> — Fast keyword search\n"
-        f"💳 <b>Deposit Wallet</b> — Instant UPI auto-credit\n"
-        f"📦 <b>Order History</b> — View active accounts & keys\n"
-        f"🎁 <b>Invite & Earn</b> — Earn {config.REFERRAL_BONUS_PERCENT}% cash per referral\n"
-        f"🛟 <b>24/7 Support</b> — Dedicated warranty & assistance"
-        f"</blockquote>\n\n"
+        f"We provide genuine OTT subscriptions, AI subscriptions, VPNs, and tools at wholesale prices with <b>100% instant delivery</b>.\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🛍️ <b>Explore Store</b> ➜ Streaming, AI, VPNs & Utilities\n"
+        f"🔍 <b>Search Item</b> ➜ Find any subscription instantly\n"
+        f"💳 <b>Deposit Wallet</b> ➜ Automatic UPI QR top-up\n"
+        f"📦 <b>Order History</b> ➜ Active accounts & keys\n"
+        f"🎁 <b>Invite & Earn</b> ➜ Get {config.REFERRAL_BONUS_PERCENT}% commission per invite\n"
+        f"🛟 <b>24/7 Support</b> ➜ Warranty replacements & help\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"👇 <i>Select an option below to get started:</i>"
     )
 

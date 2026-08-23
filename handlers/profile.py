@@ -21,18 +21,17 @@ async def cb_nav_profile(callback: types.CallbackQuery, session: AsyncSession, b
     joined_date_str = user.joined_at.strftime("%d %b %Y")
 
     text = (
-        f"👤 <b>CLIENT ACCOUNT DASHBOARD</b>\n"
-        f"{UI.SECTION_BAR}\n\n"
-        f"<blockquote>"
+        f"👤 <b>CUSTOMER ACCOUNT DASHBOARD</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"🆔 <b>Telegram ID:</b> <code>{user.telegram_id}</code>\n"
-        f"👤 <b>Name:</b> {user.full_name}\n"
+        f"👤 <b>Name:</b> <b>{user.full_name}</b>\n"
         f"💰 <b>Wallet Balance:</b> <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n"
+        f"🛒 <b>Total Orders:</b> {len(orders)}\n"
         f"💳 <b>Total Spent:</b> {config.CURRENCY_SYMBOL}{user.total_spent:.2f}\n"
-        f"📜 <b>Total Orders:</b> {len(orders)} completed\n"
-        f"🎁 <b>Affiliate Referrals:</b> {referrals_count} members\n"
-        f"📅 <b>Member Since:</b> {joined_date_str}"
-        f"</blockquote>\n\n"
-        f"⚡ <i>Use the controls below to check previous orders or add balance:</i>"
+        f"👥 <b>Friends Invited:</b> {referrals_count}\n"
+        f"📅 <b>Member Since:</b> {joined_date_str}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👇 <i>Manage your funds, view previous keys, or invite friends below:</i>"
     )
 
     await callback.message.edit_text(text, reply_markup=get_profile_keyboard())
@@ -44,17 +43,23 @@ async def cb_view_orders(callback: types.CallbackQuery, session: AsyncSession):
 
     if not orders:
         text = (
-            f"📜 <b>YOUR ORDER HISTORY</b>\n"
-            f"{UI.SECTION_BAR}\n\n"
-            f"<i>You haven't placed any orders yet. Visit our shop to get started!</i>"
+            f"📦 <b>YOUR ORDER HISTORY</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"ℹ️ <i>You haven't made any purchases yet.</i>\n\n"
+            f"Explore our store to buy genuine subscriptions with instant automated delivery!"
         )
-        await callback.message.edit_text(text, reply_markup=get_back_button("nav_profile"))
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🛍️  Explore Store Now", callback_data="nav_shop")],
+            [InlineKeyboardButton(text="◀️  Back to Main Menu", callback_data="nav_home")]
+        ])
+        await callback.message.edit_text(text, reply_markup=kb)
         return
 
     text = (
-        f"📜 <b>YOUR RECENT PURCHASES (Last {len(orders)})</b>\n"
-        f"{UI.SECTION_BAR}\n\n"
-        f"Tap on any order below to view your delivered credentials & keys:\n"
+        f"📦 <b>YOUR ORDER HISTORY (Recent {len(orders)})</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Tap on any order below to inspect your delivered credentials, PINs & warranty info:\n"
     )
 
     await callback.message.edit_text(text, reply_markup=get_orders_list_keyboard(orders))
@@ -80,18 +85,21 @@ async def cb_order_detail(callback: types.CallbackQuery, session: AsyncSession):
 
     text = (
         f"🧾 <b>ORDER RECEIPT #{order.id}</b>\n"
-        f"{UI.SECTION_BAR}\n\n"
-        f"📦 <b>Item:</b> {prod_title}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📦 <b>Product:</b> {prod_title}\n"
         f"✨ <b>Plan:</b> {var_name}\n"
-        f"💰 <b>Total Paid:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f}\n"
-        f"📅 <b>Date:</b> {date_str}\n\n"
-        f"🔑 <b>DELIVERED CREDENTIALS:</b>\n"
+        f"💰 <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
+        f"📅 <b>Purchased On:</b> {date_str}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔑 <b>DELIVERED CREDENTIALS / KEY:</b>\n"
         f"<pre><code>{order.delivered_content}</code></pre>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🛡️ <i>Under 100% Replacement Warranty! Contact support for assistance.</i>"
     )
 
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️  Back to Orders", callback_data="view_orders")],
+        [InlineKeyboardButton(text="◀️  Back to Order History", callback_data="view_orders")],
         [InlineKeyboardButton(text="🏠  Main Menu", callback_data="nav_home")]
     ])
 
@@ -105,20 +113,24 @@ async def cb_nav_refer(callback: types.CallbackQuery, session: AsyncSession, bot
     referrals_count = await get_user_referrals_count(session, callback.from_user.id)
 
     text = (
-        f"🎁 <b>AFFILIATE REFER & EARN PROGRAM</b>\n"
-        f"{UI.SECTION_BAR}\n\n"
-        f"Earn <b>{config.REFERRAL_BONUS_PERCENT}% lifetime cash commission</b> every time anyone you invite places an order!\n\n"
-        f"<blockquote>"
-        f"👥 <b>Your Invited Referrals:</b> {referrals_count} members\n"
-        f"🔗 <b>Your Personal Referral Link:</b>\n"
-        f"<code>{ref_link}</code>"
-        f"</blockquote>\n\n"
-        f"<i>Funds are instantly credited to your wallet whenever your referrals buy anything!</i>"
+        f"🎁 <b>INVITE & EARN PROGRAM</b> 🎁\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Share your referral link with friends and earn wallet rewards when they top up or buy!\n\n"
+        f"💰 <b>Per-Order Reward:</b> <b>{config.REFERRAL_BONUS_PERCENT}% Cash Commission</b>\n"
+        f"🎯 <b>Requirement:</b> Unlimited earnings, credited automatically\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📊 <b>YOUR REFERRAL STATS</b>\n"
+        f"👤 <b>Friends Invited:</b> {referrals_count}\n"
+        f"✅ <b>Status:</b> Active & Earning\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔗 <b>YOUR EXCLUSIVE INVITE LINK:</b>\n"
+        f"<code>{ref_link}</code>\n\n"
+        f"💡 <i>Tip: Click the link above to copy it instantly.</i>"
     )
 
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢  Share Referral Link", url=f"https://t.me/share/url?url={ref_link}&text=Get%20discounted%20OTT%20subscriptions%20instantly!")],
+        [InlineKeyboardButton(text="📢  Share With Friends", url=f"https://t.me/share/url?url={ref_link}&text=Get%20discounted%20OTT%20and%20AI%20subscriptions%20instantly%20on%20SamStore!")],
         [InlineKeyboardButton(text="◀️  Back to Main Menu", callback_data="nav_home")]
     ])
     await callback.message.edit_text(text, reply_markup=kb)
