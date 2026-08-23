@@ -110,10 +110,26 @@ async def cmd_getemoji(message: types.Message):
 
     result = "✨ <b>Detected Telegram Premium Emoji ID(s):</b>\n\n"
     for eid in emoji_ids:
-        result += f"• <code>{eid}</code>\n"
-        result += f"  HTML Tag: <code>&lt;tg-emoji emoji-id=\"{eid}\"&gt;🔥&lt;/tg-emoji&gt;</code>\n\n"
+        result += f"• <b>Custom ID:</b> <code>{eid}</code>\n"
+        result += f"  <b>Live Preview:</b> <tg-emoji emoji-id=\"{eid}\">✨</tg-emoji>\n"
+        result += f"  <b>HTML Tag:</b> <code>&lt;tg-emoji emoji-id=\"{eid}\"&gt;✨&lt;/tg-emoji&gt;</code>\n\n"
 
+    result += "<i>You can paste this &lt;tg-emoji&gt; tag into any product title, category name, or plan description!</i>"
     await message.answer(result)
+
+@router.message(Command("testemoji"))
+async def cmd_testemoji(message: types.Message):
+    if not config.is_admin(message.from_user.id):
+        return
+
+    text = (
+        "✨ <b>Telegram Custom Emoji Status Test</b>\n\n"
+        "✦ <b>HTML Parse Mode:</b> Enabled ✅\n"
+        "✦ <b>&lt;tg-emoji&gt; Tag Support:</b> Integrated ✅\n"
+        "✦ <b>Bot Custom Emoji Capability:</b> Active ✅\n\n"
+        "<i>Send any Premium emoji using <code>/getemoji &lt;emoji&gt;</code> to extract its ID for your products!</i>"
+    )
+    await message.answer(text)
 
 @router.callback_query(F.data == "noop")
 async def cb_noop(callback: types.CallbackQuery):
