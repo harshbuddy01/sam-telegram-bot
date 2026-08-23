@@ -8,20 +8,20 @@ import config
 
 router = Router()
 
-def get_welcome_text(first_name: str, user_id: int) -> str:
+def get_welcome_text(first_name: str) -> str:
     return (
-        f"👑 <b>{config.UPI_NAME.upper()} — OFFICIAL STORE</b>\n"
-        f"{UI.SECTION_BAR}\n\n"
-        f"👋 Welcome, <b>{first_name}</b>! <i>(ID: <code>{user_id}</code>)</i>\n\n"
-        f"Your #1 verified hub for premium OTT subscriptions, AI tools, VPNs, and digital services with <b>100% automated instant delivery</b>.\n\n"
+        f"👑 <b>{config.STORE_NAME.upper()}</b>\n"
+        f"<i>Premium Subscriptions & Instant Automated Delivery</i>\n\n"
+        f"Hey <b>{first_name}</b> 👋\n\n"
+        f"Welcome to our official store! Explore our genuine digital subscriptions, streaming accounts, AI tools, and VPNs with <b>100% instant delivery</b>.\n\n"
         f"<blockquote>"
-        f"🛍️ <b>Explore Store</b> ➜ Browse all subscriptions & plans\n"
-        f"💳 <b>Deposit Wallet</b> ➜ Fast UPI top-up (Instant credit)\n"
-        f"👤 <b>My Account</b> ➜ Balance, orders & live credentials\n"
-        f"🎁 <b>Refer & Earn</b> ➜ Get {config.REFERRAL_BONUS_PERCENT}% cash on every purchase\n"
-        f"🛟 <b>24/7 Support</b> ➜ Fast customer assistance & warranty"
+        f"🛍️ <b>Explore Store</b> — Streaming, AI, VPNs & Services\n"
+        f"💳 <b>Deposit Funds</b> — Fast UPI wallet top-up\n"
+        f"👤 <b>My Account</b> — Balance, orders & live accounts\n"
+        f"🎁 <b>Refer & Earn</b> — Get {config.REFERRAL_BONUS_PERCENT}% cash on every order\n"
+        f"🛟 <b>24/7 Support</b> — Instant warranty & assistance"
         f"</blockquote>\n\n"
-        f"⚡ <i>Tap any option below to get started:</i>"
+        f"👇 <i>Select an option below to get started:</i>"
     )
 
 @router.message(CommandStart())
@@ -41,7 +41,7 @@ async def cmd_start(message: types.Message, command: CommandObject, session: Asy
     )
 
     is_user_admin = config.is_admin(message.from_user.id)
-    text = get_welcome_text(message.from_user.first_name, message.from_user.id)
+    text = get_welcome_text(message.from_user.first_name)
     await message.answer(
         text,
         reply_markup=get_main_menu_keyboard(is_admin=is_user_admin)
@@ -51,7 +51,7 @@ async def cmd_start(message: types.Message, command: CommandObject, session: Asy
 async def cb_nav_home(callback: types.CallbackQuery, session: AsyncSession):
     await callback.answer()
     is_user_admin = config.is_admin(callback.from_user.id)
-    text = get_welcome_text(callback.from_user.first_name, callback.from_user.id)
+    text = get_welcome_text(callback.from_user.first_name)
     try:
         await callback.message.edit_text(
             text,
@@ -67,8 +67,7 @@ async def cb_nav_home(callback: types.CallbackQuery, session: AsyncSession):
 async def cb_nav_support(callback: types.CallbackQuery):
     await callback.answer()
     text = (
-        f"🛟 <b>CUSTOMER SUPPORT & HELPDESK</b>\n"
-        f"{UI.SECTION_BAR}\n\n"
+        f"🛟 <b>CUSTOMER SUPPORT & HELPDESK</b>\n\n"
         f"Need assistance with an order, replacement, or inquiry?\n"
         f"Our support desk is online 24/7 to help you.\n\n"
         f"<blockquote>"
@@ -77,7 +76,7 @@ async def cb_nav_support(callback: types.CallbackQuery):
         f"✦ <b>Warranty Policy:</b> 100% Replacement Guarantee\n"
         f"✦ <b>Official Channel:</b> <a href='{config.CHANNEL_LINK}'>Join Updates</a>"
         f"</blockquote>\n\n"
-        f"💬 <i>Click below to direct message our support team:</i>"
+        f"💬 <i>Click below to message our support team directly:</i>"
     )
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -112,7 +111,7 @@ async def cmd_getemoji(message: types.Message):
     result = "✨ <b>Detected Telegram Premium Emoji ID(s):</b>\n\n"
     for eid in emoji_ids:
         result += f"• <code>{eid}</code>\n"
-        result += f"  HTML Code: <code>&lt;tg-emoji emoji-id=\"{eid}\"&gt;🔥&lt;/tg-emoji&gt;</code>\n\n"
+        result += f"  HTML Tag: <code>&lt;tg-emoji emoji-id=\"{eid}\"&gt;🔥&lt;/tg-emoji&gt;</code>\n\n"
 
     await message.answer(result)
 

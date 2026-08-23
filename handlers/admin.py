@@ -651,3 +651,40 @@ async def msg_admin_balance_adjust(message: types.Message, state: FSMContext, se
         )
     except Exception:
         pass
+
+# ================= 9. WIPE / RESET DEMO DATA =================
+
+@router.callback_query(F.data == "adm_reset_confirm")
+async def cb_admin_reset_confirm(callback: types.CallbackQuery):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+
+    text = (
+        f"⚠️ <b>WIPE ALL DEMO / SAMPLE DATA?</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"This will delete all sample categories, products, and fake stocks from the database so you can start with a <b>100% clean, fresh store</b>.\n\n"
+        f"<i>Are you sure you want to proceed?</i>"
+    )
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🗑️ YES, WIPE ALL DEMO DATA", callback_data="adm_reset_execute")],
+        [InlineKeyboardButton(text="❌ Cancel & Go Back", callback_data="admin_home")]
+    ])
+    await callback.message.edit_text(text, reply_markup=kb)
+
+@router.callback_query(F.data == "adm_reset_execute")
+async def cb_admin_reset_execute(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    from database.crud import clear_all_catalog_data
+    await clear_all_catalog_data(session)
+
+    text = (
+        f"✅ <b>DATABASE CATALOG WIPED CLEAN!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"All demo products and fake stocks have been removed.\n\n"
+        f"Now you can go to <b>Manage Categories</b> and <b>Manage Products</b> to create your own real products and real stock!"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard("admin_home"))

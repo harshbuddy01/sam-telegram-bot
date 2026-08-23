@@ -540,10 +540,15 @@ async def seed_initial_data(session: AsyncSession):
 
     session.add_all([v1, v2, v3, v4, v5])
     await session.commit()
+    # Note: No dummy sample stocks are added so stock count is 100% real!
 
-    # Add sample stock for 1 Month Private Profile
-    s1 = Stock(variant_id=v1.id, content="Email: sam_user1@ottmail.com | Pass: PremiumPass99! | Profile: User 1 | PIN: 1234")
-    s2 = Stock(variant_id=v1.id, content="Email: sam_user2@ottmail.com | Pass: UltraSafe88# | Profile: User 2 | PIN: 5678")
-    s3 = Stock(variant_id=v5.id, content="Email: sam_shared1@ottmail.com | Pass: SharedSub123 | Profile: Shared 3")
-    session.add_all([s1, s2, s3])
+async def clear_all_catalog_data(session: AsyncSession):
+    """
+    Clears all categories, products, variants, and stock so the admin
+    can start with a 100% fresh, clean catalog.
+    """
+    await session.execute(delete(Stock))
+    await session.execute(delete(Variant))
+    await session.execute(delete(Product))
+    await session.execute(delete(Category))
     await session.commit()

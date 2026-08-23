@@ -21,6 +21,9 @@ Base = declarative_base()
 async def init_db():
     db_dir = os.path.dirname(os.path.abspath(config.DB_PATH))
     if db_dir:
-        os.makedirs(db_dir, exist_ok=True)
+        try:
+            os.makedirs(db_dir, exist_ok=True)
+        except OSError:
+            pass
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

@@ -22,6 +22,7 @@ def get_admin_main_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="👤 User Balance Adjust", callback_data="adm_users")
         ],
         [
+            InlineKeyboardButton(text="🧹 Wipe/Reset Demo Data", callback_data="adm_reset_confirm"),
             InlineKeyboardButton(text="🏠 Exit to Store", callback_data="nav_home")
         ]
     ]
