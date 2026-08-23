@@ -566,6 +566,23 @@ async def get_deposit(session: AsyncSession, deposit_id: int) -> Optional[Deposi
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
 
+async def update_deposit_proof(
+    session: AsyncSession,
+    deposit_id: int,
+    utr_number: Optional[str] = None,
+    proof_file_id: Optional[str] = None
+) -> Optional[Deposit]:
+    deposit = await get_deposit(session, deposit_id)
+    if not deposit:
+        return None
+    if utr_number:
+        deposit.utr_number = utr_number
+    if proof_file_id:
+        deposit.proof_file_id = proof_file_id
+    await session.commit()
+    await session.refresh(deposit)
+    return deposit
+
 async def get_pending_deposits(session: AsyncSession) -> List[Deposit]:
     stmt = select(Deposit).where(Deposit.status == "PENDING").order_by(Deposit.created_at.desc())
     result = await session.execute(stmt)
