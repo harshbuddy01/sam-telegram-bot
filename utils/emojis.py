@@ -95,14 +95,23 @@ BRAND_THEMES = {
     "Default": "gold dots"
 }
 
-def format_emoji(fallback: str, custom_id: Optional[str] = None) -> str:
+def format_emoji(fallback: str = "✨", custom_id: Optional[str] = None) -> str:
     """
     Formats an emoji for HTML parse_mode.
     If custom_id is provided, wraps in <tg-emoji emoji-id="...">fallback</tg-emoji>.
+    Guarantees fallback is a safe valid emoji to prevent ENTITY_TEXT_INVALID errors from Telegram.
     """
-    if custom_id and str(custom_id).strip():
-        return f'<tg-emoji emoji-id="{custom_id.strip()}">{fallback}</tg-emoji>'
-    return fallback
+    safe_fallback = "✨"
+    if fallback and isinstance(fallback, str):
+        cleaned = fallback.strip()
+        if cleaned and not any(0xD800 <= ord(c) <= 0xDFFF for c in cleaned):
+            safe_fallback = cleaned
+        else:
+            safe_fallback = "✨"
+
+    if custom_id and str(custom_id).strip().isdigit():
+        return f'<tg-emoji emoji-id="{str(custom_id).strip()}">{safe_fallback}</tg-emoji>'
+    return safe_fallback or "📁"
 
 def ce(custom_id: str, fallback: str = "✨") -> str:
     """Shortcut for custom emoji rendering"""
@@ -127,29 +136,25 @@ def extract_clean_name_and_emoji(message) -> tuple[str, str, Optional[str]]:
         if custom_entities:
             first_ent = custom_entities[0]
             custom_id = str(first_ent.custom_emoji_id)
-            fallback_char = message.text[first_ent.offset : first_ent.offset + first_ent.length] or "👑"
+            fallback_char = "👑"  # Safe standard fallback emoji
 
-            # Remove all custom emoji entity spans from the text to get a clean name
-            clean_text = ""
-            last_idx = 0
-            for ent in sorted(custom_entities, key=lambda x: x.offset):
-                clean_text += message.text[last_idx:ent.offset]
-                last_idx = ent.offset + ent.length
-            clean_text += message.text[last_idx:]
+            # Clean text by removing surrogate pairs
+            clean_text = "".join(c for c in raw_text if not (0xD800 <= ord(c) <= 0xDFFF))
             clean_name = clean_text.strip(" \t\n\r🤩✨💎👑🍿🤖🛡️🎮🎁✈️💬🎵🎨📁📦🔴")
             if not clean_name:
-                clean_name = raw_text.strip()
+                clean_name = "Premium Category"
             return clean_name, fallback_char, custom_id
 
     # If no custom emoji entities, check if text starts with standard emoji
-    clean_name = raw_text.strip()
+    clean_text = "".join(c for c in raw_text if not (0xD800 <= ord(c) <= 0xDFFF))
+    clean_name = clean_text.strip()
     for standard_emoji in ["🍿", "🤖", "🛡️", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "👑", "✨", "💎", "📦", "🔴"]:
         if clean_name.startswith(standard_emoji):
             fallback_char = standard_emoji
             clean_name = clean_name[len(standard_emoji):].strip()
             break
 
-    return clean_name or raw_text, fallback_char, None
+    return clean_name or "New Item", fallback_char, None
 
 def extract_emoji_and_custom_id(message) -> tuple[str, Optional[str]]:
     """
