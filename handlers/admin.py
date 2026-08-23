@@ -664,41 +664,22 @@ async def cb_admin_cat_add(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(AdminCategoryStates.waiting_for_name)
     await callback.message.edit_text(
         "✍️ <b>Add New Category</b>\n\n"
-        "Please send the <b>Name</b> for the new category (e.g. <code>Streaming Services</code>):",
+        "Send the <b>Category Name</b> with your emoji/icon\n"
+        "(e.g. <code>🍿 Streaming Services</code> or <code>👑 VIP Section</code>):",
         reply_markup=get_admin_cancel_keyboard("adm_cats")
     )
 
 @router.message(AdminCategoryStates.waiting_for_name, F.text)
-async def msg_admin_cat_name(message: types.Message, state: FSMContext):
+async def msg_admin_cat_name(message: types.Message, state: FSMContext, session: AsyncSession):
     cat_name = message.text.strip()
-    html_name = get_message_html_text(message)
     fallback_icon, custom_emoji_id = extract_emoji_and_custom_id(message)
-    await state.update_data(
-        cat_name=cat_name,
-        cat_custom_emoji_id=custom_emoji_id
-    )
-    await state.set_state(AdminCategoryStates.waiting_for_emoji)
-    await message.answer(
-        f"📁 Category Name: <b>{html_name}</b>\n\n"
-        f"Now send an <b>Emoji / Icon</b> for this category (send any standard or Telegram Premium custom emoji):"
-    )
-
-@router.message(AdminCategoryStates.waiting_for_emoji, F.text)
-async def msg_admin_cat_emoji(message: types.Message, state: FSMContext, session: AsyncSession):
-    data = await state.get_data()
-    cat_name = data.get("cat_name")
-    cat_custom_id = data.get("cat_custom_emoji_id")
-
-    emoji, custom_emoji_id = extract_emoji_and_custom_id(message)
-    final_custom_id = custom_emoji_id or cat_custom_id
-
     await state.clear()
 
     category = await create_category(
         session,
         name=cat_name,
-        emoji=emoji,
-        custom_emoji_id=final_custom_id
+        emoji=fallback_icon or "📁",
+        custom_emoji_id=custom_emoji_id
     )
     categories = await get_all_categories(session)
     rendered_icon = format_emoji(category.emoji, category.custom_emoji_id)
