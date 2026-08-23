@@ -108,21 +108,48 @@ def ce(custom_id: str, fallback: str = "✨") -> str:
     """Shortcut for custom emoji rendering"""
     return format_emoji(fallback, custom_id)
 
-def extract_emoji_and_custom_id(message) -> tuple[str, Optional[str]]:
+def extract_clean_name_and_emoji(message) -> tuple[str, str, Optional[str]]:
     """
-    Extracts fallback unicode emoji and custom_emoji_id from a Message if present.
-    Returns (fallback_emoji, custom_emoji_id).
+    Extracts:
+    - clean_name: clean human-readable name without surrogate custom emoji fallbacks
+    - display_emoji: clean fallback emoji (e.g. '👑' or '🍿')
+    - custom_emoji_id: the 64-bit Telegram custom emoji ID string if present
     """
+    if not message or not getattr(message, "text", None):
+        return ("New Item", "📁", None)
+
+    raw_text = message.text.strip()
+    custom_id = None
+    fallback_char = "📁"
+
     if getattr(message, "entities", None):
-        for ent in message.entities:
-            if ent.type == "custom_emoji" and ent.custom_emoji_id:
-                start = ent.offset
-                end = ent.offset + ent.length
-                fallback = message.text[start:end] if message.text else "✨"
-                return fallback, str(ent.custom_emoji_id)
-    if getattr(message, "sticker", None) and getattr(message.sticker, "custom_emoji_id", None):
-        return message.sticker.emoji or "✨", str(message.sticker.custom_emoji_id)
-    return (message.text.strip() if message.text else "📁"), None
+        custom_entities = [e for e in message.entities if e.type == "custom_emoji" and e.custom_emoji_id]
+        if custom_entities:
+            first_ent = custom_entities[0]
+            custom_id = str(first_ent.custom_emoji_id)
+            fallback_char = message.text[first_ent.offset : first_ent.offset + first_ent.length] or "👑"
+
+            # Remove all custom emoji entity spans from the text to get a clean name
+            clean_text = ""
+            last_idx = 0
+            for ent in sorted(custom_entities, key=lambda x: x.offset):
+                clean_text += message.text[last_idx:ent.offset]
+                last_idx = ent.offset + ent.length
+            clean_text += message.text[last_idx:]
+            clean_name = clean_text.strip(" \t\n\r🤩✨💎👑🍿🤖🛡️🎮🎁✈️💬🎵🎨📁📦🔴")
+            if not clean_name:
+                clean_name = raw_text.strip()
+            return clean_name, fallback_char, custom_id
+
+    # If no custom emoji entities, check if text starts with standard emoji
+    clean_name = raw_text.strip()
+    for standard_emoji in ["🍿", "🤖", "🛡️", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "👑", "✨", "💎", "📦", "🔴"]:
+        if clean_name.startswith(standard_emoji):
+            fallback_char = standard_emoji
+            clean_name = clean_name[len(standard_emoji):].strip()
+            break
+
+    return clean_name or raw_text, fallback_char, None
 
 def get_message_html_text(message) -> str:
     """

@@ -664,28 +664,37 @@ async def cb_admin_cat_add(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(AdminCategoryStates.waiting_for_name)
     await callback.message.edit_text(
         "✍️ <b>Add New Category</b>\n\n"
-        "Send the <b>Category Name</b> with your emoji/icon\n"
-        "(e.g. <code>🍿 Streaming Services</code> or <code>👑 VIP Section</code>):",
+        "Send the <b>Category Name</b> (with your emoji/icon if you like):\n"
+        "e.g. <code>🍿 Streaming Services</code> or <code>👑 VIP Section</code>",
         reply_markup=get_admin_cancel_keyboard("adm_cats")
     )
 
 @router.message(AdminCategoryStates.waiting_for_name, F.text)
 async def msg_admin_cat_name(message: types.Message, state: FSMContext, session: AsyncSession):
-    cat_name = message.text.strip()
-    fallback_icon, custom_emoji_id = extract_emoji_and_custom_id(message)
+    clean_name, fallback_icon, custom_emoji_id = extract_clean_name_and_emoji(message)
     await state.clear()
 
     category = await create_category(
         session,
-        name=cat_name,
+        name=clean_name,
         emoji=fallback_icon or "📁",
         custom_emoji_id=custom_emoji_id
     )
-    categories = await get_all_categories(session)
     rendered_icon = format_emoji(category.emoji, category.custom_emoji_id)
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕  Add Another Category", callback_data="adm_cat_add")],
+        [InlineKeyboardButton(text="📦  View Products in this Category", callback_data=f"adm_selcat_viewprods_{category.id}")],
+        [InlineKeyboardButton(text="📁  All Categories", callback_data="adm_cats")],
+        [InlineKeyboardButton(text="⚡  Admin Panel Home", callback_data="admin_home")]
+    ])
+
     await message.answer(
-        f"✅ Category <b>{rendered_icon} {category.name}</b> created successfully!",
-        reply_markup=get_admin_categories_keyboard(categories)
+        f"✅ <b>Category Created Successfully!</b>\n\n"
+        f"📁 <b>Name:</b> {rendered_icon} <b>{category.name}</b>\n"
+        f"🆔 <b>Category ID:</b> <code>{category.id}</code>\n\n"
+        f"What would you like to do next?",
+        reply_markup=kb
     )
 
 # ================= 6. PRODUCT MANAGEMENT =================
@@ -755,32 +764,23 @@ async def cb_admin_prod_add(callback: types.CallbackQuery, state: FSMContext):
 
     await callback.message.edit_text(
         "✍️ <b>Add New Product</b>\n\n"
-        "Send the <b>Product Title</b> (e.g. <code>Netflix Premium 4K</code>):",
+        "Send the <b>Product Title</b> (with emoji if you like, e.g. <code>🍿 Netflix Premium 4K</code>):",
         reply_markup=get_admin_cancel_keyboard(f"adm_selcat_viewprods_{cat_id}")
     )
 
 @router.message(AdminProductStates.waiting_for_title, F.text)
 async def msg_admin_prod_title(message: types.Message, state: FSMContext):
-    title = message.text.strip()
-    fallback_icon, custom_emoji_id = extract_emoji_and_custom_id(message)
+    clean_title, fallback_icon, custom_emoji_id = extract_clean_name_and_emoji(message)
     await state.update_data(
-        title=title,
-        prod_custom_emoji_id=custom_emoji_id
+        title=clean_title,
+        emoji=fallback_icon or "📦",
+        custom_emoji_id=custom_emoji_id
     )
-    await state.set_state(AdminProductStates.waiting_for_emoji)
-    await message.answer("Send an <b>Emoji / Icon</b> for this product (send any standard or Telegram Premium custom emoji):")
-
-@router.message(AdminProductStates.waiting_for_emoji, F.text)
-async def msg_admin_prod_emoji(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    prod_custom_id = data.get("prod_custom_emoji_id")
-
-    emoji, custom_emoji_id = extract_emoji_and_custom_id(message)
-    final_custom_id = custom_emoji_id or prod_custom_id
-
-    await state.update_data(emoji=emoji, custom_emoji_id=final_custom_id)
     await state.set_state(AdminProductStates.waiting_for_desc)
-    await message.answer("Send a <b>Short Description</b> for this product (or send <code>skip</code>):")
+    await message.answer(
+        f"📦 Product: <b>{clean_title}</b>\n\n"
+        f"Now send a <b>Short Description</b> for this product (or send <code>skip</code>):"
+    )
 
 @router.message(AdminProductStates.waiting_for_desc, F.text)
 async def msg_admin_prod_desc(message: types.Message, state: FSMContext, session: AsyncSession):
@@ -803,11 +803,21 @@ async def msg_admin_prod_desc(message: types.Message, state: FSMContext, session
         description=desc,
         custom_emoji_id=custom_emoji_id
     )
-    products = await get_products_by_category(session, cat_id)
     rendered_icon = format_emoji(product.emoji, product.custom_emoji_id)
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕  Add Plans to this Product", callback_data=f"adm_var_add_{product.id}")],
+        [InlineKeyboardButton(text="➕  Add Another Product", callback_data=f"adm_prod_add_{cat_id}")],
+        [InlineKeyboardButton(text="📦  View Products in Category", callback_data=f"adm_selcat_viewprods_{cat_id}")],
+        [InlineKeyboardButton(text="⚡  Admin Panel Home", callback_data="admin_home")]
+    ])
+
     await message.answer(
-        f"✅ Product <b>{rendered_icon} {product.title}</b> created successfully!",
-        reply_markup=get_admin_products_keyboard(products, cat_id)
+        f"✅ <b>Product Created Successfully!</b>\n\n"
+        f"📦 <b>Title:</b> {rendered_icon} <b>{product.title}</b>\n"
+        f"🆔 <b>Product ID:</b> <code>{product.id}</code>\n\n"
+        f"What would you like to do next?",
+        reply_markup=kb
     )
 
 # ================= 7. PLAN / VARIANT MANAGEMENT =================
@@ -929,10 +939,21 @@ async def msg_admin_var_desc(message: types.Message, state: FSMContext, session:
         variant_type=variant_type,
         detailed_description=detailed_desc
     )
-    variants = await get_variants_by_product(session, prod_id)
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔑  Upload Stock to this Plan", callback_data=f"adm_stock_add_{variant.id}")],
+        [InlineKeyboardButton(text="➕  Add Another Plan", callback_data=f"adm_var_add_{prod_id}")],
+        [InlineKeyboardButton(text="🏷️  View All Plans for this Product", callback_data=f"adm_selprod_viewvars_{prod_id}")],
+        [InlineKeyboardButton(text="⚡  Admin Panel Home", callback_data="admin_home")]
+    ])
+
     await message.answer(
-        f"✅ Plan <b>{variant.name}</b> ({config.CURRENCY_SYMBOL}{variant.price}) created successfully!",
-        reply_markup=get_admin_variants_keyboard(variants, prod_id)
+        f"✅ <b>Plan Created Successfully!</b>\n\n"
+        f"✨ <b>Plan:</b> <b>{variant.name}</b>\n"
+        f"💰 <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
+        f"🏷️ <b>Type:</b> {variant.variant_type}\n\n"
+        f"What would you like to do next?",
+        reply_markup=kb
     )
 
 # ================= 8. BROADCAST SYSTEM =================

@@ -88,16 +88,23 @@ async def cb_nav_shop(callback: types.CallbackQuery, session: AsyncSession):
         )
         return
 
+    cat_lines = []
+    for cat in categories:
+        icon = format_emoji(cat.emoji or "📁", cat.custom_emoji_id)
+        cat_lines.append(f"• {icon} <b>{cat.name}</b>")
+    cat_block = "\n".join(cat_lines) if cat_lines else "<i>No categories active yet.</i>"
+
     text = (
-        f"🛍️ <b>PREMIUM DIGITAL STORE CATALOG</b>\n"
+        f"{ce(CustomEmojis.SHOP, '🛍️')} <b>PREMIUM DIGITAL STORE CATALOG</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"Select a category below to explore subscriptions, accounts, and tools:\n\n"
+        f"<b>Available Categories:</b>\n"
+        f"{cat_block}\n\n"
         f"<blockquote>"
         f"✦ <b>Instant Delivery:</b> Credentials sent in seconds\n"
         f"✦ <b>Verified Accounts:</b> 100% Genuine & safe\n"
         f"✦ <b>Full Warranty:</b> Covered throughout validity"
         f"</blockquote>\n\n"
-        f"👇 <i>Choose your desired category:</i>"
+        f"👇 <i>Choose a category below to explore:</i>"
     )
     await callback.message.edit_text(text, reply_markup=get_categories_keyboard(categories))
 
@@ -117,11 +124,21 @@ async def cb_category_products(callback: types.CallbackQuery, session: AsyncSess
     for prod in products:
         stock_counts[prod.id] = await get_product_total_stock_count(session, prod.id)
 
+    prod_lines = []
+    for prod in products:
+        p_icon = format_emoji(prod.emoji or "📦", prod.custom_emoji_id)
+        stock = stock_counts.get(prod.id, 0)
+        stock_str = f"🟢 {stock} In Stock" if stock > 0 else "🔴 Out of Stock"
+        prod_lines.append(f"• {p_icon} <b>{prod.title}</b> — <i>{stock_str}</i>")
+    prod_block = "\n".join(prod_lines) if prod_lines else "<i>No products available yet.</i>"
+
     cat_emoji = format_emoji(category.emoji, category.custom_emoji_id)
     text = (
         f"{cat_emoji} <b>CATEGORY ➜ {category.name.upper()}</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"Select an item to view plans, pricing, and live inventory:\n"
+        f"<b>Available Products:</b>\n"
+        f"{prod_block}\n\n"
+        f"👇 <i>Select an item below to view plans and pricing:</i>"
     )
 
     await callback.message.edit_text(

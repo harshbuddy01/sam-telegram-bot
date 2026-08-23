@@ -625,53 +625,37 @@ async def seed_initial_data(session: AsyncSession):
     """
     # 1. Standardize Categories
     cats_data = [
-        ("OTT & Streaming", "🍿", 1),
-        ("AI Tools & Productivity", "🤖", 2),
-        ("VPN Services", "🛡️", 3),
-        ("Education & Developer", "🎓", 4),
-        ("Gaming & Utilities", "🎮", 5),
-        ("Freebies & Deals", "🎁", 6),
+        ("OTT & Streaming", "🍿", 1, CustomEmojis.NETFLIX),
+        ("AI Tools & Productivity", "🤖", 2, CustomEmojis.CHATGPT),
+        ("VPN Services", "🛡️", 3, CustomEmojis.NORDVPN),
+        ("Education & Developer", "🎓", 4, None),
+        ("Gaming & Utilities", "🎮", 5, CustomEmojis.TELEGRAM),
+        ("Freebies & Deals", "🎁", 6, CustomEmojis.GIFT),
     ]
 
-    # Clean old duplicate legacy category names if any
-    legacy_cleanup = ["Streaming Services", "Legally paid services", "Education & Tools", "Vpn Services", "Freebies", "Ai tools", "PS5 Games", "🎬 OTT & Streaming", "🤖 🤖 AI Tools & Productivity", "🛡️ 🛡️ VPN Services", "🎓 🎓 Education & Developer", "🎮 🎮 Gaming & Utilities", "🎁 🎁 Freebies & Deals"]
-    for old_name in legacy_cleanup:
-        old_cat = (await session.execute(select(Category).where(Category.name == old_name))).scalar_one_or_none()
-        if old_cat:
-            # Check if any products under it
-            prods = (await session.execute(select(Product).where(Product.category_id == old_cat.id))).scalars().all()
-            if not prods:
-                await session.delete(old_cat)
-            else:
-                # rename to clean version if applicable
-                if "Streaming" in old_name:
-                    old_cat.name = "🍿 OTT & Streaming"
-                    old_cat.emoji = "🍿"
-                elif "AI" in old_name or "Ai" in old_name:
-                    old_cat.name = "🤖 AI Tools & Productivity"
-                    old_cat.emoji = "🤖"
-                elif "VPN" in old_name or "Vpn" in old_name:
-                    old_cat.name = "🛡️ VPN Services"
-                    old_cat.emoji = "🛡️"
-                elif "Education" in old_name:
-                    old_cat.name = "🎓 Education & Developer"
-                    old_cat.emoji = "🎓"
-                elif "Gaming" in old_name or "PS5" in old_name:
-                    old_cat.name = "🎮 Gaming & Utilities"
-                    old_cat.emoji = "🎮"
-                elif "Freebie" in old_name:
-                    old_cat.name = "🎁 Freebies & Deals"
-                    old_cat.emoji = "🎁"
+    # Clean and standardize all existing categories in database
+    all_existing_cats = (await session.execute(select(Category))).scalars().all()
+    for cat in all_existing_cats:
+        # Strip duplicate emoji prefixes and surrogate characters
+        for prefix in ["🍿 🍿 ", "🍿 ", "🤖 🤖 ", "🤖 ", "🛡️ 🛡️ ", "🛡️ ", "🎓 🎓 ", "🎓 ", "🎮 🎮 ", "🎮 ", "🎁 🎁 ", "🎁 "]:
+            if cat.name.startswith(prefix):
+                cat.name = cat.name[len(prefix):].strip()
+        cat.name = cat.name.strip(" 🤩\t\n")
     await session.commit()
 
     cats_dict = {}
-    for name, emoji, order in cats_data:
+    for name, emoji, order, custom_id in cats_data:
         stmt = select(Category).where(Category.name == name)
         res = await session.execute(stmt)
         cat = res.scalars().first()
         if not cat:
-            cat = Category(name=name, emoji=emoji, sort_order=order)
+            cat = Category(name=name, emoji=emoji, sort_order=order, custom_emoji_id=custom_id)
             session.add(cat)
+            await session.flush()
+        else:
+            cat.emoji = emoji
+            cat.custom_emoji_id = custom_id
+            cat.sort_order = order
             await session.flush()
         cats_dict[name] = cat
 
