@@ -70,7 +70,11 @@ async def main():
 
     try:
         # Drop pending updates to avoid processing backlog
-        await bot.delete_webhook(drop_pending_updates=True)
+        try:
+            await bot.delete_webhook(drop_pending_updates=True)
+        except Exception as e:
+            logger.warning(f"Could not delete webhook (transient Telegram API glitch): {e}")
+            
         await dp.start_polling(bot)
     finally:
         await bot.session.close()
