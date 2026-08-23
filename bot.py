@@ -4,6 +4,7 @@ import sys
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.exceptions import TelegramServerError, TelegramNetworkError, TelegramRetryAfter
@@ -43,9 +44,11 @@ async def main():
 
     logger.info("Starting Telegram Sales Bot...")
 
-    # Initialize Bot instance with HTML Parse Mode
+    # Initialize Bot instance with HTML Parse Mode & custom robust session
+    session = AiohttpSession(timeout=30.0)
     bot = Bot(
         token=config.BOT_TOKEN,
+        session=session,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
 
@@ -66,22 +69,27 @@ async def main():
     # Run database initialization
     await on_startup()
 
+    # Drop webhook once at startup
+    try:
+        await asyncio.wait_for(bot.delete_webhook(drop_pending_updates=False), timeout=5.0)
+    except Exception as e:
+        logger.info(f"Initial webhook check: {e}")
+
     logger.info(f"Bot connected as Admin IDs: {config.ADMIN_IDS}")
+    logger.info("Polling for updates...")
 
     # Polling loop with automatic reconnection
     while True:
         try:
-            try:
-                await bot.delete_webhook(drop_pending_updates=True)
-            except Exception as e:
-                logger.warning(f"Could not delete webhook: {e}")
-
-            logger.info("Polling for updates...")
-            await dp.start_polling(bot, handle_signals=False)
+            await dp.start_polling(
+                bot,
+                polling_timeout=10,
+                handle_signals=False
+            )
             break
         except (TelegramServerError, TelegramNetworkError) as e:
-            logger.warning(f"Telegram server glitch ({e}). Auto-reconnecting in 3 seconds...")
-            await asyncio.sleep(3)
+            logger.warning(f"Telegram connection hiccup ({e}). Reconnecting in 2 seconds...")
+            await asyncio.sleep(2)
         except TelegramRetryAfter as e:
             logger.warning(f"Telegram rate limit: sleeping for {e.retry_after} seconds...")
             await asyncio.sleep(e.retry_after)
@@ -89,8 +97,8 @@ async def main():
             logger.info("Bot shutdown requested.")
             break
         except Exception as e:
-            logger.error(f"Polling loop exception: {e}. Reconnecting in 5 seconds...")
-            await asyncio.sleep(5)
+            logger.error(f"Polling loop exception: {e}. Reconnecting in 3 seconds...")
+            await asyncio.sleep(3)
     
     await bot.session.close()
 
