@@ -164,13 +164,48 @@ def extract_emoji_and_custom_id(message) -> tuple[str, Optional[str]]:
     _, fallback, custom_id = extract_clean_name_and_emoji(message)
     return fallback, custom_id
 
+def text_to_tg_html(message) -> str:
+    """
+    Automatically converts any message containing Telegram Premium custom emojis
+    into standard Telegram HTML with <tg-emoji> tags using UTF-16 code unit offsets.
+    The admin only types normally with emojis — the bot handles all ID extraction and HTML tag generation!
+    """
+    if not message:
+        return ""
+    text = getattr(message, "text", "") or getattr(message, "caption", "") or ""
+    entities = getattr(message, "entities", None) or getattr(message, "caption_entities", None) or []
+    if not text or not entities:
+        return text.strip()
+
+    utf16_bytes = text.encode("utf-16-le")
+    custom_entities = sorted(
+        [e for e in entities if getattr(e, "type", "") == "custom_emoji" and getattr(e, "custom_emoji_id", None)],
+        key=lambda e: e.offset,
+        reverse=True
+    )
+    if not custom_entities:
+        return text.strip()
+
+    for ent in custom_entities:
+        start_byte = ent.offset * 2
+        end_byte = (ent.offset + ent.length) * 2
+        fallback_bytes = utf16_bytes[start_byte:end_byte]
+        try:
+            fallback_char = fallback_bytes.decode("utf-16-le")
+        except Exception:
+            fallback_char = "✨"
+        fallback_char = "".join(c for c in fallback_char if not (0xD800 <= ord(c) <= 0xDFFF)) or "✨"
+        replacement = f'<tg-emoji emoji-id="{ent.custom_emoji_id}">{fallback_char}</tg-emoji>'
+        replacement_bytes = replacement.encode("utf-16-le")
+        utf16_bytes = utf16_bytes[:start_byte] + replacement_bytes + utf16_bytes[end_byte:]
+
+    return utf16_bytes.decode("utf-16-le").strip()
+
 def get_message_html_text(message) -> str:
     """
     Returns message text formatted with <tg-emoji> tags if custom emojis are present.
     """
-    if hasattr(message, "html_text") and message.html_text:
-        return message.html_text.strip()
-    return message.text.strip() if message.text else ""
+    return text_to_tg_html(message)
 
 def clean_button_text(html_text: str) -> str:
     """
