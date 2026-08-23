@@ -63,6 +63,31 @@ async def cb_nav_home(callback: types.CallbackQuery, session: AsyncSession):
             reply_markup=get_main_menu_keyboard(is_admin=is_user_admin)
         )
 
+@router.callback_query(F.data == "nav_guide")
+async def cb_nav_guide(callback: types.CallbackQuery):
+    await callback.answer()
+    text = (
+        f"📖 <b>HOW TO USE {config.STORE_NAME.upper()}</b>\n\n"
+        f"Follow these simple steps to buy subscriptions with instant delivery:\n\n"
+        f"<blockquote>"
+        f"1️⃣ <b>Step 1 — Deposit Funds:</b>\n"
+        f"Click <b>'💳 Deposit Wallet'</b>, select an amount, and scan our UPI QR code. Submit your UTR/screenshot to get your balance credited in minutes.\n\n"
+        f"2️⃣ <b>Step 2 — Browse Catalog or Search:</b>\n"
+        f"Click <b>'🛍️ Explore Store'</b> or <b>'🔍 Search Product'</b> to find your subscription (Netflix, Prime, YouTube, VPN, etc.).\n\n"
+        f"3️⃣ <b>Step 3 — Inspect Details & Purchase:</b>\n"
+        f"Click on your plan to see full specifications, rules, and warranty. Click <b>'⚡ Purchase Now'</b>.\n\n"
+        f"4️⃣ <b>Step 4 — Instant Delivery:</b>\n"
+        f"Your login credentials or license key will be sent <b>immediately in the chat</b> and permanently saved in <b>'📦 Order History'</b>!"
+        f"</blockquote>\n\n"
+        f"💡 <i>Need assistance? Click 'Help & Support' below anytime.</i>"
+    )
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛍️  Explore Store Now", callback_data="nav_shop")],
+        [InlineKeyboardButton(text="◀️  Back to Main Menu", callback_data="nav_home")]
+    ])
+    await callback.message.edit_text(text, reply_markup=kb)
+
 @router.callback_query(F.data == "nav_support")
 async def cb_nav_support(callback: types.CallbackQuery):
     await callback.answer()

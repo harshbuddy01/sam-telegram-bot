@@ -6,15 +6,20 @@ import config
 def get_main_menu_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:
     buttons = [
         [
-            InlineKeyboardButton(text="🛍️  EXPLORE STORE  🛍️", callback_data="nav_shop")
+            InlineKeyboardButton(text="🛍️  Explore Store", callback_data="nav_shop"),
+            InlineKeyboardButton(text="🔍  Search Product", callback_data="nav_search")
         ],
         [
             InlineKeyboardButton(text="💳  Deposit Wallet", callback_data="nav_deposit"),
-            InlineKeyboardButton(text="👤  My Profile", callback_data="nav_profile")
+            InlineKeyboardButton(text="📦  Order History", callback_data="view_orders")
         ],
         [
-            InlineKeyboardButton(text="🎁  Refer & Earn", callback_data="nav_refer"),
-            InlineKeyboardButton(text="🛟  24/7 Support", callback_data="nav_support")
+            InlineKeyboardButton(text="👤  My Account", callback_data="nav_profile"),
+            InlineKeyboardButton(text="🎁  Invite Users", callback_data="nav_refer")
+        ],
+        [
+            InlineKeyboardButton(text="📖  How to Use", callback_data="nav_guide"),
+            InlineKeyboardButton(text="🛟  Help & Support", callback_data="nav_support")
         ]
     ]
 
@@ -33,9 +38,30 @@ def get_main_menu_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+def get_search_results_keyboard(
+    products: list[Product],
+    stock_counts: dict[int, int]
+) -> InlineKeyboardMarkup:
+    buttons = []
+    for prod in products:
+        stock = stock_counts.get(prod.id, 0)
+        stock_badge = f"🟢 {stock} In Stock" if stock > 0 else "🔴 Out of Stock"
+        icon = prod.emoji or Emojis.PRODUCT
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{icon}  {prod.title}  •  {stock_badge}",
+                callback_data=f"prod_{prod.id}"
+            )
+        ])
+    
+    buttons.append([
+        InlineKeyboardButton(text="🔍  Search Another Item", callback_data="nav_search"),
+        InlineKeyboardButton(text="🏠  Main Menu", callback_data="nav_home")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
 def get_categories_keyboard(categories: list[Category]) -> InlineKeyboardMarkup:
     buttons = []
-    # Display full-width sleek category buttons
     for idx, cat in enumerate(categories, 1):
         emoji_icon = cat.emoji or Emojis.CATEGORY
         buttons.append([
@@ -74,7 +100,6 @@ def get_products_keyboard(
             )
         ])
 
-    # Pagination controls
     if total_pages > 1:
         nav_row = []
         if page > 1:

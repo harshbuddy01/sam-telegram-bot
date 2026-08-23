@@ -1,5 +1,5 @@
-from aiogram import Router, F, types
-from sqlalchemy.ext.asyncio import AsyncSession
+from aiogram.fsm.context import FSMContext
+from utils.states import SearchStates
 from database.crud import (
     get_active_categories,
     get_category,
@@ -8,18 +8,69 @@ from database.crud import (
     get_variants_by_product,
     get_variant,
     get_available_stock_count,
-    get_product_total_stock_count
+    get_product_total_stock_count,
+    search_products
 )
 from keyboards.user_keyboards import (
     get_categories_keyboard,
     get_products_keyboard,
     get_variants_keyboard,
-    get_product_detail_keyboard
+    get_product_detail_keyboard,
+    get_search_results_keyboard,
+    get_back_button
 )
 from utils.emojis import Emojis, UI
 import config
 
 router = Router()
+
+# ================= PRODUCT SEARCH =================
+
+@router.callback_query(F.data == "nav_search")
+async def cb_nav_search(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.set_state(SearchStates.waiting_for_query)
+    text = (
+        f"🔍 <b>PRODUCT SEARCH</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"Please enter the product name or keyword to search (e.g. <code>Netflix</code>, <code>Prime</code>, <code>YouTube</code>, <code>VPN</code>):\n\n"
+        f"💡 <i>Or tap below to return to the main menu:</i>"
+    )
+    await callback.message.edit_text(text, reply_markup=get_back_button("nav_home"))
+
+@router.message(SearchStates.waiting_for_query)
+async def msg_search_query(message: types.Message, state: FSMContext, session: AsyncSession):
+    query = message.text.strip()
+    await state.clear()
+
+    products = await search_products(session, query)
+
+    if not products:
+        text = (
+            f"🔍 <b>SEARCH RESULTS FOR:</b> <code>{query}</code>\n"
+            f"{UI.SECTION_BAR}\n\n"
+            f"❌ No matching products found for '<b>{query}</b>'.\n\n"
+            f"<i>Try searching with a different keyword or browse our full catalog!</i>"
+        )
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Search Again", callback_data="nav_search")],
+            [InlineKeyboardButton(text="🛍️ Explore Categories", callback_data="nav_shop")],
+            [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+        ])
+        await message.answer(text, reply_markup=kb)
+        return
+
+    stock_counts = {}
+    for prod in products:
+        stock_counts[prod.id] = await get_product_total_stock_count(session, prod.id)
+
+    text = (
+        f"🔍 <b>SEARCH RESULTS ({len(products)} found)</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"Matching subscriptions for '<b>{query}</b>':\n"
+    )
+    await message.answer(text, reply_markup=get_search_results_keyboard(products, stock_counts))
 
 @router.callback_query(F.data == "nav_shop")
 async def cb_nav_shop(callback: types.CallbackQuery, session: AsyncSession):

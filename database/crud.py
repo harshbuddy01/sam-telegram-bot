@@ -153,6 +153,23 @@ async def create_product(
     await session.refresh(product)
     return product
 
+async def search_products(session: AsyncSession, query: str) -> List[Product]:
+    """
+    Search for active products by title or description keyword.
+    """
+    search_term = f"%{query.strip().lower()}%"
+    stmt = (
+        select(Product)
+        .where(
+            Product.is_active == True,
+            (func.lower(Product.title).like(search_term)) |
+            (func.lower(Product.description).like(search_term))
+        )
+        .order_by(Product.id)
+    )
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
 async def delete_product(session: AsyncSession, product_id: int) -> bool:
     product = await get_product(session, product_id)
     if product:

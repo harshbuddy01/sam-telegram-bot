@@ -4,6 +4,9 @@ class DepositStates(StatesGroup):
     waiting_for_amount = State()
     waiting_for_proof = State()
 
+class SearchStates(StatesGroup):
+    waiting_for_query = State()
+
 class AdminCategoryStates(StatesGroup):
     waiting_for_name = State()
     waiting_for_emoji = State()
