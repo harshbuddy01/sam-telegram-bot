@@ -67,6 +67,7 @@ from utils.emojis import (
     Emojis,
     UI,
     format_emoji,
+    extract_clean_name_and_emoji,
     extract_emoji_and_custom_id,
     get_message_html_text
 )

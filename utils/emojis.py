@@ -151,6 +151,14 @@ def extract_clean_name_and_emoji(message) -> tuple[str, str, Optional[str]]:
 
     return clean_name or raw_text, fallback_char, None
 
+def extract_emoji_and_custom_id(message) -> tuple[str, Optional[str]]:
+    """
+    Backwards compatibility alias.
+    Returns (fallback_emoji, custom_emoji_id).
+    """
+    _, fallback, custom_id = extract_clean_name_and_emoji(message)
+    return fallback, custom_id
+
 def get_message_html_text(message) -> str:
     """
     Returns message text formatted with <tg-emoji> tags if custom emojis are present.
