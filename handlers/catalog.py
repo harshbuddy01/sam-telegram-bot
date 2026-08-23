@@ -16,7 +16,7 @@ from keyboards.user_keyboards import (
     get_variants_keyboard,
     get_product_detail_keyboard
 )
-from utils.emojis import Emojis
+from utils.emojis import Emojis, UI
 import config
 
 router = Router()
@@ -28,18 +28,23 @@ async def cb_nav_shop(callback: types.CallbackQuery, session: AsyncSession):
     
     if not categories:
         await callback.message.edit_text(
-            "🛒 <b>Store Catalog</b>\n\n"
+            "🛒 <b>STORE CATALOG</b>\n"
+            f"{UI.SECTION_BAR}\n\n"
             "No categories available right now. Please check back shortly!",
             reply_markup=get_categories_keyboard([])
         )
         return
 
     text = (
-        f"🛒 <b>WELCOME TO {config.UPI_NAME.upper()}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Explore our premium digital products & services.\n"
-        f"Select a category below to browse available items:\n\n"
-        f"💡 <i>Tap any category button below:</i>"
+        f"🛍️ <b>PREMIUM DIGITAL STORE CATALOG</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"Select a category below to explore subscriptions, accounts, and tools:\n\n"
+        f"<blockquote>"
+        f"✦ <b>Instant Delivery:</b> Credentials sent in seconds\n"
+        f"✦ <b>Verified Accounts:</b> 100% Genuine & safe\n"
+        f"✦ <b>Full Warranty:</b> Covered throughout validity"
+        f"</blockquote>\n\n"
+        f"👇 <i>Choose your desired category:</i>"
     )
     await callback.message.edit_text(text, reply_markup=get_categories_keyboard(categories))
 
@@ -55,17 +60,14 @@ async def cb_category_products(callback: types.CallbackQuery, session: AsyncSess
 
     products = await get_products_by_category(session, category_id)
 
-    # Collect stock counts for each product
     stock_counts = {}
     for prod in products:
         stock_counts[prod.id] = await get_product_total_stock_count(session, prod.id)
 
     text = (
-        f"📁 <b>CATEGORY: {category.name.upper()}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Browse our available subscriptions and products.\n"
-        f"Select any item below to view variants, plans, and stock:\n\n"
-        f"👇 <i>Choose a product:</i>"
+        f"{category.emoji} <b>CATEGORY ➜ {category.name.upper()}</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"Select an item to view plans, pricing, and live inventory:\n"
     )
 
     await callback.message.edit_text(
@@ -88,11 +90,9 @@ async def cb_products_page(callback: types.CallbackQuery, session: AsyncSession)
         stock_counts[prod.id] = await get_product_total_stock_count(session, prod.id)
 
     text = (
-        f"📁 <b>CATEGORY: {category.name.upper() if category else 'PRODUCTS'}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Browse our available subscriptions and products.\n"
-        f"Select any item below to view variants, plans, and stock:\n\n"
-        f"👇 <i>Choose a product:</i>"
+        f"{category.emoji if category else '📁'} <b>CATEGORY ➜ {category.name.upper() if category else 'PRODUCTS'}</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"Select an item to view plans, pricing, and live inventory:\n"
     )
 
     await callback.message.edit_text(
@@ -114,14 +114,14 @@ async def cb_product_variants(callback: types.CallbackQuery, session: AsyncSessi
 
     text = (
         f"📦 <b>{product.title.upper()}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{UI.SECTION_BAR}\n\n"
     )
     if product.description:
-        text += f"<i>{product.description}</i>\n\n"
+        text += f"<blockquote>{product.description}</blockquote>\n\n"
 
     text += (
-        f"⚡ <b>Select your desired duration or plan type:</b>\n"
-        f"<i>(Click on any plan to see full details & specifications before buying)</i>"
+        f"⚡ <b>Select your plan / duration below:</b>\n"
+        f"<i>(Click on any plan to inspect the detailed specs, warranty & delivery info)</i>"
     )
 
     await callback.message.edit_text(
@@ -132,9 +132,8 @@ async def cb_product_variants(callback: types.CallbackQuery, session: AsyncSessi
 @router.callback_query(F.data.startswith("var_"))
 async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession):
     """
-    Detailed Product Card Screen (User Requirement):
-    Displays the complete description, warranty, delivery mode, price,
-    and stock status before asking the user to confirm purchase.
+    Detailed Product Card Screen:
+    Displays rich specifications, pricing card, warranty, rules, and stock status.
     """
     await callback.answer()
     variant_id = int(callback.data.split("_")[1])
@@ -148,33 +147,33 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
     stock_count = await get_available_stock_count(session, variant.id)
     has_stock = stock_count > 0
 
-    stock_badge = f"🟢 In Stock ({stock_count} Available)" if has_stock else "🔴 Out of Stock"
+    stock_badge = f"🟢 <b>In Stock</b> ({stock_count} Available)" if has_stock else "🔴 <b>Out of Stock</b>"
 
-    # Format the Detailed Product Card
     text = (
-        f"💎 <b>PRODUCT SPECIFICATIONS</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📦 <b>Item:</b> {product.title if product else 'Product'}\n"
-        f"✨ <b>Plan:</b> {variant.name}\n"
+        f"💎 <b>PRODUCT SPECIFICATION & PRICING</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"📦 <b>Product:</b> {product.title if product else 'Product'}\n"
+        f"✨ <b>Plan:</b> <code>{variant.name}</code>\n"
         f"🏷️ <b>Type:</b> {variant.variant_type}\n"
         f"💰 <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
-        f"📊 <b>Stock Status:</b> {stock_badge}\n"
-        f"⚡ <b>Fulfillment:</b> Instant Auto-Delivery\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📊 <b>Inventory:</b> {stock_badge}\n"
+        f"⚡ <b>Fulfillment:</b> 100% Automated Instant Delivery\n\n"
+        f"<blockquote>"
     )
 
     if variant.detailed_description:
-        text += f"{variant.detailed_description}\n\n"
+        text += f"{variant.detailed_description}\n"
     else:
         text += (
-            f"📝 <b>Plan Details:</b>\n"
-            f"✦ Instant credentials sent directly to your Telegram chat.\n"
-            f"✦ 100% genuine and verified subscription.\n"
-            f"✦ Replacement warranty during the plan validity.\n\n"
+            f"✦ <b>Quality:</b> Official UHD/HD stream\n"
+            f"✦ <b>Access:</b> Instant login credentials\n"
+            f"✦ <b>Warranty:</b> Replacement guarantee for active duration\n"
+            f"✦ <b>Rules:</b> Use on assigned screen only"
         )
 
     text += (
-        f"🛡️ <i>Click <b>'Buy Now'</b> below to purchase instantly using your wallet balance.</i>"
+        f"</blockquote>\n\n"
+        f"🛡️ <i>Click <b>'PURCHASE NOW'</b> to buy instantly using your wallet balance:</i>"
     )
 
     await callback.message.edit_text(

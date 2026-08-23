@@ -3,30 +3,29 @@ from aiogram.filters import CommandStart, Command, CommandObject
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.crud import get_or_create_user, get_user
 from keyboards.user_keyboards import get_main_menu_keyboard
-from utils.emojis import Emojis
+from utils.emojis import Emojis, UI
 import config
 
 router = Router()
 
-def get_welcome_text(first_name: str) -> str:
+def get_welcome_text(first_name: str, user_id: int) -> str:
     return (
-        f"👑 <b>Welcome to {config.UPI_NAME}!</b>\n\n"
-        f"Hey <b>{first_name}</b> 👋\n\n"
-        f"We offer premium digital subscriptions & services at the best prices. "
-        f"Fast, secure, and 100% automated delivery directly inside Telegram!\n\n"
+        f"👑 <b>{config.UPI_NAME.upper()} — OFFICIAL STORE</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"👋 Welcome, <b>{first_name}</b>! <i>(ID: <code>{user_id}</code>)</i>\n\n"
+        f"Your #1 verified hub for premium OTT subscriptions, AI tools, VPNs, and digital services with <b>100% automated instant delivery</b>.\n\n"
         f"<blockquote>"
-        f"🛍️ <b>Shop</b> — Browse & buy subscriptions\n"
-        f"💳 <b>Deposit</b> — Add funds to your wallet\n"
-        f"👤 <b>My Profile</b> — Balance, orders & referral link\n"
-        f"🛟 <b>Support</b> — Get instant 24/7 assistance\n"
-        f"🎁 <b>Refer & Earn</b> — Invite friends and get {config.REFERRAL_BONUS_PERCENT}% commission"
+        f"🛍️ <b>Explore Store</b> ➜ Browse all subscriptions & plans\n"
+        f"💳 <b>Deposit Wallet</b> ➜ Fast UPI top-up (Instant credit)\n"
+        f"👤 <b>My Account</b> ➜ Balance, orders & live credentials\n"
+        f"🎁 <b>Refer & Earn</b> ➜ Get {config.REFERRAL_BONUS_PERCENT}% cash on every purchase\n"
+        f"🛟 <b>24/7 Support</b> ➜ Fast customer assistance & warranty"
         f"</blockquote>\n\n"
-        f"👇 <i>Choose an option below to continue:</i>"
+        f"⚡ <i>Tap any option below to get started:</i>"
     )
 
 @router.message(CommandStart())
 async def cmd_start(message: types.Message, command: CommandObject, session: AsyncSession):
-    # Check if referral code was passed: /start ref_12345
     referrer_id = None
     if command.args and command.args.startswith("ref_"):
         ref_str = command.args.replace("ref_", "")
@@ -42,7 +41,7 @@ async def cmd_start(message: types.Message, command: CommandObject, session: Asy
     )
 
     is_user_admin = config.is_admin(message.from_user.id)
-    text = get_welcome_text(message.from_user.first_name)
+    text = get_welcome_text(message.from_user.first_name, message.from_user.id)
     await message.answer(
         text,
         reply_markup=get_main_menu_keyboard(is_admin=is_user_admin)
@@ -52,7 +51,7 @@ async def cmd_start(message: types.Message, command: CommandObject, session: Asy
 async def cb_nav_home(callback: types.CallbackQuery, session: AsyncSession):
     await callback.answer()
     is_user_admin = config.is_admin(callback.from_user.id)
-    text = get_welcome_text(callback.from_user.first_name)
+    text = get_welcome_text(callback.from_user.first_name, callback.from_user.id)
     try:
         await callback.message.edit_text(
             text,
@@ -68,38 +67,36 @@ async def cb_nav_home(callback: types.CallbackQuery, session: AsyncSession):
 async def cb_nav_support(callback: types.CallbackQuery):
     await callback.answer()
     text = (
-        f"🛟 <b>Customer Support & Helpdesk</b>\n\n"
-        f"Have a question or facing issues with an order?\n"
-        f"Our support team is available to assist you.\n\n"
-        f"✦ <b>Official Support:</b> {config.SUPPORT_USERNAME}\n"
-        f"✦ <b>Working Hours:</b> 24/7 Online Support\n"
-        f"✦ <b>Updates Channel:</b> <a href='{config.CHANNEL_LINK}'>Join Channel</a>\n\n"
-        f"<i>Click the button below to reach out to our team directly.</i>"
+        f"🛟 <b>CUSTOMER SUPPORT & HELPDESK</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"Need assistance with an order, replacement, or inquiry?\n"
+        f"Our support desk is online 24/7 to help you.\n\n"
+        f"<blockquote>"
+        f"✦ <b>Official Handle:</b> {config.SUPPORT_USERNAME}\n"
+        f"✦ <b>Response Time:</b> Within 5–15 Minutes\n"
+        f"✦ <b>Warranty Policy:</b> 100% Replacement Guarantee\n"
+        f"✦ <b>Official Channel:</b> <a href='{config.CHANNEL_LINK}'>Join Updates</a>"
+        f"</blockquote>\n\n"
+        f"💬 <i>Click below to direct message our support team:</i>"
     )
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💬 Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}")] if config.SUPPORT_USERNAME.startswith('@') else [],
-        [InlineKeyboardButton(text=f"{Emojis.BACK} Back to Main Menu", callback_data="nav_home")]
+        [InlineKeyboardButton(text="💬  Message Support Directly", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}")] if config.SUPPORT_USERNAME.startswith('@') else [],
+        [InlineKeyboardButton(text="◀️  Back to Main Menu", callback_data="nav_home")]
     ])
     await callback.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
 
 @router.message(Command("getemoji"))
 async def cmd_getemoji(message: types.Message):
-    """
-    Admin helper command to extract custom_emoji_id from Telegram Premium custom emojis.
-    Usage: Send /getemoji followed by the custom emoji or reply to any message containing a premium emoji.
-    """
     if not config.is_admin(message.from_user.id):
         return
 
     emoji_ids = []
-    # Check entities in current message
     entities = message.entities or []
     for ent in entities:
         if ent.type == "custom_emoji" and ent.custom_emoji_id:
             emoji_ids.append(ent.custom_emoji_id)
 
-    # Check replied message
     if message.reply_to_message and message.reply_to_message.entities:
         for ent in message.reply_to_message.entities:
             if ent.type == "custom_emoji" and ent.custom_emoji_id:
@@ -107,15 +104,15 @@ async def cmd_getemoji(message: types.Message):
 
     if not emoji_ids:
         await message.answer(
-            "ℹ️ <b>Custom Emoji Extractor</b>\n\n"
+            "ℹ️ <b>Custom Emoji Extractor Tool</b>\n\n"
             "Send or reply to a message containing a <b>Telegram Premium Custom Emoji</b> with <code>/getemoji</code> to get its ID."
         )
         return
 
-    result = "✨ <b>Found Custom Emoji ID(s):</b>\n\n"
+    result = "✨ <b>Detected Telegram Premium Emoji ID(s):</b>\n\n"
     for eid in emoji_ids:
         result += f"• <code>{eid}</code>\n"
-        result += f"  HTML Tag: <code>&lt;tg-emoji emoji-id=\"{eid}\"&gt;🔥&lt;/tg-emoji&gt;</code>\n\n"
+        result += f"  HTML Code: <code>&lt;tg-emoji emoji-id=\"{eid}\"&gt;🔥&lt;/tg-emoji&gt;</code>\n\n"
 
     await message.answer(result)
 
