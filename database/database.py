@@ -40,9 +40,12 @@ async def init_db():
             "ALTER TABLE deposits ADD COLUMN gateway VARCHAR(50) DEFAULT 'MANUAL_UPI'",
             "ALTER TABLE deposits ADD COLUMN gateway_order_id VARCHAR(100)",
             "ALTER TABLE deposits ADD COLUMN gateway_payment_id VARCHAR(100)",
+            "ALTER TABLE deposits ADD COLUMN target_variant_id INTEGER",
+            "UPDATE products SET title = REPLACE(title, '❤️', '') WHERE title LIKE '%❤️%'",
+            "UPDATE categories SET name = REPLACE(name, '❤️', '') WHERE name LIKE '%❤️%'",
         ]
         for query in migrations:
             try:
                 await conn.execute(text(query))
             except Exception:
-                pass # Column already exists
+                pass # Column already exists or already updated
