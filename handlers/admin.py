@@ -60,6 +60,7 @@ from keyboards.admin_keyboards import (
     get_admin_manual_order_detail_keyboard,
     get_deposit_approval_keyboard,
     get_admin_settings_keyboard,
+    get_admin_gateway_settings_keyboard,
     get_admin_cancel_keyboard
 )
 from utils.states import (
@@ -1536,4 +1537,161 @@ async def msg_admin_set_support(message: types.Message, state: FSMContext):
         f"✅ <b>Support Handle Updated!</b>\n\n"
         f"🛟 New Support: <code>{config.SUPPORT_USERNAME}</code>",
         reply_markup=get_admin_settings_keyboard()
+    )
+
+# ================= 12. AUTOMATED GATEWAY CONFIGURATION =================
+
+@router.callback_query(F.data == "adm_gateways")
+async def cb_admin_gateways(callback: types.CallbackQuery):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    from payments.manager import payment_manager
+    is_rzp = payment_manager.razorpay.is_configured
+    is_cf = payment_manager.cashfree.is_configured
+
+    active_gw = payment_manager.default_gateway
+    gw_title = "⚡ AUTOMATED (Razorpay)" if active_gw == "RAZORPAY" else ("⚡ AUTOMATED (Cashfree)" if active_gw == "CASHFREE" else "📱 MANUAL UPI QR (0% Fees)")
+
+    text = (
+        f"{ce(CustomEmojis.FIRE, '⚡')} <b>AUTOMATED PAYMENT GATEWAY HUB</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"<b>Current Active Mode:</b> <b>{gw_title}</b>\n\n"
+        f"<blockquote>"
+        f"✦ <b>Razorpay Status:</b> {'🟢 Configured & Active' if is_rzp else '⚪ Not Configured'}\n"
+        f"✦ <b>Cashfree Status:</b> {'🟢 Configured & Active' if is_cf else '⚪ Not Configured'}\n"
+        f"✦ <b>Manual UPI QR:</b> 🟢 Always Available (0% Gateway Fee)"
+        f"</blockquote>\n\n"
+        f"<b>How Automated Gateway Works:</b>\n"
+        f"1. Customer taps 'PURCHASE NOW'.\n"
+        f"2. Bot opens instant payment link (UPI / GPay / PhonePe / Cards / NetBanking).\n"
+        f"3. Customer pays on the secure gateway.\n"
+        f"4. <b>Bot auto-verifies via API and delivers product to chat in 1 second with ZERO manual clicks!</b>\n\n"
+        f"<i>Select a gateway below to configure your API keys:</i>"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_gateway_settings_keyboard(is_rzp, is_cf))
+
+@router.callback_query(F.data == "adm_set_rzp")
+async def cb_admin_set_rzp(callback: types.CallbackQuery, state: FSMContext):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    await state.set_state(AdminSettingsStates.waiting_for_razorpay_key_id)
+    await callback.message.edit_text(
+        f"🔑 <b>CONFIGURE RAZORPAY GATEWAY</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"Step 1 of 2:\n"
+        f"Please send your <b>Razorpay Key ID</b> (e.g. <code>rzp_live_xxxxxxxxxx</code>):\n\n"
+        f"<i>(You can get this from your Razorpay Dashboard ➜ Settings ➜ API Keys)</i>",
+        reply_markup=get_admin_cancel_keyboard("adm_gateways")
+    )
+
+@router.message(AdminSettingsStates.waiting_for_razorpay_key_id, F.text)
+async def msg_admin_rzp_key_id(message: types.Message, state: FSMContext):
+    key_id = message.text.strip()
+    await state.update_data(rzp_key_id=key_id)
+    await state.set_state(AdminSettingsStates.waiting_for_razorpay_key_secret)
+    await message.answer(
+        f"🔑 <b>Razorpay Key ID Saved:</b> <code>{key_id}</code>\n\n"
+        f"Step 2 of 2:\n"
+        f"Now send your <b>Razorpay Key Secret</b>:"
+    )
+
+@router.message(AdminSettingsStates.waiting_for_razorpay_key_secret, F.text)
+async def msg_admin_rzp_key_secret(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    key_id = data.get("rzp_key_id")
+    key_secret = message.text.strip()
+    await state.clear()
+
+    config.RAZORPAY_KEY_ID = key_id
+    config.RAZORPAY_KEY_SECRET = key_secret
+    import os
+    os.environ["RAZORPAY_KEY_ID"] = key_id
+    os.environ["RAZORPAY_KEY_SECRET"] = key_secret
+
+    from payments.manager import payment_manager
+    payment_manager.razorpay.is_configured = True
+
+    await message.answer(
+        f"✅ <b>RAZORPAY GATEWAY CONFIGURED & ACTIVATED!</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"⚡ <b>Mode:</b> 100% Automated Instant Auto-Delivery\n"
+        f"🔑 <b>Key ID:</b> <code>{key_id}</code>\n\n"
+        f"<i>Customers paying in the bot will now receive dynamic instant checkout links with automated delivery!</i>",
+        reply_markup=get_admin_gateway_settings_keyboard(True, payment_manager.cashfree.is_configured)
+    )
+
+@router.callback_query(F.data == "adm_set_cf")
+async def cb_admin_set_cf(callback: types.CallbackQuery, state: FSMContext):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    await state.set_state(AdminSettingsStates.waiting_for_cashfree_app_id)
+    await callback.message.edit_text(
+        f"🔑 <b>CONFIGURE CASHFREE GATEWAY</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"Step 1 of 2:\n"
+        f"Please send your <b>Cashfree App ID / Client ID</b>:",
+        reply_markup=get_admin_cancel_keyboard("adm_gateways")
+    )
+
+@router.message(AdminSettingsStates.waiting_for_cashfree_app_id, F.text)
+async def msg_admin_cf_app_id(message: types.Message, state: FSMContext):
+    app_id = message.text.strip()
+    await state.update_data(cf_app_id=app_id)
+    await state.set_state(AdminSettingsStates.waiting_for_cashfree_secret_key)
+    await message.answer(
+        f"🔑 <b>Cashfree App ID Saved:</b> <code>{app_id}</code>\n\n"
+        f"Step 2 of 2:\n"
+        f"Now send your <b>Cashfree Secret Key</b>:"
+    )
+
+@router.message(AdminSettingsStates.waiting_for_cashfree_secret_key, F.text)
+async def msg_admin_cf_secret_key(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    app_id = data.get("cf_app_id")
+    secret_key = message.text.strip()
+    await state.clear()
+
+    config.CASHFREE_APP_ID = app_id
+    config.CASHFREE_SECRET_KEY = secret_key
+    import os
+    os.environ["CASHFREE_APP_ID"] = app_id
+    os.environ["CASHFREE_SECRET_KEY"] = secret_key
+
+    from payments.manager import payment_manager
+    payment_manager.cashfree.app_id = app_id
+    payment_manager.cashfree.secret_key = secret_key
+
+    await message.answer(
+        f"✅ <b>CASHFREE GATEWAY CONFIGURED & ACTIVATED!</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"⚡ <b>Mode:</b> 100% Automated Instant Auto-Delivery\n"
+        f"🔑 <b>App ID:</b> <code>{app_id}</code>\n\n"
+        f"<i>Customers will now be routed through Cashfree with automated verification!</i>",
+        reply_markup=get_admin_gateway_settings_keyboard(payment_manager.razorpay.is_configured, True)
+    )
+
+@router.callback_query(F.data == "adm_set_manual_upi")
+async def cb_admin_set_manual_upi(callback: types.CallbackQuery):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    config.RAZORPAY_KEY_ID = ""
+    config.RAZORPAY_KEY_SECRET = ""
+    config.CASHFREE_APP_ID = ""
+    config.CASHFREE_SECRET_KEY = ""
+    import os
+    os.environ.pop("RAZORPAY_KEY_ID", None)
+    os.environ.pop("RAZORPAY_KEY_SECRET", None)
+    os.environ.pop("CASHFREE_APP_ID", None)
+    os.environ.pop("CASHFREE_SECRET_KEY", None)
+
+    await callback.message.edit_text(
+        f"✅ <b>RESET TO DIRECT UPI QR MODE (0% GATEWAY FEES)</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"📱 Payments will now be made directly to your UPI ID (<code>{config.UPI_ID}</code>).\n"
+        f"🛡️ Admin gets instant approve/reject notifications with 1-tap delivery!",
+        reply_markup=get_admin_gateway_settings_keyboard(False, False)
     )

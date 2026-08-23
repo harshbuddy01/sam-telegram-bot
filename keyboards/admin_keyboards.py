@@ -42,8 +42,31 @@ def get_admin_settings_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="👤 Change Payee Name", callback_data="adm_set_upi_name", icon_custom_emoji_id=CustomEmojis.VERIFIED)
         ],
         [
+            InlineKeyboardButton(text="⚡ Automated Gateway (Razorpay/Cashfree)", callback_data="adm_gateways", icon_custom_emoji_id=CustomEmojis.FIRE)
+        ],
+        [
             InlineKeyboardButton(text="🛟 Change Support Handle", callback_data="adm_set_support", icon_custom_emoji_id=CustomEmojis.SUPPORT),
             InlineKeyboardButton(text="◀️ Back to Admin Panel", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_admin_gateway_settings_keyboard(is_rzp_active: bool, is_cf_active: bool) -> InlineKeyboardMarkup:
+    rzp_status = "🟢 Active" if is_rzp_active else "⚪ Not Set"
+    cf_status = "🟢 Active" if is_cf_active else "⚪ Not Set"
+
+    buttons = [
+        [
+            InlineKeyboardButton(text=f"🔑 Configure Razorpay ({rzp_status})", callback_data="adm_set_rzp", icon_custom_emoji_id=CustomEmojis.FIRE)
+        ],
+        [
+            InlineKeyboardButton(text=f"🔑 Configure Cashfree ({cf_status})", callback_data="adm_set_cf", icon_custom_emoji_id=CustomEmojis.DIAMOND)
+        ],
+        [
+            InlineKeyboardButton(text="🔄 Reset to Manual UPI QR (0% Fees)", callback_data="adm_set_manual_upi", icon_custom_emoji_id=CustomEmojis.CARD)
+        ],
+        [
+            InlineKeyboardButton(text="◀️ Back to Settings", callback_data="adm_settings", icon_custom_emoji_id=CustomEmojis.CROWN)
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)

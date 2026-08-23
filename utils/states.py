@@ -60,3 +60,7 @@ class AdminSettingsStates(StatesGroup):
     waiting_for_upi_id = State()
     waiting_for_upi_name = State()
     waiting_for_support_user = State()
+    waiting_for_razorpay_key_id = State()
+    waiting_for_razorpay_key_secret = State()
+    waiting_for_cashfree_app_id = State()
+    waiting_for_cashfree_secret_key = State()
