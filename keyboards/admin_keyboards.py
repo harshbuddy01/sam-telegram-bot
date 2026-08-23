@@ -130,8 +130,17 @@ def get_admin_categories_keyboard(categories: list[Category]) -> InlineKeyboardM
     buttons = []
     for cat in categories:
         clean_name = clean_button_text(cat.name)
+        btn_kwargs = {
+            "text": clean_name,
+            "callback_data": f"adm_cat_view_{cat.id}"
+        }
+        if cat.custom_emoji_id and str(cat.custom_emoji_id).isdigit():
+            btn_kwargs["icon_custom_emoji_id"] = str(cat.custom_emoji_id)
+        elif cat.emoji:
+            btn_kwargs["text"] = f"{cat.emoji} {clean_name}"
+
         buttons.append([
-            InlineKeyboardButton(text=f"{cat.emoji} {clean_name}", callback_data=f"adm_cat_view_{cat.id}"),
+            InlineKeyboardButton(**btn_kwargs),
             InlineKeyboardButton(text="🗑️ Delete", callback_data=f"adm_cat_del_{cat.id}")
         ])
     
@@ -147,8 +156,17 @@ def get_admin_category_select_keyboard(categories: list[Category], action: str =
     buttons = []
     for cat in categories:
         clean_name = clean_button_text(cat.name)
+        btn_kwargs = {
+            "text": clean_name,
+            "callback_data": f"adm_selcat_{action}_{cat.id}"
+        }
+        if cat.custom_emoji_id and str(cat.custom_emoji_id).isdigit():
+            btn_kwargs["icon_custom_emoji_id"] = str(cat.custom_emoji_id)
+        elif cat.emoji:
+            btn_kwargs["text"] = f"{cat.emoji} {clean_name}"
+
         buttons.append([
-            InlineKeyboardButton(text=f"{cat.emoji} {clean_name}", callback_data=f"adm_selcat_{action}_{cat.id}")
+            InlineKeyboardButton(**btn_kwargs)
         ])
     buttons.append([
         InlineKeyboardButton(text=f"{Emojis.CANCEL} Cancel", callback_data="admin_home")
@@ -159,8 +177,17 @@ def get_admin_products_keyboard(products: list[Product], category_id: int) -> In
     buttons = []
     for prod in products:
         clean_title = clean_button_text(prod.title)
+        btn_kwargs = {
+            "text": clean_title,
+            "callback_data": f"adm_prod_view_{prod.id}"
+        }
+        if prod.custom_emoji_id and str(prod.custom_emoji_id).isdigit():
+            btn_kwargs["icon_custom_emoji_id"] = str(prod.custom_emoji_id)
+        elif prod.emoji:
+            btn_kwargs["text"] = f"{prod.emoji} {clean_title}"
+
         buttons.append([
-            InlineKeyboardButton(text=f"{prod.emoji} {clean_title}", callback_data=f"adm_prod_view_{prod.id}"),
+            InlineKeyboardButton(**btn_kwargs),
             InlineKeyboardButton(text="🗑️ Delete", callback_data=f"adm_prod_del_{prod.id}")
         ])
     

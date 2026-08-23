@@ -1,39 +1,45 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from database.models import Category, Product, Variant, Order
-from utils.emojis import Emojis, UI, clean_button_text
+from utils.emojis import Emojis, UI, CustomEmojis, clean_button_text
 import config
 
 def get_persistent_menu_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
     """
     Persistent bottom menu keyboard shown at bottom of user chat on mobile/desktop.
-    Matches the layout shown in screenshot: Shop, Deposit, My Profile, Support, Refer & Earn.
+    Matches the layout shown in screenshot with icon_custom_emoji_id.
     """
     buttons = [
-        [KeyboardButton(text="🛍️  Shop")],
-        [KeyboardButton(text="💳  Deposit"), KeyboardButton(text="👤  My Profile")],
-        [KeyboardButton(text="🚨  Support"), KeyboardButton(text="🌟  Refer & Earn")]
+        [KeyboardButton(text="Shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
+        [
+            KeyboardButton(text="Deposit", icon_custom_emoji_id=CustomEmojis.WALLET),
+            KeyboardButton(text="My Profile", icon_custom_emoji_id=CustomEmojis.VERIFIED)
+        ],
+        [
+            KeyboardButton(text="Support", icon_custom_emoji_id=CustomEmojis.SUPPORT),
+            KeyboardButton(text="Refer & Earn", icon_custom_emoji_id=CustomEmojis.STAR)
+        ]
     ]
     if is_admin:
-        buttons.append([KeyboardButton(text="⚡  Admin Control Panel")])
+        buttons.append([KeyboardButton(text="Admin Control Panel", icon_custom_emoji_id=CustomEmojis.FIRE)])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, is_persistent=True)
 
 def get_main_menu_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:
     buttons = [
         [
-            InlineKeyboardButton(text="🛍️  Explore Store", callback_data="nav_shop"),
-            InlineKeyboardButton(text="🔍  Search Product", callback_data="nav_search")
+            InlineKeyboardButton(text="Explore Store", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP),
+            InlineKeyboardButton(text="Search Product", callback_data="nav_search", icon_custom_emoji_id=CustomEmojis.SEARCH)
         ],
         [
-            InlineKeyboardButton(text="💳  Deposit Wallet", callback_data="nav_deposit"),
-            InlineKeyboardButton(text="📦  Order History", callback_data="view_orders")
+            InlineKeyboardButton(text="Deposit Wallet", callback_data="nav_deposit", icon_custom_emoji_id=CustomEmojis.WALLET),
+            InlineKeyboardButton(text="Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)
         ],
         [
-            InlineKeyboardButton(text="👤  My Account", callback_data="nav_profile"),
-            InlineKeyboardButton(text="🎁  Invite Users", callback_data="nav_refer")
+            InlineKeyboardButton(text="My Account", callback_data="nav_profile", icon_custom_emoji_id=CustomEmojis.VERIFIED),
+            InlineKeyboardButton(text="Invite Users", callback_data="nav_refer", icon_custom_emoji_id=CustomEmojis.GIFT)
         ],
         [
-            InlineKeyboardButton(text="📖  How to Use", callback_data="nav_guide"),
-            InlineKeyboardButton(text="🛟  Help & Support", callback_data="nav_support")
+            InlineKeyboardButton(text="How to Use", callback_data="nav_guide", icon_custom_emoji_id=CustomEmojis.DIAMOND),
+            InlineKeyboardButton(text="Help & Support", callback_data="nav_support", icon_custom_emoji_id=CustomEmojis.SUPPORT)
         ]
     ]
 
@@ -47,7 +53,7 @@ def get_main_menu_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:
 
     if is_admin:
         buttons.append([
-            InlineKeyboardButton(text="⚡  ADMIN CONTROL PANEL  ⚡", callback_data="admin_home")
+            InlineKeyboardButton(text="⚡  ADMIN CONTROL PANEL  ⚡", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
         ])
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -61,17 +67,21 @@ def get_search_results_keyboard(
         stock = stock_counts.get(prod.id, 0)
         stock_badge = f"🟢 {stock} In Stock" if stock > 0 else "🔴 Out of Stock"
         clean_title = clean_button_text(prod.title)
-        icon = prod.emoji or Emojis.PRODUCT
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"{icon}  {clean_title}  •  {stock_badge}",
-                callback_data=f"prod_{prod.id}"
-            )
-        ])
+        
+        btn_kwargs = {
+            "text": f"{clean_title}  •  {stock_badge}",
+            "callback_data": f"prod_{prod.id}"
+        }
+        if prod.custom_emoji_id and str(prod.custom_emoji_id).isdigit():
+            btn_kwargs["icon_custom_emoji_id"] = str(prod.custom_emoji_id)
+        elif prod.emoji:
+            btn_kwargs["text"] = f"{prod.emoji} {clean_title}  •  {stock_badge}"
+
+        buttons.append([InlineKeyboardButton(**btn_kwargs)])
     
     buttons.append([
-        InlineKeyboardButton(text="🔍  Search Another Item", callback_data="nav_search"),
-        InlineKeyboardButton(text="🏠  Main Menu", callback_data="nav_home")
+        InlineKeyboardButton(text="Search Another Item", callback_data="nav_search", icon_custom_emoji_id=CustomEmojis.SEARCH),
+        InlineKeyboardButton(text="Main Menu", callback_data="nav_home")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -79,22 +89,20 @@ def get_categories_keyboard(categories: list[Category]) -> InlineKeyboardMarkup:
     buttons = []
     for idx, cat in enumerate(categories, 1):
         clean_name = clean_button_text(cat.name)
-        # Avoid prepending emoji if name already starts with an emoji
-        if cat.emoji and not any(clean_name.startswith(c) for c in ["🍿", "🤖", "🛡️", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "👑", "✨", "💎", "📦"]):
-            btn_text = f"{cat.emoji}  {clean_name}"
-        else:
-            btn_text = clean_name
+        btn_kwargs = {
+            "text": clean_name,
+            "callback_data": f"cat_{cat.id}"
+        }
+        if cat.custom_emoji_id and str(cat.custom_emoji_id).isdigit():
+            btn_kwargs["icon_custom_emoji_id"] = str(cat.custom_emoji_id)
+        elif cat.emoji and not any(clean_name.startswith(c) for c in ["🍿", "🤖", "🛡️", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "👑", "✨", "💎", "📦"]):
+            btn_kwargs["text"] = f"{cat.emoji}  {clean_name}"
 
-        buttons.append([
-            InlineKeyboardButton(
-                text=btn_text,
-                callback_data=f"cat_{cat.id}"
-            )
-        ])
+        buttons.append([InlineKeyboardButton(**btn_kwargs)])
     
     buttons.append([
-        InlineKeyboardButton(text="🔍  Search Products", callback_data="nav_search"),
-        InlineKeyboardButton(text="🏠  Main Menu", callback_data="nav_home")
+        InlineKeyboardButton(text="Search Products", callback_data="nav_search", icon_custom_emoji_id=CustomEmojis.SEARCH),
+        InlineKeyboardButton(text="Main Menu", callback_data="nav_home")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -115,17 +123,17 @@ def get_products_keyboard(
         stock = stock_counts.get(prod.id, 0)
         stock_indicator = f"({stock})" if stock > 0 else "(Out)"
         clean_title = clean_button_text(prod.title)
-        if prod.emoji and not any(clean_title.startswith(c) for c in ["🍿", "🤖", "🛡️", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "👑", "✨", "💎", "📦"]):
-            btn_text = f"{prod.emoji} {clean_title} {stock_indicator}"
-        else:
-            btn_text = f"{clean_title} {stock_indicator}"
+        
+        btn_kwargs = {
+            "text": f"{clean_title} {stock_indicator}",
+            "callback_data": f"prod_{prod.id}"
+        }
+        if prod.custom_emoji_id and str(prod.custom_emoji_id).isdigit():
+            btn_kwargs["icon_custom_emoji_id"] = str(prod.custom_emoji_id)
+        elif prod.emoji and not any(clean_title.startswith(c) for c in ["🍿", "🤖", "🛡️", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "👑", "✨", "💎", "📦"]):
+            btn_kwargs["text"] = f"{prod.emoji} {clean_title} {stock_indicator}"
 
-        buttons.append([
-            InlineKeyboardButton(
-                text=btn_text,
-                callback_data=f"prod_{prod.id}"
-            )
-        ])
+        buttons.append([InlineKeyboardButton(**btn_kwargs)])
 
     if total_pages > 1:
         nav_row = []
