@@ -22,7 +22,7 @@ from keyboards.user_keyboards import (
     get_search_results_keyboard,
     get_back_button
 )
-from utils.emojis import Emojis, UI, format_emoji
+from utils.emojis import Emojis, UI, format_emoji, CustomEmojis, ce
 import config
 
 router = Router()
