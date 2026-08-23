@@ -215,6 +215,8 @@ def clean_button_text(html_text: str) -> str:
     if not html_text:
         return ""
     clean = re.sub(r'<[^>]+>', '', html_text)
+    for surrogate in ["🤩", "\ud83e\udd29"]:
+        clean = clean.replace(surrogate, "")
     clean = "".join(c for c in clean if not (0xD800 <= ord(c) <= 0xDFFF))
     return clean.strip()
 
