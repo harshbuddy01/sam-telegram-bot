@@ -26,10 +26,24 @@ def get_admin_main_keyboard(pending_deposits: int = 0, pending_orders: int = 0) 
         ],
         [
             InlineKeyboardButton(text="Manage Plans & Pricing", callback_data="adm_variants", icon_custom_emoji_id=CustomEmojis.DIAMOND),
-            InlineKeyboardButton(text="Broadcast Announcement", callback_data="adm_broadcast", icon_custom_emoji_id=CustomEmojis.TELEGRAM if hasattr(CustomEmojis, 'TELEGRAM') else None)
+            InlineKeyboardButton(text="Broadcast Announcement", callback_data="adm_broadcast", icon_custom_emoji_id=CustomEmojis.FIRE)
         ],
         [
+            InlineKeyboardButton(text="⚙️ Payment & UPI Settings", callback_data="adm_settings", icon_custom_emoji_id=CustomEmojis.CARD),
             InlineKeyboardButton(text="Exit to Store", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_admin_settings_keyboard() -> InlineKeyboardMarkup:
+    buttons = [
+        [
+            InlineKeyboardButton(text="📱 Change UPI ID", callback_data="adm_set_upi_id", icon_custom_emoji_id=CustomEmojis.CARD),
+            InlineKeyboardButton(text="👤 Change Payee Name", callback_data="adm_set_upi_name", icon_custom_emoji_id=CustomEmojis.VERIFIED)
+        ],
+        [
+            InlineKeyboardButton(text="🛟 Change Support Handle", callback_data="adm_set_support", icon_custom_emoji_id=CustomEmojis.SUPPORT),
+            InlineKeyboardButton(text="◀️ Back to Admin Panel", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)

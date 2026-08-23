@@ -55,3 +55,8 @@ class AdminCategoryEditStates(StatesGroup):
 class AdminProductEditStates(StatesGroup):
     waiting_for_new_title = State()
     waiting_for_new_desc = State()
+
+class AdminSettingsStates(StatesGroup):
+    waiting_for_upi_id = State()
+    waiting_for_upi_name = State()
+    waiting_for_support_user = State()

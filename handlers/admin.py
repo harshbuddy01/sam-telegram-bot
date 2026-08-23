@@ -59,6 +59,7 @@ from keyboards.admin_keyboards import (
     get_admin_pending_orders_keyboard,
     get_admin_manual_order_detail_keyboard,
     get_deposit_approval_keyboard,
+    get_admin_settings_keyboard,
     get_admin_cancel_keyboard
 )
 from utils.states import (
@@ -71,7 +72,8 @@ from utils.states import (
     AdminStockStates,
     AdminBroadcastStates,
     AdminUserManagementStates,
-    AdminManualOrderStates
+    AdminManualOrderStates,
+    AdminSettingsStates
 )
 from utils.emojis import (
     Emojis,
@@ -1436,3 +1438,102 @@ async def cb_admin_reset_execute(callback: types.CallbackQuery, session: AsyncSe
         f"Now you can go to <b>Manage Categories</b> and <b>Manage Products</b> to create your own real products and real stock!"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard("admin_home"))
+
+# ================= 11. PAYMENT & STORE SETTINGS =================
+
+@router.callback_query(F.data == "adm_settings")
+async def cb_admin_settings(callback: types.CallbackQuery):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    text = (
+        f"{ce(CustomEmojis.CARD, '⚙️')} <b>PAYMENT & STORE CONFIGURATION</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"<blockquote>"
+        f"📱 <b>Current UPI ID:</b> <code>{config.UPI_ID}</code>\n"
+        f"👤 <b>Current Payee Name:</b> <code>{config.UPI_NAME}</code>\n"
+        f"🛟 <b>Support Username:</b> <code>{config.SUPPORT_USERNAME}</code>\n"
+        f"🪙 <b>Currency:</b> <code>{config.CURRENCY_SYMBOL}</code>"
+        f"</blockquote>\n\n"
+        f"<i>Tap below to update your payment details directly in real-time:</i>"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_settings_keyboard())
+
+@router.callback_query(F.data == "adm_set_upi_id")
+async def cb_admin_set_upi_id(callback: types.CallbackQuery, state: FSMContext):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    await state.set_state(AdminSettingsStates.waiting_for_upi_id)
+    await callback.message.edit_text(
+        "📱 <b>Change UPI ID</b>\n\n"
+        f"Current UPI ID: <code>{config.UPI_ID}</code>\n\n"
+        "Send your new UPI ID (e.g. <code>9876543210@paytm</code> or <code>samstore@oksbi</code>):",
+        reply_markup=get_admin_cancel_keyboard("adm_settings")
+    )
+
+@router.message(AdminSettingsStates.waiting_for_upi_id, F.text)
+async def msg_admin_set_upi_id(message: types.Message, state: FSMContext):
+    new_upi = message.text.strip()
+    if "@" not in new_upi:
+        await message.answer("⚠️ Please provide a valid UPI ID with '@' (e.g. <code>samstore@oksbi</code>):")
+        return
+
+    config.UPI_ID = new_upi
+    await state.clear()
+    await message.answer(
+        f"✅ <b>UPI ID Updated Successfully!</b>\n\n"
+        f"📱 New UPI ID: <code>{config.UPI_ID}</code>\n\n"
+        f"<i>All newly generated QR codes will now receive payments to this UPI ID!</i>",
+        reply_markup=get_admin_settings_keyboard()
+    )
+
+@router.callback_query(F.data == "adm_set_upi_name")
+async def cb_admin_set_upi_name(callback: types.CallbackQuery, state: FSMContext):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    await state.set_state(AdminSettingsStates.waiting_for_upi_name)
+    await callback.message.edit_text(
+        "👤 <b>Change Payee Name</b>\n\n"
+        f"Current Name: <code>{config.UPI_NAME}</code>\n\n"
+        "Send the new Payee Name to display on UPI apps:",
+        reply_markup=get_admin_cancel_keyboard("adm_settings")
+    )
+
+@router.message(AdminSettingsStates.waiting_for_upi_name, F.text)
+async def msg_admin_set_upi_name(message: types.Message, state: FSMContext):
+    new_name = message.text.strip()
+    config.UPI_NAME = new_name
+    await state.clear()
+    await message.answer(
+        f"✅ <b>Payee Name Updated!</b>\n\n"
+        f"👤 New Name: <code>{config.UPI_NAME}</code>",
+        reply_markup=get_admin_settings_keyboard()
+    )
+
+@router.callback_query(F.data == "adm_set_support")
+async def cb_admin_set_support(callback: types.CallbackQuery, state: FSMContext):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    await state.set_state(AdminSettingsStates.waiting_for_support_user)
+    await callback.message.edit_text(
+        "🛟 <b>Change Support Username</b>\n\n"
+        f"Current Support: <code>{config.SUPPORT_USERNAME}</code>\n\n"
+        "Send the Telegram username for customer support (e.g. <code>@SamStoreSupport</code>):",
+        reply_markup=get_admin_cancel_keyboard("adm_settings")
+    )
+
+@router.message(AdminSettingsStates.waiting_for_support_user, F.text)
+async def msg_admin_set_support(message: types.Message, state: FSMContext):
+    new_support = message.text.strip()
+    if not new_support.startswith("@"):
+        new_support = f"@{new_support}"
+    config.SUPPORT_USERNAME = new_support
+    await state.clear()
+    await message.answer(
+        f"✅ <b>Support Handle Updated!</b>\n\n"
+        f"🛟 New Support: <code>{config.SUPPORT_USERNAME}</code>",
+        reply_markup=get_admin_settings_keyboard()
+    )
