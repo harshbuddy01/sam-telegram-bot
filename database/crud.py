@@ -538,9 +538,91 @@ async def seed_initial_data(session: AsyncSession):
         )
     )
 
-    session.add_all([v1, v2, v3, v4, v5])
+    # Seed Variants for Prime Video
+    pv1 = Variant(
+        product_id=p_prime.id,
+        name="1 Month Private Profile",
+        price=79.0,
+        variant_type="Private Profile",
+        detailed_description=(
+            "✨ <b>Amazon Prime Video - 1 Month Private Profile</b>\n\n"
+            "✦ <b>Quality:</b> 4K Ultra HD + HDR\n"
+            "✦ <b>Screen:</b> 1 Dedicated Screen (Pin Locked)\n"
+            "✦ <b>Devices:</b> Smart TV, Mobile, Laptop, PC\n"
+            "✦ <b>Warranty:</b> 30 Days Full Replacement Warranty\n"
+            "✦ <b>Delivery:</b> Instant Automated Delivery"
+        )
+    )
+    pv2 = Variant(
+        product_id=p_prime.id,
+        name="6 Months Private Profile",
+        price=299.0,
+        variant_type="Private Profile",
+        detailed_description=(
+            "✨ <b>Amazon Prime Video - 6 Months Private Profile</b>\n\n"
+            "✦ <b>Quality:</b> 4K Ultra HD Streaming\n"
+            "✦ <b>Screen:</b> 1 Dedicated Screen\n"
+            "✦ <b>Warranty:</b> 180 Days Replacement Guarantee\n"
+            "✦ <b>Delivery:</b> Instant Automated Delivery"
+        )
+    )
+    pv3 = Variant(
+        product_id=p_prime.id,
+        name="12 Months Private Profile",
+        price=499.0,
+        variant_type="Private Profile",
+        detailed_description=(
+            "✨ <b>Amazon Prime Video - 12 Months (1 Year)</b>\n\n"
+            "✦ <b>Quality:</b> 4K Ultra HD Streaming\n"
+            "✦ <b>Screen:</b> 1 Dedicated Screen\n"
+            "✦ <b>Warranty:</b> 365 Days Replacement Guarantee\n"
+            "✦ <b>Delivery:</b> Instant Automated Delivery"
+        )
+    )
+
+    # Seed Variants for YouTube Premium
+    yt1 = Variant(
+        product_id=p_yt.id,
+        name="1 Month Family Invite",
+        price=49.0,
+        variant_type="Invitation Link",
+        detailed_description=(
+            "✨ <b>YouTube Premium - 1 Month Plan</b>\n\n"
+            "✦ <b>Features:</b> Ad-Free YouTube + YouTube Music\n"
+            "✦ <b>Playback:</b> Background play & offline downloads\n"
+            "✦ <b>Delivery:</b> Instant activation invite link"
+        )
+    )
+    yt2 = Variant(
+        product_id=p_yt.id,
+        name="12 Months Family Invite",
+        price=299.0,
+        variant_type="Invitation Link",
+        detailed_description=(
+            "✨ <b>YouTube Premium - 1 Year Plan</b>\n\n"
+            "✦ <b>Features:</b> 12 Months Ad-Free YouTube\n"
+            "✦ <b>Warranty:</b> 1 Year Full Warranty\n"
+            "✦ <b>Delivery:</b> Instant activation"
+        )
+    )
+
+    session.add_all([v1, v2, v3, v4, v5, pv1, pv2, pv3, yt1, yt2])
     await session.commit()
-    # Note: No dummy sample stocks are added so stock count is 100% real!
+
+async def purge_old_dummy_stocks(session: AsyncSession):
+    """
+    Deletes any legacy dummy demo stocks that contain mock test emails
+    so the database only contains 100% real uploaded inventory.
+    """
+    await session.execute(
+        delete(Stock).where(
+            (Stock.content.like("%@ottmail.com%")) |
+            (Stock.content.like("%test_account%")) |
+            (Stock.content.like("%sam_user%")) |
+            (Stock.content.like("%sam_shared%"))
+        )
+    )
+    await session.commit()
 
 async def clear_all_catalog_data(session: AsyncSession):
     """

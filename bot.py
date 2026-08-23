@@ -9,7 +9,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 import config
 from database.database import init_db, AsyncSessionLocal
-from database.crud import seed_initial_data
+from database.crud import seed_initial_data, purge_old_dummy_stocks
 from middlewares.db import DatabaseSessionMiddleware
 from handlers import start, catalog, order, wallet, profile, admin
 
@@ -27,11 +27,12 @@ async def on_startup():
     logger.info("Initializing database tables...")
     await init_db()
     
-    logger.info("Seeding initial store catalog data...")
+    logger.info("Syncing store catalog data...")
     async with AsyncSessionLocal() as session:
         await seed_initial_data(session)
+        await purge_old_dummy_stocks(session)
     
-    logger.info("Database initialized and catalog seeded successfully.")
+    logger.info("Database initialized and clean real inventory synced successfully.")
 
 async def main():
     if not config.BOT_TOKEN or config.BOT_TOKEN == "your_telegram_bot_token_here":
