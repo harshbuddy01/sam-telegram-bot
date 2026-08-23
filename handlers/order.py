@@ -7,7 +7,9 @@ from database.crud import (
     get_product,
     fulfill_order,
     create_manual_order,
-    get_available_stock_count
+    get_available_stock_count,
+    create_deposit,
+    create_deposit_gateway
 )
 from utils.states import OrderManualStates
 from utils.emojis import Emojis, UI, format_emoji, CustomEmojis, ce
