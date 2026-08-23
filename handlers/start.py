@@ -3,34 +3,25 @@ from aiogram.filters import CommandStart, Command, CommandObject
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.crud import get_or_create_user, get_user
 from keyboards.user_keyboards import get_main_menu_keyboard
-from utils.emojis import Emojis, UI, CustomEmojis, ce
+from utils.emojis import Emojis, UI, format_emoji
 import config
 
 router = Router()
 
 def get_welcome_text(first_name: str) -> str:
-    crown = ce(CustomEmojis.CROWN, "👑")
-    verified = ce(CustomEmojis.VERIFIED, "✨")
-    shop = ce(CustomEmojis.SHOP, "🛍️")
-    search = ce(CustomEmojis.SEARCH, "🔍")
-    wallet = ce(CustomEmojis.WALLET, "💳")
-    orders = ce(CustomEmojis.ORDERS, "📦")
-    refer = ce(CustomEmojis.REFER, "🎁")
-    support = ce(CustomEmojis.SUPPORT, "🛟")
-
     return (
-        f"{crown} <b>{config.STORE_NAME.upper()}</b>\n"
+        f"👑 <b>{config.STORE_NAME.upper()}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{verified} <i>Verified Digital Subscriptions & Automated Delivery</i>\n\n"
+        f"✨ <i>Verified Digital Subscriptions & Automated Delivery</i>\n\n"
         f"Hey <b>{first_name}</b> 👋 Welcome to our official store!\n\n"
         f"We provide genuine OTT subscriptions, AI subscriptions, VPNs, and tools at wholesale prices with <b>100% instant delivery</b>.\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{shop} <b>Explore Store</b> ➜ Streaming, AI, VPNs & Utilities\n"
-        f"{search} <b>Search Item</b> ➜ Find any subscription instantly\n"
-        f"{wallet} <b>Deposit Wallet</b> ➜ Automatic UPI QR top-up\n"
-        f"{orders} <b>Order History</b> ➜ Active accounts & keys\n"
-        f"{refer} <b>Invite & Earn</b> ➜ Get {config.REFERRAL_BONUS_PERCENT}% commission per invite\n"
-        f"{support} <b>24/7 Support</b> ➜ Warranty replacements & help\n"
+        f"🛍️ <b>Explore Store</b> ➜ Streaming, AI, VPNs & Utilities\n"
+        f"🔍 <b>Search Item</b> ➜ Find any subscription instantly\n"
+        f"💳 <b>Deposit Wallet</b> ➜ Automatic UPI QR top-up\n"
+        f"📦 <b>Order History</b> ➜ Active accounts & keys\n"
+        f"🎁 <b>Invite & Earn</b> ➜ Get {config.REFERRAL_BONUS_PERCENT}% commission per invite\n"
+        f"🛟 <b>24/7 Support</b> ➜ Warranty replacements & help\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"👇 <i>Select an option below to get started:</i>"
     )
@@ -53,10 +44,19 @@ async def cmd_start(message: types.Message, command: CommandObject, session: Asy
 
     is_user_admin = config.is_admin(message.from_user.id)
     text = get_welcome_text(message.from_user.first_name)
-    await message.answer(
-        text,
-        reply_markup=get_main_menu_keyboard(is_admin=is_user_admin)
-    )
+
+    if config.BANNER_IMAGE_URL and config.BANNER_IMAGE_URL.startswith("http"):
+        try:
+            await message.answer_photo(
+                photo=config.BANNER_IMAGE_URL,
+                caption=text,
+                reply_markup=get_main_menu_keyboard(is_admin=is_user_admin)
+            )
+            return
+        except Exception:
+            pass
+
+    await message.answer(text, reply_markup=get_main_menu_keyboard(is_admin=is_user_admin))
 
 @router.callback_query(F.data == "nav_home")
 async def cb_nav_home(callback: types.CallbackQuery, session: AsyncSession):
@@ -74,23 +74,41 @@ async def cb_nav_home(callback: types.CallbackQuery, session: AsyncSession):
             reply_markup=get_main_menu_keyboard(is_admin=is_user_admin)
         )
 
+@router.callback_query(F.data == "nav_support")
+async def cb_nav_support(callback: types.CallbackQuery):
+    await callback.answer()
+    text = (
+        f"🛟 <b>24/7 CUSTOMER SUPPORT HELPDESK</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Need assistance with an order, warranty replacement, or deposit?\n\n"
+        f"✦ <b>Official Support:</b> {config.SUPPORT_USERNAME}\n"
+        f"✦ <b>Official Channel:</b> {config.CHANNEL_LINK}\n"
+        f"✦ <b>Community Group:</b> {config.GROUP_LINK}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🛡️ <i>All purchases come with a 100% money-back / replacement guarantee.</i>"
+    )
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💬  Contact Support Agent", url=f"https://t.me/{config.SUPPORT_USERNAME.replace('@', '')}")],
+        [InlineKeyboardButton(text="📢  Join Official Channel", url=config.CHANNEL_LINK)],
+        [InlineKeyboardButton(text="◀️  Back to Main Menu", callback_data="nav_home")]
+    ])
+    await callback.message.edit_text(text, reply_markup=kb)
+
 @router.callback_query(F.data == "nav_guide")
 async def cb_nav_guide(callback: types.CallbackQuery):
     await callback.answer()
     text = (
-        f"📖 <b>HOW TO USE {config.STORE_NAME.upper()}</b>\n\n"
-        f"Follow these simple steps to buy subscriptions with instant delivery:\n\n"
-        f"<blockquote>"
-        f"1️⃣ <b>Step 1 — Deposit Funds:</b>\n"
-        f"Click <b>'💳 Deposit Wallet'</b>, choose an amount, and pay via any UPI app (GPay / PhonePe / Paytm / CRED). Submit UTR or screenshot to get balance credited.\n\n"
-        f"2️⃣ <b>Step 2 — Pick Your Subscription:</b>\n"
-        f"Click <b>'🛍️ Explore Store'</b> or <b>'🔍 Search Product'</b> to select your service (Netflix, Prime, YouTube, ChatGPT, Canva, etc.).\n\n"
-        f"3️⃣ <b>Step 3 — Inspect Specs & Buy:</b>\n"
-        f"Review the full specifications, warranty duration, and rules. Click <b>'⚡ Purchase Now'</b>.\n\n"
-        f"4️⃣ <b>Step 4 — Automated Instant Delivery:</b>\n"
-        f"Your login credentials or license key will be delivered <b>instantly in chat</b> and permanently stored in <b>'📦 Order History'</b>!"
-        f"</blockquote>\n\n"
-        f"💡 <i>Need assistance? Click 'Help & Support' below anytime.</i>"
+        f"📖 <b>HOW TO BUY ON {config.STORE_NAME.upper()}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<b>Step 1: Top-Up Wallet</b>\n"
+        f"Tap <b>'Deposit Wallet'</b> on the main menu, choose an amount, and pay via any UPI app (GPay / PhonePe / Paytm).\n\n"
+        f"<b>Step 2: Choose Subscription</b>\n"
+        f"Tap <b>'Explore Store'</b> or <b>'Search Item'</b> to select your service (Netflix, Prime, YouTube, ChatGPT).\n\n"
+        f"<b>Step 3: Instant Delivery</b>\n"
+        f"Click <b>'Purchase Now'</b>. Your login email, password, and screen PIN will be delivered to your Telegram chat instantly!\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🛡️ <i>All orders are permanently saved in 'Order History' with replacement warranty!</i>"
     )
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -98,30 +116,6 @@ async def cb_nav_guide(callback: types.CallbackQuery):
         [InlineKeyboardButton(text="◀️  Back to Main Menu", callback_data="nav_home")]
     ])
     await callback.message.edit_text(text, reply_markup=kb)
-
-@router.callback_query(F.data == "nav_support")
-async def cb_nav_support(callback: types.CallbackQuery):
-    await callback.answer()
-    text = (
-        f"🛟 <b>CUSTOMER SUPPORT & HELPDESK</b>\n\n"
-        f"Need assistance with an order, replacement, or inquiry?\n"
-        f"Our support desk is online 24/7 to help you.\n\n"
-        f"<blockquote>"
-        f"✦ <b>Official Handle:</b> {config.SUPPORT_USERNAME}\n"
-        f"✦ <b>Response Time:</b> Within 5–15 Minutes\n"
-        f"✦ <b>Warranty Policy:</b> 100% Replacement Guarantee\n"
-        f"✦ <b>Official Channel:</b> <a href='{config.CHANNEL_LINK}'>Join Updates</a>"
-        f"</blockquote>\n\n"
-        f"💬 <i>Click below to message our support team directly:</i>"
-    )
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💬  Message Support Directly", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}")] if config.SUPPORT_USERNAME.startswith('@') else [],
-        [InlineKeyboardButton(text="◀️  Back to Main Menu", callback_data="nav_home")]
-    ])
-    await callback.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
-
-# ================= ENHANCED TELEGRAM CUSTOM EMOJI EXTRACTOR =================
 
 def extract_custom_emoji_ids(message: types.Message) -> list[str]:
     """Extracts custom_emoji_id from entities, stickers, and replied messages."""
@@ -167,8 +161,8 @@ async def cmd_getemoji(message: types.Message):
         await message.answer(
             "ℹ️ <b>Custom Emoji Extractor Tool</b>\n\n"
             "<b>How to use:</b>\n"
-            "1. Send your Telegram Premium animated emoji in chat, then <b>reply to it</b> with <code>/getemoji</code>.\n"
-            "2. Or type <code>/getemoji</code> followed by a space and your premium emoji."
+            "1. Send your Telegram Premium animated emojis in chat, then <b>reply to it</b> with <code>/getemoji</code>.\n"
+            "2. Or type <code>/getemoji</code> followed by a space and all your premium emojis."
         )
         return
 
@@ -182,21 +176,3 @@ async def cmd_getemoji(message: types.Message):
 
     result += "<i>Copy the HTML code to paste into any product title or description!</i>"
     await message.answer(result)
-
-@router.message(Command("testemoji"))
-async def cmd_testemoji(message: types.Message):
-    if not config.is_admin(message.from_user.id):
-        return
-
-    text = (
-        "✨ <b>Telegram Custom Emoji Status Test</b>\n\n"
-        "✦ <b>HTML Parse Mode:</b> Enabled ✅\n"
-        "✦ <b>&lt;tg-emoji&gt; Tag Support:</b> Integrated ✅\n"
-        "✦ <b>Bot Custom Emoji Capability:</b> Active ✅\n\n"
-        "<i>Send or reply to any Premium emoji with <code>/getemoji</code> to grab its ID!</i>"
-    )
-    await message.answer(text)
-
-@router.callback_query(F.data == "noop")
-async def cb_noop(callback: types.CallbackQuery):
-    await callback.answer()

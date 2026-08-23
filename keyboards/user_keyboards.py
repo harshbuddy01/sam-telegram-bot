@@ -141,7 +141,8 @@ def get_product_detail_keyboard(
     price: float,
     product_id: int,
     has_stock: bool,
-    is_manual: bool = False
+    is_manual: bool = False,
+    is_admin: bool = False
 ) -> InlineKeyboardMarkup:
     buttons = []
     if is_manual:
@@ -163,6 +164,14 @@ def get_product_detail_keyboard(
             InlineKeyboardButton(
                 text="❌  Currently Out of Stock",
                 callback_data="noop"
+            )
+        ])
+
+    if is_admin:
+        buttons.append([
+            InlineKeyboardButton(
+                text="🔑  Admin: ➕ Add Accounts to Stock",
+                callback_data=f"adm_stock_add_{variant_id}"
             )
         ])
 

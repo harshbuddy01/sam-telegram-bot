@@ -243,6 +243,7 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
             price=variant.price,
             product_id=variant.product_id,
             has_stock=has_stock,
-            is_manual=is_manual
+            is_manual=is_manual,
+            is_admin=config.is_admin(callback.from_user.id)
         )
     )

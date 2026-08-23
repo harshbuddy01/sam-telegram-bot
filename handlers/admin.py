@@ -78,15 +78,36 @@ async def cmd_admin(message: types.Message, state: FSMContext, session: AsyncSes
     await state.clear()
     
     pending_deps = len(await get_pending_deposits(session))
-    pending_ords = len(await get_pending_manual_orders(session))
+    pending_orders = len(await get_pending_manual_orders(session))
     
     text = (
-        f"⚙️ <b>ADMIN MANAGEMENT PANEL</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Welcome, Administrator <b>{message.from_user.first_name}</b>.\n"
-        f"Select a management category below to configure your store:"
+        f"⚡ <b>ADMINISTRATOR CONTROL PANEL</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Select a management hub below to manage your store:"
     )
-    await message.answer(text, reply_markup=get_admin_main_keyboard(pending_deps, pending_ords))
+    await message.answer(text, reply_markup=get_admin_main_keyboard(pending_deps, pending_orders))
+
+@router.message(Command("addstock"))
+async def cmd_addstock(message: types.Message, state: FSMContext, session: AsyncSession):
+    if not check_admin(message.from_user.id):
+        return
+    await state.clear()
+    variants = await get_all_variants(session)
+
+    if not variants:
+        await message.answer("⚠️ No subscription plans found.")
+        return
+
+    stock_counts = {}
+    for var in variants:
+        stock_counts[var.id] = await get_available_stock_count(session, var.id)
+
+    text = (
+        f"🔑 <b>SELECT PLAN TO ADD STOCK:</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Click on any plan below to paste and upload accounts/keys:\n"
+    )
+    await message.answer(text, reply_markup=get_admin_stock_inventory_keyboard(variants, stock_counts))
 
 @router.callback_query(F.data == "admin_home")
 async def cb_admin_home(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
