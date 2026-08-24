@@ -798,10 +798,18 @@ async def msg_admin_catedit_name(message: types.Message, state: FSMContext, sess
 async def cb_admin_cat_view(callback: types.CallbackQuery, session: AsyncSession):
     if not check_admin(callback.from_user.id):
         return
-    # Extract cat_id and redirect to view products
+    await callback.answer()
     cat_id = int(callback.data.split("_")[3])
-    callback.data = f"adm_selcat_viewprods_{cat_id}"
-    await cb_admin_cat_viewprods(callback, session)
+    products = await get_products_by_category(session, cat_id)
+    category = await get_category(session, cat_id)
+    cat_name = category.name if category else "Category"
+    text = (
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>PRODUCTS IN: {clean_button_text(cat_name)}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Total Products: {len(products)}\n\n"
+        f"Click on a product to edit, or <b>'Add Product'</b> below:"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_products_keyboard(products, cat_id))
 
 @router.callback_query(F.data.startswith("adm_cat_del_"))
 async def cb_admin_cat_del(callback: types.CallbackQuery, session: AsyncSession):
@@ -991,9 +999,18 @@ async def msg_admin_prodedit_desc(message: types.Message, state: FSMContext, ses
 async def cb_admin_prod_view(callback: types.CallbackQuery, session: AsyncSession):
     if not check_admin(callback.from_user.id):
         return
+    await callback.answer()
     prod_id = int(callback.data.split("_")[3])
-    callback.data = f"adm_selprod_viewvars_{prod_id}"
-    await cb_admin_prod_viewvars(callback, session)
+    variants = await get_variants_by_product(session, prod_id)
+    product = await get_product(session, prod_id)
+    prod_title = product.title if product else "Product"
+    text = (
+        f"{ce(CustomEmojis.DIAMOND, '🏷️')} <b>PLANS FOR: {clean_button_text(prod_title)}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Total Plans: {len(variants)}\n\n"
+        f"Click <b>'Delete'</b> or <b>'Add Plan'</b>:"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_variants_keyboard(variants, prod_id))
 
 @router.callback_query(F.data.startswith("adm_prod_del_"))
 async def cb_admin_prod_del(callback: types.CallbackQuery, session: AsyncSession):
@@ -1152,10 +1169,31 @@ async def cb_admin_varedit_togglemode(callback: types.CallbackQuery, session: As
     if not variant:
         return
     new_mode = "MANUAL" if variant.fulfillment_type != "MANUAL" else "AUTOMATIC"
-    await update_variant_details(session, var_id, fulfillment_type=new_mode)
+    variant = await update_variant_details(session, var_id, fulfillment_type=new_mode)
     
-    callback.data = f"adm_var_edit_{var_id}"
-    await cb_admin_var_edit(callback, session)
+    is_manual = (variant.fulfillment_type == "MANUAL")
+    mode_str = "⏱️ MANUAL (Dispatch by Admin)" if is_manual else "⚡ AUTOMATIC (Instant Auto-Stock)"
+    dispatch_str = variant.manual_dispatch_time or "1–2 Hours"
+    prompt_str = variant.input_prompt or "Default (Asks Email / Phone)"
+
+    lines = [
+        f"{ce(CustomEmojis.SPARKLE, '✏️')} <b>EDIT SUBSCRIPTION PLAN</b>",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{variant.product.title if variant.product else 'Digital Item'}</b>",
+        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan Name:</b> <b>{variant.name}</b>",
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Current Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>",
+        f"{ce(CustomEmojis.DIAMOND, '🏷️')} <b>Plan Type:</b> <code>{variant.variant_type}</code>",
+        f"{ce(CustomEmojis.FIRE, '🚀')} <b>Fulfillment Mode:</b> <b>{mode_str}</b>"
+    ]
+    if is_manual:
+        lines.append(f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Dispatch Time:</b> <code>{dispatch_str}</code>")
+        lines.append(f"👉 <b>Customer Prompt:</b> <i>{prompt_str}</i>")
+
+    lines.append(f"{ce(CustomEmojis.SPARKLE, '📝')} <b>Description:</b> <i>{variant.detailed_description or 'Default template'}</i>\n")
+    lines.append("What would you like to edit?")
+
+    text = "\n".join(lines)
+    await callback.message.edit_text(text, reply_markup=get_admin_variant_edit_keyboard(var_id, variant.product_id, is_manual=is_manual))
 
 @router.callback_query(F.data.startswith("adm_varedit_dispatch_"))
 async def cb_admin_varedit_dispatch(callback: types.CallbackQuery, state: FSMContext):
@@ -1334,9 +1372,32 @@ async def msg_admin_varedit_desc(message: types.Message, state: FSMContext, sess
 async def cb_admin_var_view(callback: types.CallbackQuery, session: AsyncSession):
     if not check_admin(callback.from_user.id):
         return
+    await callback.answer()
     var_id = int(callback.data.split("_")[3])
-    callback.data = f"adm_stock_manage_{var_id}"
-    await cb_admin_stock_manage(callback, session)
+    variant = await get_variant(session, var_id)
+    if not variant:
+        return
+    prod_title = variant.product.title if variant.product else "Product"
+    is_manual = (getattr(variant, "fulfillment_type", "AUTOMATIC") == "MANUAL")
+    stock_count = await get_available_stock_count(session, var_id)
+
+    if is_manual:
+        mode_text = f"⏱️ <b>Manual Activation</b> (Dispatched by Admin within {variant.manual_dispatch_time})"
+        stock_text = "<i>(Manual plans don't require pre-uploaded stock)</i>"
+    else:
+        mode_text = "⚡ <b>Automated Instant Stock</b>"
+        stock_text = f"📊 <b>Current Available Stock:</b> <b>{stock_count} items</b>"
+
+    text = (
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>INVENTORY CONTROLS FOR:</b>\n"
+        f"<b>{clean_button_text(prod_title)} — {clean_button_text(variant.name)}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Price:</b> {config.CURRENCY_SYMBOL}{variant.price:.2f}\n"
+        f"{ce(CustomEmojis.DIAMOND, '🏷️')} <b>Type:</b> {variant.variant_type}\n"
+        f"{ce(CustomEmojis.FIRE, '🚀')} <b>Fulfillment:</b> {mode_text}\n"
+        f"{stock_text}\n"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_variant_stock_actions_keyboard(var_id, is_manual, stock_count))
 
 @router.callback_query(F.data.startswith("adm_var_del_"))
 async def cb_admin_var_del(callback: types.CallbackQuery, session: AsyncSession):
