@@ -208,14 +208,17 @@ async def handle_razorpay_webhook(request: web.Request) -> web.Response:
                 except Exception:
                     pass
 
-            return web.json_response({"status": "credited_deposit"})
-
-    return web.json_response({"status": "received"})
+async def handle_razorpay_webhook_get(request: web.Request) -> web.Response:
+    return web.json_response({
+        "status": "ok",
+        "message": "Razorpay Webhook endpoint is active and listening for POST payment events."
+    })
 
 def create_webhook_app(bot: Bot) -> web.Application:
     app = web.Application()
     app["bot"] = bot
     app.router.add_get("/", handle_root)
     app.router.add_get("/health", handle_health)
+    app.router.add_get("/webhook/razorpay", handle_razorpay_webhook_get)
     app.router.add_post("/webhook/razorpay", handle_razorpay_webhook)
     return app
