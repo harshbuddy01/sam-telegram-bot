@@ -297,3 +297,11 @@ def get_back_button(callback_data: str = "nav_home") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Go Back", callback_data=callback_data, icon_custom_emoji_id=CustomEmojis.CROWN)]
     ])
+
+def get_post_delivery_keyboard(order_id: int) -> InlineKeyboardMarkup:
+    """Buttons shown after successful product delivery — I Got It / Need Help."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ I Got It!", callback_data=f"confirm_got_{order_id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
+        [InlineKeyboardButton(text="❓ I Need Help", callback_data=f"need_help_{order_id}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+        [InlineKeyboardButton(text="📦 View in Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)]
+    ])

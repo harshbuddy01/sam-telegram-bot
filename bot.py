@@ -13,7 +13,7 @@ import config
 from database.database import init_db, AsyncSessionLocal
 from database.crud import seed_initial_data, purge_old_dummy_stocks
 from middlewares.db import DatabaseSessionMiddleware
-from handlers import start, catalog, order, wallet, profile, admin
+from handlers import start, catalog, order, wallet, profile, admin, support
 
 # Configure logging
 logging.basicConfig(
@@ -65,6 +65,7 @@ async def main():
     dp.include_router(wallet.router)
     dp.include_router(profile.router)
     dp.include_router(admin.router)
+    dp.include_router(support.router)
 
     # Run database initialization
     await on_startup()

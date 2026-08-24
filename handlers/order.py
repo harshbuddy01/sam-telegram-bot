@@ -13,6 +13,8 @@ from database.crud import (
 )
 from utils.states import OrderManualStates
 from utils.emojis import Emojis, UI, format_emoji, CustomEmojis, ce
+from utils.notifications import send_order_notification
+from keyboards.user_keyboards import get_post_delivery_keyboard
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import config
 
@@ -177,11 +179,7 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
         f"❤️ <i>Thank you for shopping with {config.STORE_NAME}!</i>"
     )
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📦  View in Order History", callback_data="view_orders")],
-        [InlineKeyboardButton(text="🛍️  Continue Shopping", callback_data="nav_shop")],
-        [InlineKeyboardButton(text="🏠  Main Menu", callback_data="nav_home")]
-    ])
+    kb = get_post_delivery_keyboard(order.id)
 
     await callback.message.edit_text(delivery_text, reply_markup=kb)
 
@@ -201,6 +199,19 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
             await bot.send_message(admin_id, admin_alert)
         except Exception:
             pass
+
+    # Group/Channel Notification
+    bot_me = await bot.me()
+    await send_order_notification(
+        bot=bot,
+        order_id=order.id,
+        buyer_name=callback.from_user.full_name,
+        product_title=prod_title,
+        variant_name=variant.name,
+        amount=order.amount,
+        stock_left=remaining_stock,
+        bot_username=bot_me.username or ""
+    )
 
 @router.message(OrderManualStates.waiting_for_input)
 async def msg_order_manual_input(message: types.Message, state: FSMContext, session: AsyncSession, bot: Bot):

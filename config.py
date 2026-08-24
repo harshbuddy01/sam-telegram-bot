@@ -21,6 +21,7 @@ CURRENCY_SYMBOL = os.getenv("CURRENCY_SYMBOL", "₹")
 SUPPORT_USERNAME = os.getenv("SUPPORT_USERNAME", "@OTT_Support")
 CHANNEL_LINK = os.getenv("CHANNEL_LINK", "https://t.me/SamStoreServices")
 GROUP_LINK = os.getenv("GROUP_LINK", "https://t.me/SamStoreServices")
+NOTIFICATION_CHANNEL_ID = int(os.getenv("NOTIFICATION_CHANNEL_ID", "0"))
 REFERRAL_BONUS_PERCENT = float(os.getenv("REFERRAL_BONUS_PERCENT", "5.0"))
 
 # Automated Payment Gateways (Razorpay & Cashfree)

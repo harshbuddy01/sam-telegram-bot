@@ -12,9 +12,10 @@ from database.crud import (
 )
 from utils.qr_generator import generate_upi_qr
 from utils.states import DepositStates
-from keyboards.user_keyboards import get_deposit_preset_keyboard, get_deposit_verification_keyboard, get_back_button
+from keyboards.user_keyboards import get_deposit_preset_keyboard, get_deposit_verification_keyboard, get_back_button, get_post_delivery_keyboard
 from payments.manager import payment_manager
 from utils.emojis import Emojis, UI, CustomEmojis, ce
+from utils.notifications import send_order_notification
 import config
 
 router = Router()
@@ -196,12 +197,23 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
                             f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Full Warranty:</b> Covered throughout validity!\n"
                             f"❤️ <i>Thank you for shopping with {config.STORE_NAME}!</i>"
                         )
-                        kb = InlineKeyboardMarkup(inline_keyboard=[
-                            [InlineKeyboardButton(text="📜 View in Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)],
-                            [InlineKeyboardButton(text="🛍️ Explore Store", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
-                            [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
-                        ])
+                        kb = get_post_delivery_keyboard(order.id)
                         await callback.message.edit_text(delivery_text, reply_markup=kb)
+
+                        # Group/Channel Notification
+                        from database.crud import get_available_stock_count
+                        remaining = await get_available_stock_count(session, target_var.id)
+                        bot_me = await bot.me()
+                        await send_order_notification(
+                            bot=bot,
+                            order_id=order.id,
+                            buyer_name=callback.from_user.full_name,
+                            product_title=prod_title,
+                            variant_name=target_var.name,
+                            amount=order.amount,
+                            stock_left=remaining,
+                            bot_username=bot_me.username or ""
+                        )
                         return
 
             text = (

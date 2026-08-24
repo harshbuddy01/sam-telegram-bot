@@ -363,13 +363,30 @@ async def msg_admin_man_ful_content(message: types.Message, state: FSMContext, s
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"🛡️ <i>Your subscription is under 100% replacement warranty! Saved permanently in Order History.</i>"
     )
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    cust_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📦 View in Order History", callback_data="view_orders")],
-        [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
-    ])
+    from keyboards.user_keyboards import get_post_delivery_keyboard
+    cust_kb = get_post_delivery_keyboard(order.id)
     try:
         await bot.send_message(order.user_id, customer_msg, reply_markup=cust_kb)
+    except Exception:
+        pass
+
+    # Group/Channel Notification
+    from utils.notifications import send_order_notification
+    try:
+        user_obj = await get_user(session, order.user_id)
+        buyer_name = user_obj.full_name if user_obj else "Customer"
+        remaining = await get_available_stock_count(session, variant.id) if variant else 0
+        bot_me = await bot.me()
+        await send_order_notification(
+            bot=bot,
+            order_id=order.id,
+            buyer_name=buyer_name,
+            product_title=prod_title,
+            variant_name=variant.name if variant else "Plan",
+            amount=order.amount,
+            stock_left=remaining,
+            bot_username=bot_me.username or ""
+        )
     except Exception:
         pass
 
@@ -479,13 +496,28 @@ async def cb_admin_dep_approve(callback: types.CallbackQuery, session: AsyncSess
                     f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                     f"🛡️ <i>Your subscription is under 100% replacement warranty! Saved permanently in Order History.</i>"
                 )
-                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-                cust_kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="📜 View in Order History", callback_data="view_orders")],
-                    [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
-                ])
+                from keyboards.user_keyboards import get_post_delivery_keyboard
+                cust_kb = get_post_delivery_keyboard(order.id)
                 try:
                     await bot.send_message(deposit.user_id, cust_deliv_msg, reply_markup=cust_kb)
+                except Exception:
+                    pass
+
+                # Group/Channel Notification
+                from utils.notifications import send_order_notification
+                try:
+                    remaining = await get_available_stock_count(session, target_var.id)
+                    bot_me = await bot.me()
+                    await send_order_notification(
+                        bot=bot,
+                        order_id=order.id,
+                        buyer_name=user.full_name if user else "Customer",
+                        product_title=prod_title,
+                        variant_name=target_var.name,
+                        amount=order.amount,
+                        stock_left=remaining,
+                        bot_username=bot_me.username or ""
+                    )
                 except Exception:
                     pass
                 return
@@ -609,7 +641,7 @@ async def cb_admin_stock_add(callback: types.CallbackQuery, state: FSMContext, s
     await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard("adm_stock"))
 
 @router.message(AdminStockStates.waiting_for_stock_lines, F.text)
-async def msg_admin_stock_lines(message: types.Message, state: FSMContext, session: AsyncSession):
+async def msg_admin_stock_lines(message: types.Message, state: FSMContext, session: AsyncSession, bot: Bot):
     raw_text = message.text.strip()
     lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
 
@@ -633,6 +665,21 @@ async def msg_admin_stock_lines(message: types.Message, state: FSMContext, sessi
         f"📊 <b>New Live Available Stock:</b> <b>{total_stock} items</b>",
         reply_markup=get_admin_cancel_keyboard("adm_stock")
     )
+
+    # Send Restock Alert to Group/Channel
+    from utils.notifications import send_restock_alert
+    try:
+        bot_me = await bot.me()
+        await send_restock_alert(
+            bot=bot,
+            product_title=prod_title,
+            variant_name=variant.name if variant else "",
+            added_count=added_count,
+            total_stock=total_stock,
+            bot_username=bot_me.username or ""
+        )
+    except Exception:
+        pass
 
 @router.callback_query(F.data.startswith("adm_stock_view_"))
 async def cb_admin_stock_view(callback: types.CallbackQuery, session: AsyncSession):
