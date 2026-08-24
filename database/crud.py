@@ -82,20 +82,10 @@ async def get_user_referrals_count(session: AsyncSession, telegram_id: int) -> i
 # ================= CATEGORY CRUD =================
 
 async def get_active_categories(session: AsyncSession) -> List[Category]:
-    stmt = (
-        select(Category)
-        .join(Product, Category.id == Product.category_id)
-        .where(Category.is_active == True, Product.is_active == True)
-        .distinct()
-        .order_by(Category.sort_order, Category.id)
-    )
+    """Return ALL active categories (including newly created ones with no products yet)."""
+    stmt = select(Category).where(Category.is_active == True).order_by(Category.sort_order, Category.id)
     result = await session.execute(stmt)
-    cats = list(result.scalars().all())
-    if not cats:
-        stmt_all = select(Category).where(Category.is_active == True).order_by(Category.sort_order, Category.id)
-        res_all = await session.execute(stmt_all)
-        cats = list(res_all.scalars().all())
-    return cats
+    return list(result.scalars().all())
 
 async def get_all_categories(session: AsyncSession) -> List[Category]:
     stmt = select(Category).order_by(Category.sort_order, Category.id)

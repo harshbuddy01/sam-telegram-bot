@@ -117,7 +117,7 @@ async def cmd_addstock(message: types.Message, state: FSMContext, session: Async
     variants = await get_all_variants(session)
 
     if not variants:
-        await message.answer("⚠️ No subscription plans found.")
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} No subscription plans found.")
         return
 
     stock_counts = {}
@@ -195,7 +195,7 @@ async def cb_admin_orders_log(callback: types.CallbackQuery, session: AsyncSessi
     orders = await get_recent_orders(session, limit=25)
     if not orders:
         text = (
-            f"🧾 <b>ALL ORDERS & SALES AUDIT LOG</b>\n"
+            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>ALL ORDERS & SALES AUDIT LOG</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"ℹ️ <i>No customer orders placed yet in the database.</i>"
         )
@@ -203,7 +203,7 @@ async def cb_admin_orders_log(callback: types.CallbackQuery, session: AsyncSessi
         return
 
     text = (
-        f"🧾 <b>RECENT ORDERS & SALES AUDIT LOG ({len(orders)})</b>\n"
+        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>RECENT ORDERS & SALES AUDIT LOG ({len(orders)})</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"Click any order below to inspect full database proof, customer details & delivered keys:\n"
     )
@@ -228,26 +228,26 @@ async def cb_admin_order_audit(callback: types.CallbackQuery, session: AsyncSess
     var_name = variant.name if variant else "Plan"
     date_str = order.created_at.strftime("%d %b %Y, %H:%M:%S UTC")
 
-    status_badge = "🟢 COMPLETED (DELIVERED)" if order.status == "COMPLETED" else ("⏳ PENDING DISPATCH" if order.status == "PENDING_DISPATCH" else "❌ CANCELLED / REFUNDED")
+    status_badge = f"{ce(CustomEmojis.CHECK, '🟢')} COMPLETED (DELIVERED)" if order.status == "COMPLETED" else (f"{ce(CustomEmojis.FIRE, '⏳')} PENDING DISPATCH" if order.status == "PENDING_DISPATCH" else f"{ce(CustomEmojis.LOCK, '❌')} CANCELLED / REFUNDED")
 
     text = (
-        f"🔍 <b>DATABASE ORDER AUDIT PROOF #{order.id}</b>\n"
+        f"{ce(CustomEmojis.SEARCH, '🔍')} <b>DATABASE ORDER AUDIT PROOF #{order.id}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"👤 <b>Customer Name:</b> {user.full_name if user else 'Unknown'}\n"
-        f"🆔 <b>Telegram ID:</b> <code>{order.user_id}</code>\n"
-        f"💬 <b>Username:</b> @{user.username or 'NoUsername' if user else 'None'}\n"
-        f"💰 <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
-        f"📊 <b>Order Status:</b> {status_badge}\n"
-        f"📅 <b>Timestamp:</b> {date_str}\n\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer Name:</b> {user.full_name if user else 'Unknown'}\n"
+        f"{ce(CustomEmojis.KEY, '🆔')} <b>Telegram ID:</b> <code>{order.user_id}</code>\n"
+        f"{ce(CustomEmojis.SUPPORT, '💬')} <b>Username:</b> @{user.username or 'NoUsername' if user else 'None'}\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
+        f"{ce(CustomEmojis.TROPHY, '📊')} <b>Order Status:</b> {status_badge}\n"
+        f"{ce(CustomEmojis.STAR, '📅')} <b>Timestamp:</b> {date_str}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📦 <b>Product:</b> {prod_title}\n"
-        f"✨ <b>Plan:</b> <code>{var_name}</code>\n"
-        f"📱/📧 <b>Customer Input (Phone/Email):</b>\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_title}\n"
+        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <code>{var_name}</code>\n"
+        f"{ce(CustomEmojis.CARD, '📱')}/📧 <b>Customer Input (Phone/Email):</b>\n"
         f"<code>{order.customer_input or 'None (Auto Stock Plan)'}</code>\n\n"
-        f"🔑 <b>DELIVERED CREDENTIALS / CODE:</b>\n"
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>DELIVERED CREDENTIALS / CODE:</b>\n"
         f"<pre><code>{order.delivered_content or 'Pending dispatch'}</code></pre>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"✅ <i>Verified Authentic Database Record</i>"
+        f"{ce(CustomEmojis.CHECK, '✅')} <i>Verified Authentic Database Record</i>"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_order_audit_keyboard(order.id))
 
@@ -262,15 +262,15 @@ async def cb_admin_pending_orders(callback: types.CallbackQuery, session: AsyncS
     orders = await get_pending_manual_orders(session)
     if not orders:
         text = (
-            f"⏳ <b>PENDING MANUAL ORDERS</b>\n"
+            f"{ce(CustomEmojis.FIRE, '⏳')} <b>PENDING MANUAL ORDERS</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"✅ <i>No pending manual orders right now! All orders have been dispatched.</i>"
+            f"{ce(CustomEmojis.CHECK, '✅')} <i>No pending manual orders right now! All orders have been dispatched.</i>"
         )
         await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard("admin_home"))
         return
 
     text = (
-        f"⏳ <b>PENDING MANUAL ORDERS ({len(orders)})</b>\n"
+        f"{ce(CustomEmojis.FIRE, '⏳')} <b>PENDING MANUAL ORDERS ({len(orders)})</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"Click an order below to view customer input and deliver credentials/links:"
     )
@@ -297,11 +297,11 @@ async def cb_admin_ord_view(callback: types.CallbackQuery, session: AsyncSession
     text = (
         f"📋 <b>MANUAL ORDER DETAILS #{order.id}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"👤 <b>Customer:</b> {user.full_name if user else 'User'} (ID: <code>{order.user_id}</code>)\n"
-        f"📦 <b>Item:</b> {prod_title} — {var_name}\n"
-        f"💰 <b>Amount Paid:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f}\n"
-        f"📅 <b>Ordered At:</b> {order.created_at.strftime('%d %b %Y, %H:%M UTC')}\n"
-        f"📊 <b>Status:</b> ⏳ PENDING DISPATCH\n\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {user.full_name if user else 'User'} (ID: <code>{order.user_id}</code>)\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {var_name}\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f}\n"
+        f"{ce(CustomEmojis.STAR, '📅')} <b>Ordered At:</b> {order.created_at.strftime('%d %b %Y, %H:%M UTC')}\n"
+        f"{ce(CustomEmojis.TROPHY, '📊')} <b>Status:</b> {ce(CustomEmojis.FIRE, '⏳')} PENDING DISPATCH\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"📧 <b>CUSTOMER PROVIDED DETAILS:</b>\n"
         f"<code>{order.customer_input or 'None'}</code>\n"
@@ -321,7 +321,7 @@ async def cb_admin_man_ful(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(order_id=order_id)
 
     text = (
-        f"🔑 <b>FULFILL MANUAL ORDER #{order_id}</b>\n"
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>FULFILL MANUAL ORDER #{order_id}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"Please send the login credentials, invite link, or license key to deliver to the customer:\n\n"
         f"<i>(The bot will format this into a copyable block and notify the user immediately):</i>"
@@ -337,11 +337,11 @@ async def msg_admin_man_ful_content(message: types.Message, state: FSMContext, s
 
     order, user = await fulfill_manual_order(session, order_id, content)
     if not order:
-        await message.answer("⚠️ Order could not be fulfilled or is no longer pending.")
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Order could not be fulfilled or is no longer pending.")
         return
 
     await message.answer(
-        f"✅ <b>Order #{order.id} Dispatched & Fulfilled!</b>\n\n"
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>Order #{order.id} Dispatched & Fulfilled!</b>\n\n"
         f"Credentials have been automatically delivered to {user.full_name if user else 'customer'} on Telegram.",
         reply_markup=get_admin_cancel_keyboard("adm_pending_orders")
     )
@@ -352,16 +352,16 @@ async def msg_admin_man_ful_content(message: types.Message, state: FSMContext, s
     prod_title = product.title if product else "Digital Service"
 
     customer_msg = (
-        f"🎉 <b>YOUR ORDER #{order.id} HAS BEEN DISPATCHED!</b>\n"
+        f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>YOUR ORDER #{order.id} HAS BEEN DISPATCHED!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📦 <b>Product:</b> {prod_title}\n"
-        f"✨ <b>Plan:</b> {variant.name if variant else 'Plan'}\n"
-        f"💰 <b>Amount Paid:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f}\n\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_title}\n"
+        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> {variant.name if variant else 'Plan'}\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔑 <b>YOUR DELIVERED CREDENTIALS / INVITE LINK:</b>\n\n"
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>YOUR DELIVERED CREDENTIALS / INVITE LINK:</b>\n\n"
         f"<pre><code>{order.delivered_content}</code></pre>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"🛡️ <i>Your subscription is under 100% replacement warranty! Saved permanently in Order History.</i>"
+        f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>Your subscription is under 100% replacement warranty! Saved permanently in Order History.</i>"
     )
     from keyboards.user_keyboards import get_post_delivery_keyboard
     cust_kb = get_post_delivery_keyboard(order.id)
@@ -400,11 +400,11 @@ async def cb_admin_man_ref(callback: types.CallbackQuery, session: AsyncSession,
     order, user = await cancel_and_refund_order(session, order_id)
 
     if not order:
-        await callback.message.answer("⚠️ Order not found or already processed.")
+        await callback.message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Order not found or already processed.")
         return
 
     await callback.message.edit_text(
-        f"❌ <b>Order #{order.id} Cancelled & Refunded!</b>\n\n"
+        f"{ce(CustomEmojis.LOCK, '❌')} <b>Order #{order.id} Cancelled & Refunded!</b>\n\n"
         f"{config.CURRENCY_SYMBOL}{order.amount:.2f} was returned to {user.full_name if user else 'customer'}'s wallet.",
         reply_markup=get_admin_cancel_keyboard("adm_pending_orders")
     )
@@ -412,7 +412,7 @@ async def cb_admin_man_ref(callback: types.CallbackQuery, session: AsyncSession,
     # Notify customer
     try:
         refund_msg = (
-            f"🔔 <b>ORDER #{order.id} CANCELLED & REFUNDED</b>\n"
+            f"{ce(CustomEmojis.FIRE, '🔔')} <b>ORDER #{order.id} CANCELLED & REFUNDED</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"Your order could not be activated and <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b> has been refunded to your wallet balance.\n\n"
             f"Current Balance: <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n\n"
@@ -433,21 +433,21 @@ async def cb_admin_deposits(callback: types.CallbackQuery, session: AsyncSession
     deposits = await get_pending_deposits(session)
     if not deposits:
         await callback.message.edit_text(
-            "✅ <b>No pending deposit requests!</b> All requests are reviewed.",
+            f"{ce(CustomEmojis.CHECK, '✅')} <b>No pending deposit requests!</b> All requests are reviewed.",
             reply_markup=get_admin_cancel_keyboard("admin_home")
         )
         return
 
-    text = f"💳 <b>PENDING DEPOSIT REQUESTS ({len(deposits)})</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    text = f"{ce(CustomEmojis.WALLET, '💳')} <b>PENDING DEPOSIT REQUESTS ({len(deposits)})</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     await callback.message.edit_text(text)
 
     for dep in deposits[:5]:
         dep_text = (
-            f"🧾 <b>Deposit #{dep.id}</b>\n"
-            f"👤 User: <code>{dep.user_id}</code>\n"
-            f"💰 Amount: <b>{config.CURRENCY_SYMBOL}{dep.amount:.2f}</b>\n"
-            f"🔢 UTR: <code>{dep.utr_number or 'Not provided'}</code>\n"
-            f"📅 Date: {dep.created_at.strftime('%d/%m %H:%M')}"
+            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Deposit #{dep.id}</b>\n"
+            f"{ce(CustomEmojis.VERIFIED, '👤')} User: <code>{dep.user_id}</code>\n"
+            f"{ce(CustomEmojis.WALLET, '💰')} Amount: <b>{config.CURRENCY_SYMBOL}{dep.amount:.2f}</b>\n"
+            f"{ce(CustomEmojis.KEY, '🔢')} UTR: <code>{dep.utr_number or 'Not provided'}</code>\n"
+            f"{ce(CustomEmojis.STAR, '📅')} Date: {dep.created_at.strftime('%d/%m %H:%M')}"
         )
         if dep.proof_file_id:
             try:
@@ -474,7 +474,7 @@ async def cb_admin_dep_approve(callback: types.CallbackQuery, session: AsyncSess
         return
 
     await callback.message.edit_reply_markup(reply_markup=None)
-    await callback.message.answer(f"✅ Deposit #{deposit.id} APPROVED! Added {config.CURRENCY_SYMBOL}{deposit.amount:.2f} to User <code>{deposit.user_id}</code>.")
+    await callback.message.answer(f"{ce(CustomEmojis.CHECK, '✅')} Deposit #{deposit.id} APPROVED! Added {config.CURRENCY_SYMBOL}{deposit.amount:.2f} to User <code>{deposit.user_id}</code>.")
 
     # Check if this deposit was created for a Direct 1-Click Purchase
     if deposit.target_variant_id:
@@ -485,16 +485,16 @@ async def cb_admin_dep_approve(callback: types.CallbackQuery, session: AsyncSess
                 prod = await get_product(session, target_var.product_id)
                 prod_title = prod.title if prod else "Digital Item"
                 cust_deliv_msg = (
-                    f"🎉 <b>PAYMENT APPROVED & ORDER #{order.id} DELIVERED!</b>\n"
+                    f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT APPROVED & ORDER #{order.id} DELIVERED!</b>\n"
                     f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                    f"📦 <b>Product:</b> <b>{prod_title}</b>\n"
-                    f"✨ <b>Plan:</b> <b>{target_var.name}</b>\n"
-                    f"💰 <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n\n"
+                    f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                    f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
+                    f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n\n"
                     f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"🔑 <b>YOUR DELIVERED ACCOUNT / CODE:</b>\n\n"
+                    f"{ce(CustomEmojis.KEY, '🔑')} <b>YOUR DELIVERED ACCOUNT / CODE:</b>\n\n"
                     f"<pre><code>{order.delivered_content}</code></pre>\n"
                     f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                    f"🛡️ <i>Your subscription is under 100% replacement warranty! Saved permanently in Order History.</i>"
+                    f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>Your subscription is under 100% replacement warranty! Saved permanently in Order History.</i>"
                 )
                 from keyboards.user_keyboards import get_post_delivery_keyboard
                 cust_kb = get_post_delivery_keyboard(order.id)
@@ -525,7 +525,7 @@ async def cb_admin_dep_approve(callback: types.CallbackQuery, session: AsyncSess
     # Normal Deposit notification
     try:
         user_msg = (
-            f"🎉 <b>DEPOSIT APPROVED & CREDITED!</b>\n"
+            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>DEPOSIT APPROVED & CREDITED!</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"Receipt ID: #{deposit.id}\n"
             f"Amount Credited: <b>+{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b>\n"
@@ -549,14 +549,14 @@ async def cb_admin_dep_reject(callback: types.CallbackQuery, session: AsyncSessi
         return
 
     await callback.message.edit_reply_markup(reply_markup=None)
-    await callback.message.answer(f"❌ Deposit #{deposit.id} has been REJECTED.")
+    await callback.message.answer(f"{ce(CustomEmojis.LOCK, '❌')} Deposit #{deposit.id} has been REJECTED.")
 
     try:
         user_msg = (
-            f"⚠️ <b>DEPOSIT REJECTED</b>\n"
+            f"{ce(CustomEmojis.LOCK, '⚠️')} <b>DEPOSIT REJECTED</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🧾 <b>Deposit ID:</b> #{deposit.id}\n"
-            f"💰 <b>Amount:</b> {config.CURRENCY_SYMBOL}{deposit.amount:.2f}\n\n"
+            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Deposit ID:</b> #{deposit.id}\n"
+            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount:</b> {config.CURRENCY_SYMBOL}{deposit.amount:.2f}\n\n"
             f"Your deposit could not be verified. Please contact {config.SUPPORT_USERNAME} if you think this is a mistake."
         )
         await bot.send_message(deposit.user_id, user_msg)
@@ -574,7 +574,7 @@ async def cb_admin_stock(callback: types.CallbackQuery, session: AsyncSession):
 
     if not variants:
         await callback.message.edit_text(
-            "⚠️ No plans/variants created yet. Create a product and plan first!",
+            f"{ce(CustomEmojis.LOCK, '⚠️')} No plans/variants created yet. Create a product and plan first!",
             reply_markup=get_admin_cancel_keyboard("admin_home")
         )
         return
@@ -584,7 +584,7 @@ async def cb_admin_stock(callback: types.CallbackQuery, session: AsyncSession):
         stock_counts[var.id] = await get_available_stock_count(session, var.id)
 
     text = (
-        f"🔑 <b>INVENTORY & STOCK MANAGEMENT HUB</b>\n"
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>INVENTORY & STOCK MANAGEMENT HUB</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"Select a subscription plan below to upload stock, view unsold accounts, or clear inventory:\n"
     )
@@ -606,13 +606,13 @@ async def cb_admin_stock_manage(callback: types.CallbackQuery, session: AsyncSes
     prod_title = variant.product.title if variant.product else "Product"
 
     text = (
-        f"📦 <b>INVENTORY CONTROLS FOR:</b>\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>INVENTORY CONTROLS FOR:</b>\n"
         f"<b>{prod_title} — {variant.name}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"💰 <b>Price:</b> {config.CURRENCY_SYMBOL}{variant.price:.2f}\n"
-        f"🏷️ <b>Type:</b> {variant.variant_type}\n"
-        f"🚀 <b>Fulfillment Mode:</b> {'⏱️ Manual Dispatch (1-2h)' if is_manual else '⚡ Automated Instant Stock'}\n"
-        f"📊 <b>Current Available Stock:</b> <b>{stock_count} items</b>\n\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Price:</b> {config.CURRENCY_SYMBOL}{variant.price:.2f}\n"
+        f"{ce(CustomEmojis.DIAMOND, '🏷️')} <b>Type:</b> {variant.variant_type}\n"
+        f"{ce(CustomEmojis.FIRE, '🚀')} <b>Fulfillment Mode:</b> {ce(CustomEmojis.FIRE, '⏱️') + ' Manual Dispatch (1-2h)' if is_manual else ce(CustomEmojis.FIRE, '⚡') + ' Automated Instant Stock'}\n"
+        f"{ce(CustomEmojis.TROPHY, '📊')} <b>Current Available Stock:</b> <b>{stock_count} items</b>\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_variant_stock_actions_keyboard(variant_id, is_manual, stock_count))
@@ -631,9 +631,9 @@ async def cb_admin_stock_add(callback: types.CallbackQuery, state: FSMContext, s
     await state.set_state(AdminStockStates.waiting_for_stock_lines)
 
     text = (
-        f"✍️ <b>UPLOAD STOCK FOR: {prod_title} — {variant.name}</b>\n"
+        f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>UPLOAD STOCK FOR: {prod_title} — {variant.name}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📊 <b>Current Live Stock:</b> {current_stock} accounts\n\n"
+        f"{ce(CustomEmojis.TROPHY, '📊')} <b>Current Live Stock:</b> {current_stock} accounts\n\n"
         f"Paste the accounts or license keys <b>line-by-line (one per line)</b>:\n\n"
         f"<code>email1@netflix.com:Password123 | PIN: 1234 | Screen 1\nemail2@netflix.com:Password456 | PIN: 5678 | Screen 2</code>\n\n"
         f"<i>(Send your lines below to insert them into live inventory):</i>"
@@ -646,7 +646,7 @@ async def msg_admin_stock_lines(message: types.Message, state: FSMContext, sessi
     lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
 
     if not lines:
-        await message.answer("⚠️ No valid accounts found. Send at least one line.")
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} No valid accounts found. Send at least one line.")
         return
 
     data = await state.get_data()
@@ -659,10 +659,10 @@ async def msg_admin_stock_lines(message: types.Message, state: FSMContext, sessi
     prod_title = variant.product.title if variant and variant.product else "Product"
 
     await message.answer(
-        f"✅ <b>Successfully Added {added_count} Stock Items!</b>\n\n"
-        f"📦 <b>Product:</b> {prod_title}\n"
-        f"✨ <b>Plan:</b> {variant.name if variant else ''}\n"
-        f"📊 <b>New Live Available Stock:</b> <b>{total_stock} items</b>",
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>Successfully Added {added_count} Stock Items!</b>\n\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_title}\n"
+        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> {variant.name if variant else ''}\n"
+        f"{ce(CustomEmojis.TROPHY, '📊')} <b>New Live Available Stock:</b> <b>{total_stock} items</b>",
         reply_markup=get_admin_cancel_keyboard("adm_stock")
     )
 
@@ -694,7 +694,7 @@ async def cb_admin_stock_view(callback: types.CallbackQuery, session: AsyncSessi
         await callback.message.answer("No unsold stock available for this plan.", show_alert=True)
         return
 
-    stock_text = f"👁️ <b>UNSOLD INVENTORY ({len(unsold)} items):</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    stock_text = f"{ce(CustomEmojis.SEARCH, '👁️')} <b>UNSOLD INVENTORY ({len(unsold)} items):</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     for idx, s in enumerate(unsold[:20], 1):
         stock_text += f"{idx}. <code>{s.content}</code>\n"
 
@@ -712,7 +712,7 @@ async def cb_admin_stock_clear(callback: types.CallbackQuery, session: AsyncSess
     deleted_count = await delete_unsold_stock_by_variant(session, variant_id)
 
     await callback.message.edit_text(
-        f"🗑️ <b>Cleared {deleted_count} unsold stock items</b> from this plan.\n\n"
+        f"{ce(CustomEmojis.LOCK, '🗑️')} <b>Cleared {deleted_count} unsold stock items</b> from this plan.\n\n"
         f"Stock count is now 0.",
         reply_markup=get_admin_cancel_keyboard(f"adm_stock_manage_{variant_id}")
     )
@@ -726,7 +726,7 @@ async def cb_admin_cats(callback: types.CallbackQuery, session: AsyncSession):
     await callback.answer()
     categories = await get_all_categories(session)
     text = (
-        f"📁 <b>CATEGORY MANAGEMENT</b>\n"
+        f"{ce(CustomEmojis.SHOP, '📁')} <b>CATEGORY MANAGEMENT</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Total Categories: {len(categories)}\n\n"
         f"Click <b>'Delete'</b> to remove a category or <b>'Add New'</b> to create one:"
@@ -747,8 +747,8 @@ async def cb_admin_cat_edit(callback: types.CallbackQuery, session: AsyncSession
     text = (
         f"{ce(CustomEmojis.SHOP, '📁')} <b>EDIT CATEGORY</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"📁 <b>Current Name:</b> <b>{category.name}</b>\n"
-        f"🆔 <b>Category ID:</b> <code>{category.id}</code>\n\n"
+        f"{ce(CustomEmojis.SHOP, '📁')} <b>Current Name:</b> <b>{category.name}</b>\n"
+        f"{ce(CustomEmojis.KEY, '🆔')} <b>Category ID:</b> <code>{category.id}</code>\n\n"
         f"<i>What would you like to do?</i>"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_category_edit_keyboard(cat_id))
@@ -762,7 +762,7 @@ async def cb_admin_catedit_name(callback: types.CallbackQuery, state: FSMContext
     await state.update_data(edit_cat_id=cat_id)
     await state.set_state(AdminCategoryEditStates.waiting_for_new_name)
     await callback.message.edit_text(
-        "✏️ <b>Edit Category Name & Emojis</b>\n\n"
+        f"{ce(CustomEmojis.SPARKLE, '✏️')} <b>Edit Category Name & Emojis</b>\n\n"
         "Send the new <b>Category Name</b> (with emojis if you like):\n"
         "e.g. <code>🍿 Streaming Services</code> or <code>🤖 AI Tools</code>",
         reply_markup=get_admin_cancel_keyboard(f"adm_cat_edit_{cat_id}")
@@ -786,12 +786,12 @@ async def msg_admin_catedit_name(message: types.Message, state: FSMContext, sess
     )
     if category:
         await message.answer(
-            f"✅ <b>Category Updated Successfully!</b>\n\n"
-            f"📁 <b>New Name:</b> <b>{category.name}</b>",
+            f"{ce(CustomEmojis.CHECK, '✅')} <b>Category Updated Successfully!</b>\n\n"
+            f"{ce(CustomEmojis.SHOP, '📁')} <b>New Name:</b> <b>{category.name}</b>",
             reply_markup=get_admin_category_edit_keyboard(category.id)
         )
     else:
-        await message.answer("⚠️ Failed to update category.")
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Failed to update category.")
 
 @router.callback_query(F.data.startswith("adm_cat_view_"))
 async def cb_admin_cat_view(callback: types.CallbackQuery, session: AsyncSession):
@@ -810,7 +810,7 @@ async def cb_admin_cat_del(callback: types.CallbackQuery, session: AsyncSession)
     cat_id = int(callback.data.split("_")[3])
     await delete_category(session, cat_id)
     categories = await get_all_categories(session)
-    await callback.message.edit_text("✅ Category deleted.", reply_markup=get_admin_categories_keyboard(categories))
+    await callback.message.edit_text(f"{ce(CustomEmojis.CHECK, '✅')} Category deleted.", reply_markup=get_admin_categories_keyboard(categories))
 
 @router.callback_query(F.data == "adm_cat_add")
 async def cb_admin_cat_add(callback: types.CallbackQuery, state: FSMContext):
@@ -819,7 +819,7 @@ async def cb_admin_cat_add(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(AdminCategoryStates.waiting_for_name)
     await callback.message.edit_text(
-        "✍️ <b>Add New Category</b>\n\n"
+        f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>Add New Category</b>\n\n"
         "Send the <b>Category Name</b> (with your emoji/icon if you like):\n"
         "e.g. <code>🍿 Streaming Services</code> or <code>👑 VIP Section</code>",
         reply_markup=get_admin_cancel_keyboard("adm_cats")
@@ -846,9 +846,9 @@ async def msg_admin_cat_name(message: types.Message, state: FSMContext, session:
     ])
 
     await message.answer(
-        f"✅ <b>Category Created Successfully!</b>\n\n"
-        f"📁 <b>Name:</b> <b>{category.name}</b>\n"
-        f"🆔 <b>Category ID:</b> <code>{category.id}</code>\n\n"
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>Category Created Successfully!</b>\n\n"
+        f"{ce(CustomEmojis.SHOP, '📁')} <b>Name:</b> <b>{category.name}</b>\n"
+        f"{ce(CustomEmojis.KEY, '🆔')} <b>Category ID:</b> <code>{category.id}</code>\n\n"
         f"What would you like to do next?",
         reply_markup=kb
     )
@@ -862,7 +862,7 @@ async def cb_admin_prods(callback: types.CallbackQuery, session: AsyncSession):
     await callback.answer()
     categories = await get_all_categories(session)
     text = (
-        f"📦 <b>PRODUCT MANAGEMENT</b>\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>PRODUCT MANAGEMENT</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Select a category to view or add products to it:"
     )
@@ -880,7 +880,7 @@ async def cb_admin_cat_viewprods(callback: types.CallbackQuery, session: AsyncSe
     cat_name = category.name if category else "Category"
 
     text = (
-        f"📦 <b>PRODUCTS IN: {cat_name}</b>\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>PRODUCTS IN: {cat_name}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Total Products: {len(products)}\n\n"
         f"Click <b>'Edit'</b> or <b>'Delete'</b> to manage products:"
@@ -901,9 +901,9 @@ async def cb_admin_prod_edit(callback: types.CallbackQuery, session: AsyncSessio
     text = (
         f"{ce(CustomEmojis.SPARKLE, '📦')} <b>EDIT PRODUCT</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"📦 <b>Current Title:</b> <b>{product.title}</b>\n"
-        f"🆔 <b>Product ID:</b> <code>{product.id}</code>\n"
-        f"📝 <b>Description:</b> <i>{product.description or 'No description'}</i>\n\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Current Title:</b> <b>{product.title}</b>\n"
+        f"{ce(CustomEmojis.KEY, '🆔')} <b>Product ID:</b> <code>{product.id}</code>\n"
+        f"{ce(CustomEmojis.SPARKLE, '📝')} <b>Description:</b> <i>{product.description or 'No description'}</i>\n\n"
         f"<i>What would you like to edit?</i>"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_product_edit_keyboard(prod_id, product.category_id))
@@ -917,7 +917,7 @@ async def cb_admin_prodedit_title(callback: types.CallbackQuery, state: FSMConte
     await state.update_data(edit_prod_id=prod_id)
     await state.set_state(AdminProductEditStates.waiting_for_new_title)
     await callback.message.edit_text(
-        "✏️ <b>Edit Product Title & Emojis</b>\n\n"
+        f"{ce(CustomEmojis.SPARKLE, '✏️')} <b>Edit Product Title & Emojis</b>\n\n"
         "Send the new <b>Product Title</b> (with emojis if you like):\n"
         "e.g. <code>Netflix Premium 4K</code> or <code>Prime Video HD</code>",
         reply_markup=get_admin_cancel_keyboard(f"adm_prod_edit_{prod_id}")
@@ -941,12 +941,12 @@ async def msg_admin_prodedit_title(message: types.Message, state: FSMContext, se
     )
     if product:
         await message.answer(
-            f"✅ <b>Product Title Updated!</b>\n\n"
-            f"📦 <b>New Title:</b> <b>{product.title}</b>",
+            f"{ce(CustomEmojis.CHECK, '✅')} <b>Product Title Updated!</b>\n\n"
+            f"{ce(CustomEmojis.SHOP, '📦')} <b>New Title:</b> <b>{product.title}</b>",
             reply_markup=get_admin_product_edit_keyboard(product.id, product.category_id)
         )
     else:
-        await message.answer("⚠️ Failed to update product.")
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Failed to update product.")
 
 @router.callback_query(F.data.startswith("adm_prodedit_desc_"))
 async def cb_admin_prodedit_desc(callback: types.CallbackQuery, state: FSMContext):
@@ -957,7 +957,7 @@ async def cb_admin_prodedit_desc(callback: types.CallbackQuery, state: FSMContex
     await state.update_data(edit_prod_id=prod_id)
     await state.set_state(AdminProductEditStates.waiting_for_new_desc)
     await callback.message.edit_text(
-        "📝 <b>Edit Product Description</b>\n\n"
+        f"{ce(CustomEmojis.SPARKLE, '📝')} <b>Edit Product Description</b>\n\n"
         "Send the new short description for this product (or send <code>skip</code> to clear):",
         reply_markup=get_admin_cancel_keyboard(f"adm_prod_edit_{prod_id}")
     )
@@ -979,12 +979,12 @@ async def msg_admin_prodedit_desc(message: types.Message, state: FSMContext, ses
     )
     if product:
         await message.answer(
-            f"✅ <b>Product Description Updated!</b>\n\n"
-            f"📦 <b>Product:</b> <b>{product.title}</b>",
+            f"{ce(CustomEmojis.CHECK, '✅')} <b>Product Description Updated!</b>\n\n"
+            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{product.title}</b>",
             reply_markup=get_admin_product_edit_keyboard(product.id, product.category_id)
         )
     else:
-        await message.answer("⚠️ Failed to update product.")
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Failed to update product.")
 
 @router.callback_query(F.data.startswith("adm_prod_view_"))
 async def cb_admin_prod_view(callback: types.CallbackQuery, session: AsyncSession):
@@ -1005,7 +1005,7 @@ async def cb_admin_prod_del(callback: types.CallbackQuery, session: AsyncSession
     await delete_product(session, prod_id)
 
     products = await get_products_by_category(session, cat_id)
-    await callback.message.edit_text("✅ Product deleted.", reply_markup=get_admin_products_keyboard(products, cat_id))
+    await callback.message.edit_text(f"{ce(CustomEmojis.CHECK, '✅')} Product deleted.", reply_markup=get_admin_products_keyboard(products, cat_id))
 
 @router.callback_query(F.data.startswith("adm_prod_add_"))
 async def cb_admin_prod_add(callback: types.CallbackQuery, state: FSMContext):
@@ -1017,7 +1017,7 @@ async def cb_admin_prod_add(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(AdminProductStates.waiting_for_title)
 
     await callback.message.edit_text(
-        "✍️ <b>Add New Product</b>\n\n"
+        f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>Add New Product</b>\n\n"
         "Send the <b>Product Title</b> (with emoji if you like, e.g. <code>🍿 Netflix Premium 4K</code>):",
         reply_markup=get_admin_cancel_keyboard(f"adm_selcat_viewprods_{cat_id}")
     )
@@ -1033,7 +1033,7 @@ async def msg_admin_prod_title(message: types.Message, state: FSMContext):
     )
     await state.set_state(AdminProductStates.waiting_for_desc)
     await message.answer(
-        f"📦 Product: <b>{html_title}</b>\n\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} Product: <b>{html_title}</b>\n\n"
         f"Now send a <b>Short Description</b> for this product (or send <code>skip</code>):"
     )
 
@@ -1067,9 +1067,9 @@ async def msg_admin_prod_desc(message: types.Message, state: FSMContext, session
     ])
 
     await message.answer(
-        f"✅ <b>Product Created Successfully!</b>\n\n"
-        f"📦 <b>Title:</b> <b>{product.title}</b>\n"
-        f"🆔 <b>Product ID:</b> <code>{product.id}</code>\n\n"
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>Product Created Successfully!</b>\n\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Title:</b> <b>{product.title}</b>\n"
+        f"{ce(CustomEmojis.KEY, '🆔')} <b>Product ID:</b> <code>{product.id}</code>\n\n"
         f"What would you like to do next?",
         reply_markup=kb
     )
@@ -1083,7 +1083,7 @@ async def cb_admin_variants(callback: types.CallbackQuery, session: AsyncSession
     await callback.answer()
     products = await get_all_products(session)
     text = (
-        f"🏷️ <b>MANAGE PLANS & PRICING</b>\n"
+        f"{ce(CustomEmojis.DIAMOND, '🏷️')} <b>MANAGE PLANS & PRICING</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Select a product to view or add subscription plans:"
     )
@@ -1099,7 +1099,7 @@ async def cb_admin_prod_viewvars(callback: types.CallbackQuery, session: AsyncSe
     variants = await get_variants_by_product(session, prod_id)
 
     text = (
-        f"🏷️ <b>PLANS FOR: {product.emoji} {product.title}</b>\n"
+        f"{ce(CustomEmojis.DIAMOND, '🏷️')} <b>PLANS FOR: {product.emoji} {product.title}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Total Plans: {len(variants)}\n\n"
         f"Click <b>'Delete'</b> or <b>'Add Plan'</b>:"
@@ -1118,13 +1118,13 @@ async def cb_admin_var_edit(callback: types.CallbackQuery, session: AsyncSession
         return
 
     text = (
-        f"✏️ <b>EDIT SUBSCRIPTION PLAN</b>\n"
+        f"{ce(CustomEmojis.SPARKLE, '✏️')} <b>EDIT SUBSCRIPTION PLAN</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📦 <b>Product:</b> <b>{variant.product.title if variant.product else 'Digital Item'}</b>\n"
-        f"✨ <b>Plan Name:</b> <b>{variant.name}</b>\n"
-        f"💰 <b>Current Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>\n"
-        f"🏷️ <b>Plan Type:</b> <code>{variant.variant_type}</code>\n"
-        f"📝 <b>Description:</b> <i>{variant.detailed_description or 'Default template'}</i>\n\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{variant.product.title if variant.product else 'Digital Item'}</b>\n"
+        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan Name:</b> <b>{variant.name}</b>\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Current Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>\n"
+        f"{ce(CustomEmojis.DIAMOND, '🏷️')} <b>Plan Type:</b> <code>{variant.variant_type}</code>\n"
+        f"{ce(CustomEmojis.SPARKLE, '📝')} <b>Description:</b> <i>{variant.detailed_description or 'Default template'}</i>\n\n"
         f"What would you like to edit?"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_variant_edit_keyboard(var_id, variant.product_id))
@@ -1138,7 +1138,7 @@ async def cb_admin_varedit_name(callback: types.CallbackQuery, state: FSMContext
     await state.update_data(edit_var_id=var_id)
     await state.set_state(AdminVariantEditStates.waiting_for_new_name)
     await callback.message.edit_text(
-        "✏️ <b>Edit Plan Name</b>\n\n"
+        f"{ce(CustomEmojis.SPARKLE, '✏️')} <b>Edit Plan Name</b>\n\n"
         "Send the new <b>Plan Name</b> (e.g. <code>1 Month Private Profile</code>):",
         reply_markup=get_admin_cancel_keyboard(f"adm_var_edit_{var_id}")
     )
@@ -1153,13 +1153,13 @@ async def msg_admin_varedit_name(message: types.Message, state: FSMContext, sess
     variant = await update_variant_details(session, var_id, name=new_name)
     if variant:
         await message.answer(
-            f"✅ <b>Plan Name Updated!</b>\n\n"
-            f"✨ <b>New Name:</b> <b>{variant.name}</b>\n"
-            f"💰 <b>Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>",
+            f"{ce(CustomEmojis.CHECK, '✅')} <b>Plan Name Updated!</b>\n\n"
+            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>New Name:</b> <b>{variant.name}</b>\n"
+            f"{ce(CustomEmojis.WALLET, '💰')} <b>Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>",
             reply_markup=get_admin_variant_edit_keyboard(variant.id, variant.product_id)
         )
     else:
-        await message.answer("⚠️ Failed to update plan.")
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Failed to update plan.")
 
 @router.callback_query(F.data.startswith("adm_varedit_price_"))
 async def cb_admin_varedit_price(callback: types.CallbackQuery, state: FSMContext):
@@ -1170,7 +1170,7 @@ async def cb_admin_varedit_price(callback: types.CallbackQuery, state: FSMContex
     await state.update_data(edit_var_id=var_id)
     await state.set_state(AdminVariantEditStates.waiting_for_new_price)
     await callback.message.edit_text(
-        "💰 <b>Edit Plan Price</b>\n\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Edit Plan Price</b>\n\n"
         "Send the new <b>Price in INR</b> (e.g. <code>149.0</code> or <code>199</code>):",
         reply_markup=get_admin_cancel_keyboard(f"adm_var_edit_{var_id}")
     )
@@ -1180,7 +1180,7 @@ async def msg_admin_varedit_price(message: types.Message, state: FSMContext, ses
     try:
         new_price = float(message.text.strip().replace("₹", "").replace("$", ""))
     except ValueError:
-        await message.answer("⚠️ Invalid price format. Send a valid number (e.g. <code>149.0</code>):")
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Invalid price format. Send a valid number (e.g. <code>149.0</code>):")
         return
 
     data = await state.get_data()
@@ -1190,13 +1190,13 @@ async def msg_admin_varedit_price(message: types.Message, state: FSMContext, ses
     variant = await update_variant_details(session, var_id, price=new_price)
     if variant:
         await message.answer(
-            f"✅ <b>Plan Price Updated!</b>\n\n"
-            f"✨ <b>Plan:</b> <b>{variant.name}</b>\n"
-            f"💰 <b>New Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>",
+            f"{ce(CustomEmojis.CHECK, '✅')} <b>Plan Price Updated!</b>\n\n"
+            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
+            f"{ce(CustomEmojis.WALLET, '💰')} <b>New Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>",
             reply_markup=get_admin_variant_edit_keyboard(variant.id, variant.product_id)
         )
     else:
-        await message.answer("⚠️ Failed to update plan.")
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Failed to update plan.")
 
 @router.callback_query(F.data.startswith("adm_varedit_desc_"))
 async def cb_admin_varedit_desc(callback: types.CallbackQuery, state: FSMContext):
@@ -1207,7 +1207,7 @@ async def cb_admin_varedit_desc(callback: types.CallbackQuery, state: FSMContext
     await state.update_data(edit_var_id=var_id)
     await state.set_state(AdminVariantEditStates.waiting_for_new_desc)
     await callback.message.edit_text(
-        "📝 <b>Edit Plan Description Card</b>\n\n"
+        f"{ce(CustomEmojis.SPARKLE, '📝')} <b>Edit Plan Description Card</b>\n\n"
         "Send the new detailed specifications and warranty details (supports HTML & emojis — or send <code>skip</code> for default):",
         reply_markup=get_admin_cancel_keyboard(f"adm_var_edit_{var_id}")
     )
@@ -1225,13 +1225,13 @@ async def msg_admin_varedit_desc(message: types.Message, state: FSMContext, sess
     variant = await update_variant_details(session, var_id, detailed_description=new_desc)
     if variant:
         await message.answer(
-            f"✅ <b>Plan Description Updated!</b>\n\n"
-            f"✨ <b>Plan:</b> <b>{variant.name}</b>\n"
-            f"💰 <b>Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>",
+            f"{ce(CustomEmojis.CHECK, '✅')} <b>Plan Description Updated!</b>\n\n"
+            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
+            f"{ce(CustomEmojis.WALLET, '💰')} <b>Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>",
             reply_markup=get_admin_variant_edit_keyboard(variant.id, variant.product_id)
         )
     else:
-        await message.answer("⚠️ Failed to update plan.")
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Failed to update plan.")
 
 @router.callback_query(F.data.startswith("adm_var_view_"))
 async def cb_admin_var_view(callback: types.CallbackQuery, session: AsyncSession):
@@ -1252,7 +1252,7 @@ async def cb_admin_var_del(callback: types.CallbackQuery, session: AsyncSession)
     await delete_variant(session, var_id)
 
     variants = await get_variants_by_product(session, prod_id)
-    await callback.message.edit_text("✅ Plan deleted.", reply_markup=get_admin_variants_keyboard(variants, prod_id))
+    await callback.message.edit_text(f"{ce(CustomEmojis.CHECK, '✅')} Plan deleted.", reply_markup=get_admin_variants_keyboard(variants, prod_id))
 
 @router.callback_query(F.data.startswith("adm_var_add_"))
 async def cb_admin_var_add(callback: types.CallbackQuery, state: FSMContext):
@@ -1264,7 +1264,7 @@ async def cb_admin_var_add(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(AdminVariantStates.waiting_for_name)
 
     await callback.message.edit_text(
-        "✍️ <b>Add New Plan / Duration</b>\n\n"
+        f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>Add New Plan / Duration</b>\n\n"
         "Send the <b>Plan Name</b> (e.g. <code>1 Month Private Profile</code> or <code>1 Year Team Invite</code>):",
         reply_markup=get_admin_cancel_keyboard(f"adm_selprod_viewvars_{prod_id}")
     )
@@ -1281,7 +1281,7 @@ async def msg_admin_var_price(message: types.Message, state: FSMContext):
     try:
         price = float(message.text.strip().replace("₹", "").replace("$", ""))
     except ValueError:
-        await message.answer("⚠️ Invalid price format. Please enter a number (e.g. <code>129.0</code>):")
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Invalid price format. Please enter a number (e.g. <code>129.0</code>):")
         return
 
     await state.update_data(price=price)
@@ -1294,7 +1294,7 @@ async def msg_admin_var_type(message: types.Message, state: FSMContext):
     await state.update_data(variant_type=variant_type)
     await state.set_state(AdminVariantStates.waiting_for_detailed_desc)
     await message.answer(
-        "📝 <b>Detailed Description Card</b> (Shown to customer before buying):\n\n"
+        f"{ce(CustomEmojis.SPARKLE, '📝')} <b>Detailed Description Card</b> (Shown to customer before buying):\n\n"
         "Send the detailed specifications, features, warranty, and rules:\n\n"
         "<i>(Supports Telegram Premium emojis and HTML tags — or send <code>skip</code> to use the default format.)</i>"
     )
@@ -1329,10 +1329,10 @@ async def msg_admin_var_desc(message: types.Message, state: FSMContext, session:
     ])
 
     await message.answer(
-        f"✅ <b>Plan Created Successfully!</b>\n\n"
-        f"✨ <b>Plan:</b> <b>{variant.name}</b>\n"
-        f"💰 <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
-        f"🏷️ <b>Type:</b> {variant.variant_type}\n\n"
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>Plan Created Successfully!</b>\n\n"
+        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
+        f"{ce(CustomEmojis.DIAMOND, '🏷️')} <b>Type:</b> {variant.variant_type}\n\n"
         f"What would you like to do next?",
         reply_markup=kb
     )
@@ -1346,7 +1346,7 @@ async def cb_admin_broadcast(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(AdminBroadcastStates.waiting_for_content)
     text = (
-        f"📢 <b>BROADCAST ANNOUNCEMENT TO ALL USERS</b>\n"
+        f"{ce(CustomEmojis.FIRE, '📢')} <b>BROADCAST ANNOUNCEMENT TO ALL USERS</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"Send the exact message (text, photos, announcements) you want to broadcast to all registered bot users:\n\n"
         f"<i>(Supports HTML formatting and Telegram emojis)</i>"
@@ -1361,7 +1361,7 @@ async def msg_admin_broadcast_content(message: types.Message, state: FSMContext,
     sent_count = 0
     fail_count = 0
 
-    progress_msg = await message.answer(f"🚀 Broadcasting announcement to {len(user_ids)} users...")
+    progress_msg = await message.answer(f"{ce(CustomEmojis.FIRE, '🚀')} Broadcasting announcement to {len(user_ids)} users...")
 
     for uid in user_ids:
         try:
@@ -1371,9 +1371,9 @@ async def msg_admin_broadcast_content(message: types.Message, state: FSMContext,
             fail_count += 1
 
     await progress_msg.edit_text(
-        f"📢 <b>BROADCAST FINISHED!</b>\n\n"
-        f"✅ Successfully Delivered: {sent_count}\n"
-        f"❌ Failed / Blocked: {fail_count}",
+        f"{ce(CustomEmojis.FIRE, '📢')} <b>BROADCAST FINISHED!</b>\n\n"
+        f"{ce(CustomEmojis.CHECK, '✅')} Successfully Delivered: {sent_count}\n"
+        f"{ce(CustomEmojis.LOCK, '❌')} Failed / Blocked: {fail_count}",
         reply_markup=get_admin_cancel_keyboard("admin_home")
     )
 
@@ -1386,7 +1386,7 @@ async def cb_admin_users(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(AdminUserManagementStates.waiting_for_user_query)
     text = (
-        f"👤 <b>USER WALLET ADJUSTMENT</b>\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>USER WALLET ADJUSTMENT</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"Send the user's <b>Telegram Numeric ID</b> (e.g. <code>6971497666</code>):"
     )
@@ -1396,22 +1396,22 @@ async def cb_admin_users(callback: types.CallbackQuery, state: FSMContext):
 async def msg_admin_user_query(message: types.Message, state: FSMContext, session: AsyncSession):
     query = message.text.strip()
     if not query.isdigit():
-        await message.answer("⚠️ Please provide a valid numeric Telegram ID.")
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Please provide a valid numeric Telegram ID.")
         return
 
     target_id = int(query)
     user = await get_user(session, target_id)
     if not user:
-        await message.answer("⚠️ User not found in database. User must send /start to register.")
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} User not found in database. User must send /start to register.")
         return
 
     await state.update_data(target_id=target_id)
     await state.set_state(AdminUserManagementStates.waiting_for_amount_adjust)
 
     text = (
-        f"👤 <b>USER FOUND:</b> {user.full_name}\n"
-        f"🆔 Telegram ID: <code>{user.telegram_id}</code>\n"
-        f"💰 Current Balance: <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>USER FOUND:</b> {user.full_name}\n"
+        f"{ce(CustomEmojis.KEY, '🆔')} Telegram ID: <code>{user.telegram_id}</code>\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} Current Balance: <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n\n"
         f"Send the balance change amount (use <code>+100</code> to add, <code>-50</code> to deduct):"
     )
     await message.answer(text, reply_markup=get_admin_cancel_keyboard("admin_home"))
@@ -1422,7 +1422,7 @@ async def msg_admin_user_adjust(message: types.Message, state: FSMContext, sessi
     try:
         amount_delta = float(val_str)
     except ValueError:
-        await message.answer("⚠️ Invalid amount. Send a number like <code>+100</code> or <code>-50</code>.")
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Invalid amount. Send a number like <code>+100</code> or <code>-50</code>.")
         return
 
     data = await state.get_data()
@@ -1432,7 +1432,7 @@ async def msg_admin_user_adjust(message: types.Message, state: FSMContext, sessi
     user = await update_user_balance(session, target_id, amount_delta)
 
     await message.answer(
-        f"✅ <b>Balance Updated!</b>\n\n"
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>Balance Updated!</b>\n\n"
         f"User: {user.full_name}\n"
         f"New Balance: <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>",
         reply_markup=get_admin_cancel_keyboard("admin_home")
@@ -1442,7 +1442,7 @@ async def msg_admin_user_adjust(message: types.Message, state: FSMContext, sessi
         sign = "+" if amount_delta > 0 else ""
         await bot.send_message(
             target_id,
-            f"🔔 <b>WALLET BALANCE ADJUSTED BY ADMIN</b>\n"
+            f"{ce(CustomEmojis.FIRE, '🔔')} <b>WALLET BALANCE ADJUSTED BY ADMIN</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"Change: <b>{sign}{config.CURRENCY_SYMBOL}{amount_delta:.2f}</b>\n"
             f"Current Balance: <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>"
@@ -1459,7 +1459,7 @@ async def cb_admin_reset_confirm(callback: types.CallbackQuery):
     await callback.answer()
 
     text = (
-        f"⚠️ <b>WIPE ALL DEMO / SAMPLE DATA?</b>\n"
+        f"{ce(CustomEmojis.LOCK, '⚠️')} <b>WIPE ALL DEMO / SAMPLE DATA?</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"This will delete all sample categories, products, and fake stocks from the database so you can start with a <b>100% clean, fresh store</b>.\n\n"
         f"<i>Are you sure you want to proceed?</i>"
@@ -1480,7 +1480,7 @@ async def cb_admin_reset_execute(callback: types.CallbackQuery, session: AsyncSe
     await clear_all_catalog_data(session)
 
     text = (
-        f"✅ <b>DATABASE CATALOG WIPED CLEAN!</b>\n"
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>DATABASE CATALOG WIPED CLEAN!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"All demo products and fake stocks have been removed.\n\n"
         f"Now you can go to <b>Manage Categories</b> and <b>Manage Products</b> to create your own real products and real stock!"
@@ -1498,10 +1498,10 @@ async def cb_admin_settings(callback: types.CallbackQuery):
         f"{ce(CustomEmojis.CARD, '⚙️')} <b>PAYMENT & STORE CONFIGURATION</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"<blockquote>"
-        f"📱 <b>Current UPI ID:</b> <code>{config.UPI_ID}</code>\n"
-        f"👤 <b>Current Payee Name:</b> <code>{config.UPI_NAME}</code>\n"
-        f"🛟 <b>Support Username:</b> <code>{config.SUPPORT_USERNAME}</code>\n"
-        f"🪙 <b>Currency:</b> <code>{config.CURRENCY_SYMBOL}</code>"
+        f"{ce(CustomEmojis.CARD, '📱')} <b>Current UPI ID:</b> <code>{config.UPI_ID}</code>\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Current Payee Name:</b> <code>{config.UPI_NAME}</code>\n"
+        f"{ce(CustomEmojis.SUPPORT, '🛟')} <b>Support Username:</b> <code>{config.SUPPORT_USERNAME}</code>\n"
+        f"{ce(CustomEmojis.WALLET, '🪙')} <b>Currency:</b> <code>{config.CURRENCY_SYMBOL}</code>"
         f"</blockquote>\n\n"
         f"<i>Tap below to update your payment details directly in real-time:</i>"
     )
@@ -1514,7 +1514,7 @@ async def cb_admin_set_upi_id(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(AdminSettingsStates.waiting_for_upi_id)
     await callback.message.edit_text(
-        "📱 <b>Change UPI ID</b>\n\n"
+        f"{ce(CustomEmojis.CARD, '📱')} <b>Change UPI ID</b>\n\n"
         f"Current UPI ID: <code>{config.UPI_ID}</code>\n\n"
         "Send your new UPI ID (e.g. <code>9876543210@paytm</code> or <code>samstore@oksbi</code>):",
         reply_markup=get_admin_cancel_keyboard("adm_settings")
@@ -1524,14 +1524,14 @@ async def cb_admin_set_upi_id(callback: types.CallbackQuery, state: FSMContext):
 async def msg_admin_set_upi_id(message: types.Message, state: FSMContext):
     new_upi = message.text.strip()
     if "@" not in new_upi:
-        await message.answer("⚠️ Please provide a valid UPI ID with '@' (e.g. <code>samstore@oksbi</code>):")
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Please provide a valid UPI ID with '@' (e.g. <code>samstore@oksbi</code>):")
         return
 
     config.UPI_ID = new_upi
     await state.clear()
     await message.answer(
-        f"✅ <b>UPI ID Updated Successfully!</b>\n\n"
-        f"📱 New UPI ID: <code>{config.UPI_ID}</code>\n\n"
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>UPI ID Updated Successfully!</b>\n\n"
+        f"{ce(CustomEmojis.CARD, '📱')} New UPI ID: <code>{config.UPI_ID}</code>\n\n"
         f"<i>All newly generated QR codes will now receive payments to this UPI ID!</i>",
         reply_markup=get_admin_settings_keyboard()
     )
@@ -1543,7 +1543,7 @@ async def cb_admin_set_upi_name(callback: types.CallbackQuery, state: FSMContext
     await callback.answer()
     await state.set_state(AdminSettingsStates.waiting_for_upi_name)
     await callback.message.edit_text(
-        "👤 <b>Change Payee Name</b>\n\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Change Payee Name</b>\n\n"
         f"Current Name: <code>{config.UPI_NAME}</code>\n\n"
         "Send the new Payee Name to display on UPI apps:",
         reply_markup=get_admin_cancel_keyboard("adm_settings")
@@ -1555,8 +1555,8 @@ async def msg_admin_set_upi_name(message: types.Message, state: FSMContext):
     config.UPI_NAME = new_name
     await state.clear()
     await message.answer(
-        f"✅ <b>Payee Name Updated!</b>\n\n"
-        f"👤 New Name: <code>{config.UPI_NAME}</code>",
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>Payee Name Updated!</b>\n\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} New Name: <code>{config.UPI_NAME}</code>",
         reply_markup=get_admin_settings_keyboard()
     )
 
@@ -1567,7 +1567,7 @@ async def cb_admin_set_support(callback: types.CallbackQuery, state: FSMContext)
     await callback.answer()
     await state.set_state(AdminSettingsStates.waiting_for_support_user)
     await callback.message.edit_text(
-        "🛟 <b>Change Support Username</b>\n\n"
+        f"{ce(CustomEmojis.SUPPORT, '🛟')} <b>Change Support Username</b>\n\n"
         f"Current Support: <code>{config.SUPPORT_USERNAME}</code>\n\n"
         "Send the Telegram username for customer support (e.g. <code>@SamStoreSupport</code>):",
         reply_markup=get_admin_cancel_keyboard("adm_settings")
@@ -1581,8 +1581,8 @@ async def msg_admin_set_support(message: types.Message, state: FSMContext):
     config.SUPPORT_USERNAME = new_support
     await state.clear()
     await message.answer(
-        f"✅ <b>Support Handle Updated!</b>\n\n"
-        f"🛟 New Support: <code>{config.SUPPORT_USERNAME}</code>",
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>Support Handle Updated!</b>\n\n"
+        f"{ce(CustomEmojis.SUPPORT, '🛟')} New Support: <code>{config.SUPPORT_USERNAME}</code>",
         reply_markup=get_admin_settings_keyboard()
     )
 
@@ -1598,7 +1598,7 @@ async def cb_admin_gateways(callback: types.CallbackQuery):
     is_cf = payment_manager.cashfree.is_configured
 
     active_gw = payment_manager.default_gateway
-    gw_title = "⚡ AUTOMATED (Razorpay)" if active_gw == "RAZORPAY" else ("⚡ AUTOMATED (Cashfree)" if active_gw == "CASHFREE" else "📱 MANUAL UPI QR (0% Fees)")
+    gw_title = f"{ce(CustomEmojis.FIRE, '⚡')} AUTOMATED (Razorpay)" if active_gw == "RAZORPAY" else (f"{ce(CustomEmojis.FIRE, '⚡')} AUTOMATED (Cashfree)" if active_gw == "CASHFREE" else f"{ce(CustomEmojis.CARD, '📱')} MANUAL UPI QR (0% Fees)")
 
     text = (
         f"{ce(CustomEmojis.FIRE, '⚡')} <b>AUTOMATED PAYMENT GATEWAY HUB</b>\n"
@@ -1625,7 +1625,7 @@ async def cb_admin_set_rzp(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(AdminSettingsStates.waiting_for_razorpay_key_id)
     await callback.message.edit_text(
-        f"🔑 <b>CONFIGURE RAZORPAY GATEWAY</b>\n"
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>CONFIGURE RAZORPAY GATEWAY</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"Step 1 of 2:\n"
         f"Please send your <b>Razorpay Key ID</b> (e.g. <code>rzp_live_xxxxxxxxxx</code>):\n\n"
@@ -1639,7 +1639,7 @@ async def msg_admin_rzp_key_id(message: types.Message, state: FSMContext):
     await state.update_data(rzp_key_id=key_id)
     await state.set_state(AdminSettingsStates.waiting_for_razorpay_key_secret)
     await message.answer(
-        f"🔑 <b>Razorpay Key ID Saved:</b> <code>{key_id}</code>\n\n"
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>Razorpay Key ID Saved:</b> <code>{key_id}</code>\n\n"
         f"Step 2 of 2:\n"
         f"Now send your <b>Razorpay Key Secret</b>:"
     )
@@ -1661,10 +1661,10 @@ async def msg_admin_rzp_key_secret(message: types.Message, state: FSMContext):
     payment_manager.razorpay.is_configured = True
 
     await message.answer(
-        f"✅ <b>RAZORPAY GATEWAY CONFIGURED & ACTIVATED!</b>\n"
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>RAZORPAY GATEWAY CONFIGURED & ACTIVATED!</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"⚡ <b>Mode:</b> 100% Automated Instant Auto-Delivery\n"
-        f"🔑 <b>Key ID:</b> <code>{key_id}</code>\n\n"
+        f"{ce(CustomEmojis.FIRE, '⚡')} <b>Mode:</b> 100% Automated Instant Auto-Delivery\n"
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>Key ID:</b> <code>{key_id}</code>\n\n"
         f"<i>Customers paying in the bot will now receive dynamic instant checkout links with automated delivery!</i>",
         reply_markup=get_admin_gateway_settings_keyboard(True, payment_manager.cashfree.is_configured)
     )
@@ -1676,7 +1676,7 @@ async def cb_admin_set_cf(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(AdminSettingsStates.waiting_for_cashfree_app_id)
     await callback.message.edit_text(
-        f"🔑 <b>CONFIGURE CASHFREE GATEWAY</b>\n"
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>CONFIGURE CASHFREE GATEWAY</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"Step 1 of 2:\n"
         f"Please send your <b>Cashfree App ID / Client ID</b>:",
@@ -1689,7 +1689,7 @@ async def msg_admin_cf_app_id(message: types.Message, state: FSMContext):
     await state.update_data(cf_app_id=app_id)
     await state.set_state(AdminSettingsStates.waiting_for_cashfree_secret_key)
     await message.answer(
-        f"🔑 <b>Cashfree App ID Saved:</b> <code>{app_id}</code>\n\n"
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>Cashfree App ID Saved:</b> <code>{app_id}</code>\n\n"
         f"Step 2 of 2:\n"
         f"Now send your <b>Cashfree Secret Key</b>:"
     )
@@ -1712,10 +1712,10 @@ async def msg_admin_cf_secret_key(message: types.Message, state: FSMContext):
     payment_manager.cashfree.secret_key = secret_key
 
     await message.answer(
-        f"✅ <b>CASHFREE GATEWAY CONFIGURED & ACTIVATED!</b>\n"
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>CASHFREE GATEWAY CONFIGURED & ACTIVATED!</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"⚡ <b>Mode:</b> 100% Automated Instant Auto-Delivery\n"
-        f"🔑 <b>App ID:</b> <code>{app_id}</code>\n\n"
+        f"{ce(CustomEmojis.FIRE, '⚡')} <b>Mode:</b> 100% Automated Instant Auto-Delivery\n"
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>App ID:</b> <code>{app_id}</code>\n\n"
         f"<i>Customers will now be routed through Cashfree with automated verification!</i>",
         reply_markup=get_admin_gateway_settings_keyboard(payment_manager.razorpay.is_configured, True)
     )
@@ -1736,9 +1736,9 @@ async def cb_admin_set_manual_upi(callback: types.CallbackQuery):
     os.environ.pop("CASHFREE_SECRET_KEY", None)
 
     await callback.message.edit_text(
-        f"✅ <b>RESET TO DIRECT UPI QR MODE (0% GATEWAY FEES)</b>\n"
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>RESET TO DIRECT UPI QR MODE (0% GATEWAY FEES)</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"📱 Payments will now be made directly to your UPI ID (<code>{config.UPI_ID}</code>).\n"
-        f"🛡️ Admin gets instant approve/reject notifications with 1-tap delivery!",
+        f"{ce(CustomEmojis.CARD, '📱')} Payments will now be made directly to your UPI ID (<code>{config.UPI_ID}</code>).\n"
+        f"{ce(CustomEmojis.WARRANTY, '🛡️')} Admin gets instant approve/reject notifications with 1-tap delivery!",
         reply_markup=get_admin_gateway_settings_keyboard(False, False)
     )

@@ -44,8 +44,16 @@ async def run_tests():
             print(f"     • {c.emoji} {c.name} (ID: {c.id})")
         
         # Test Streaming category products
-        streaming_cat = cats[0]
+        streaming_cat = next((c for c in cats if "OTT" in c.name), cats[0])
         prods = await get_products_by_category(session, streaming_cat.id)
+        if not prods:
+            # Fallback to any category with products
+            for c in cats:
+                p_list = await get_products_by_category(session, c.id)
+                if any("Netflix" in p.title for p in p_list):
+                    streaming_cat = c
+                    prods = p_list
+                    break
         print(f"  -> Found {len(prods)} products under '{streaming_cat.name}':")
         for p in prods:
             print(f"     • {p.emoji} {p.title}")

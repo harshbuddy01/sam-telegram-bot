@@ -6,7 +6,7 @@ from aiogram import Router, F, types, Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.crud import get_order
-from utils.emojis import CustomEmojis
+from utils.emojis import CustomEmojis, ce
 import config
 
 router = Router()
@@ -19,11 +19,11 @@ async def cb_confirm_got(callback: types.CallbackQuery):
     order_id = int(callback.data.split("_")[2])
 
     confirmed_text = (
-        f"✅ <b>ORDER #{order_id} — DELIVERY CONFIRMED</b>\n"
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>ORDER #{order_id} — DELIVERY CONFIRMED</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"🎉 <b>Glad you received your product!</b>\n"
+        f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>Glad you received your product!</b>\n"
         f"Enjoy your subscription and thank you for shopping with <b>{config.STORE_NAME}</b>!\n\n"
-        f"💡 <i>Your credentials are saved permanently in Order History.</i>"
+        f"{ce(CustomEmojis.SPARKLE, '💡')} <i>Your credentials are saved permanently in Order History.</i>"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📦 View in Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)],
@@ -44,7 +44,7 @@ async def cb_need_help(callback: types.CallbackQuery):
     order_id = int(callback.data.split("_")[2])
 
     help_text = (
-        f"❓ <b>SUPPORT CENTER — ORDER #{order_id}</b>\n"
+        f"{ce(CustomEmojis.SUPPORT, '❓')} <b>SUPPORT CENTER — ORDER #{order_id}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"What issue are you facing? Select an option below:\n"
     )
@@ -88,11 +88,11 @@ async def cb_help_replace(callback: types.CallbackQuery):
     await callback.answer()
     order_id = int(callback.data.split("_")[2])
     text = (
-        f"🔄 <b>REPLACEMENT REQUEST — ORDER #{order_id}</b>\n"
+        f"{ce(CustomEmojis.WARRANTY, '🔄')} <b>REPLACEMENT REQUEST — ORDER #{order_id}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"To request a replacement, please contact our support team:\n\n"
-        f"👤 <b>Support:</b> {config.SUPPORT_USERNAME}\n\n"
-        f"📋 <b>Include this info in your message:</b>\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Support:</b> {config.SUPPORT_USERNAME}\n\n"
+        f"{ce(CustomEmojis.ORDERS, '📋')} <b>Include this info in your message:</b>\n"
         f"• Order ID: <code>#{order_id}</code>\n"
         f"• Issue: Account not working / expired\n"
         f"• Screenshot of the error (if any)\n\n"
@@ -116,11 +116,11 @@ async def cb_help_payment(callback: types.CallbackQuery):
     await callback.answer()
     order_id = int(callback.data.split("_")[2])
     text = (
-        f"💳 <b>PAYMENT ISSUE — ORDER #{order_id}</b>\n"
+        f"{ce(CustomEmojis.WALLET, '💳')} <b>PAYMENT ISSUE — ORDER #{order_id}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"For payment or billing issues, please contact support:\n\n"
-        f"👤 <b>Support:</b> {config.SUPPORT_USERNAME}\n\n"
-        f"📋 <b>Include this info:</b>\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Support:</b> {config.SUPPORT_USERNAME}\n\n"
+        f"{ce(CustomEmojis.ORDERS, '📋')} <b>Include this info:</b>\n"
         f"• Order ID: <code>#{order_id}</code>\n"
         f"• Payment screenshot / UTR number\n"
         f"• Description of the issue\n\n"
@@ -144,7 +144,7 @@ async def cb_help_access(callback: types.CallbackQuery):
     await callback.answer()
     order_id = int(callback.data.split("_")[2])
     text = (
-        f"🔑 <b>LOGIN / ACCESS ISSUE — ORDER #{order_id}</b>\n"
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>LOGIN / ACCESS ISSUE — ORDER #{order_id}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"<b>Quick troubleshooting steps:</b>\n\n"
         f"1️⃣ Copy credentials from Order History (tap the code box)\n"

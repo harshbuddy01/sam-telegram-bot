@@ -34,10 +34,10 @@ async def cb_nav_search(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(SearchStates.waiting_for_query)
     text = (
-        f"🔍 <b>PRODUCT SEARCH</b>\n"
+        f"{ce(CustomEmojis.SEARCH, '🔍')} <b>PRODUCT SEARCH</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"Please enter the product name or keyword to search (e.g. <code>Netflix</code>, <code>Prime</code>, <code>YouTube</code>, <code>VPN</code>):\n\n"
-        f"💡 <i>Or tap below to return to the main menu:</i>"
+        f"{ce(CustomEmojis.SPARKLE, '💡')} <i>Or tap below to return to the main menu:</i>"
     )
     await callback.message.edit_text(text, reply_markup=get_back_button("nav_home"))
 
@@ -50,9 +50,9 @@ async def msg_search_query(message: types.Message, state: FSMContext, session: A
 
     if not products:
         text = (
-            f"🔍 <b>SEARCH RESULTS FOR:</b> <code>{query}</code>\n"
+            f"{ce(CustomEmojis.SEARCH, '🔍')} <b>SEARCH RESULTS FOR:</b> <code>{query}</code>\n"
             f"{UI.SECTION_BAR}\n\n"
-            f"❌ No matching products found for '<b>{query}</b>'.\n\n"
+            f"{ce(CustomEmojis.LOCK, '❌')} No matching products found for '<b>{query}</b>'.\n\n"
             f"<i>Try searching with a different keyword or browse our full catalog!</i>"
         )
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -69,7 +69,7 @@ async def msg_search_query(message: types.Message, state: FSMContext, session: A
         stock_counts[prod.id] = await get_product_total_stock_count(session, prod.id)
 
     text = (
-        f"🔍 <b>SEARCH RESULTS ({len(products)} found)</b>\n"
+        f"{ce(CustomEmojis.SEARCH, '🔍')} <b>SEARCH RESULTS ({len(products)} found)</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"Matching subscriptions for '<b>{query}</b>':\n"
     )
@@ -82,7 +82,7 @@ async def cb_nav_shop(callback: types.CallbackQuery, session: AsyncSession):
     
     if not categories:
         await callback.message.edit_text(
-            "🛒 <b>STORE CATALOG</b>\n"
+            f"{ce(CustomEmojis.SHOP, '🛒')} <b>STORE CATALOG</b>\n"
             f"{UI.SECTION_BAR}\n\n"
             "No categories available right now. Please check back shortly!",
             reply_markup=get_categories_keyboard([])
@@ -250,12 +250,12 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
 
     if is_manual:
         stock_badge = "🟢 <b>Available for Activation</b>"
-        fulfillment_badge = f"⏱️ <b>Manual Activation (Dispatched within {dispatch_time})</b>"
-        action_note = "🛡️ <i>Click <b>'ORDER ACTIVATION'</b> to submit your details & buy:</i>"
+        fulfillment_badge = f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Manual Activation (Dispatched within {dispatch_time})</b>"
+        action_note = f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>Click <b>'ORDER ACTIVATION'</b> to submit your details & buy:</i>"
     else:
         stock_badge = f"🟢 <b>In Stock</b> ({stock_count} Available)" if has_stock else "🔴 <b>Out of Stock</b>"
-        fulfillment_badge = "⚡ <b>100% Automated Instant Delivery</b>"
-        action_note = "🛡️ <i>Click <b>'PURCHASE NOW'</b> to buy:</i>"
+        fulfillment_badge = f"{ce(CustomEmojis.FIRE, '⚡')} <b>100% Automated Instant Delivery</b>"
+        action_note = f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>Click <b>'PURCHASE NOW'</b> to buy:</i>"
 
     text = (
         f"{ce(CustomEmojis.DIAMOND, '💎')} <b>PRODUCT SPECIFICATION & PRICING</b>\n"

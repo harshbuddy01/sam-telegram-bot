@@ -14,7 +14,7 @@ def get_welcome_text(first_name: str) -> str:
         f"{ce(CustomEmojis.CROWN, '👑')} <b>{config.STORE_NAME.upper()}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"{ce(CustomEmojis.SPARKLE, '✨')} <i>Verified Digital Subscriptions & Automated Delivery</i>\n\n"
-        f"Hey <b>{first_name}</b> 👋 Welcome to our official store!\n\n"
+        f"Hey <b>{first_name}</b> {ce(CustomEmojis.SPARKLE, '👋')} Welcome to our official store!\n\n"
         f"We provide genuine OTT subscriptions, AI subscriptions, VPNs, and tools at wholesale prices with <b>100% instant delivery</b>.\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"{ce(CustomEmojis.SHOP, '🛍️')} <b>Explore Store</b> ➜ Streaming, AI, VPNs & Utilities\n"
@@ -24,7 +24,7 @@ def get_welcome_text(first_name: str) -> str:
         f"{ce(CustomEmojis.REFER, '🎁')} <b>Invite & Earn</b> ➜ Get {config.REFERRAL_BONUS_PERCENT}% commission per invite\n"
         f"{ce(CustomEmojis.SUPPORT, '🛟')} <b>24/7 Support</b> ➜ Warranty replacements & help\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"👇 <b>Select an option from the menu below:</b>"
+        f"{ce(CustomEmojis.SPARKLE, '👇')} <b>Select an option from the menu below:</b>"
     )
 
 @router.message(CommandStart())
@@ -53,7 +53,7 @@ async def cmd_start(message: types.Message, bot: Bot, session: AsyncSession, com
 
     # Attach persistent bottom reply keyboard
     await message.answer(
-        f"👋 <i>Welcome to {config.STORE_NAME}! Use the quick menu below or tap buttons to explore:</i>",
+        f"{ce(CustomEmojis.SPARKLE, '👋')} <i>Welcome to {config.STORE_NAME}! Use the quick menu below or tap buttons to explore:</i>",
         reply_markup=get_persistent_menu_keyboard(is_admin=is_user_admin)
     )
 
@@ -111,7 +111,7 @@ async def cb_nav_support(callback: types.CallbackQuery):
 async def cb_nav_guide(callback: types.CallbackQuery):
     await callback.answer()
     text = (
-        f"📖 <b>HOW TO BUY ON {config.STORE_NAME.upper()}</b>\n"
+        f"{ce(CustomEmojis.DIAMOND, '📖')} <b>HOW TO BUY ON {config.STORE_NAME.upper()}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"<b>Step 1: Top-Up Wallet</b>\n"
         f"Tap <b>'Deposit Wallet'</b> on the main menu, choose an amount, and pay via any UPI app (GPay / PhonePe / Paytm).\n\n"
@@ -120,7 +120,7 @@ async def cb_nav_guide(callback: types.CallbackQuery):
         f"<b>Step 3: Instant Delivery</b>\n"
         f"Click <b>'Purchase Now'</b>. Your login email, password, and screen PIN will be delivered to your Telegram chat instantly!\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🛡️ <i>All orders are permanently saved in 'Order History' with replacement warranty!</i>"
+        f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>All orders are permanently saved in 'Order History' with replacement warranty!</i>"
     )
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -148,7 +148,7 @@ async def msg_btn_shop(message: types.Message, session: AsyncSession):
         f"{UI.SECTION_BAR}\n\n"
         f"<b>Available Categories:</b>\n"
         f"{cat_block}\n\n"
-        f"👇 <i>Choose a category below to explore:</i>"
+        f"{ce(CustomEmojis.SPARKLE, '👇')} <i>Choose a category below to explore:</i>"
     )
     await message.answer(text, reply_markup=get_categories_keyboard(categories))
 
@@ -161,7 +161,7 @@ async def msg_btn_deposit(message: types.Message, state: FSMContext, session: As
     text = (
         f"{ce(CustomEmojis.WALLET, '💳')} <b>WALLET TOP-UP & INSTANT DEPOSIT</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"💰 <b>Current Balance:</b> <code>{config.CURRENCY_SYMBOL}{balance:.2f}</code>\n\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Current Balance:</b> <code>{config.CURRENCY_SYMBOL}{balance:.2f}</code>\n\n"
         f"Choose an instant top-up preset below (Automated UPI QR):"
     )
     await message.answer(text, reply_markup=get_deposit_preset_keyboard())
@@ -179,8 +179,8 @@ async def msg_btn_profile(message: types.Message, session: AsyncSession):
     text = (
         f"{ce(CustomEmojis.CROWN, '👑')} <b>CUSTOMER ACCOUNT DASHBOARD</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"👤 <b>Customer:</b> <b>{message.from_user.full_name}</b>\n"
-        f"🆔 <b>Telegram ID:</b> <code>{message.from_user.id}</code>\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> <b>{message.from_user.full_name}</b>\n"
+        f"{ce(CustomEmojis.KEY, '🆔')} <b>Telegram ID:</b> <code>{message.from_user.id}</code>\n"
         f"{ce(CustomEmojis.WALLET, '💳')} <b>Wallet Balance:</b> <code>{config.CURRENCY_SYMBOL}{user.balance:.2f}</code>\n"
         f"{ce(CustomEmojis.ORDERS, '📦')} <b>Completed Orders:</b> <code>{len(orders)}</code>\n"
         f"{ce(CustomEmojis.REFER, '🎁')} <b>Invited Referrals:</b> <code>{referrals_count}</code>\n"
@@ -213,7 +213,7 @@ async def msg_btn_refer(message: types.Message, session: AsyncSession):
         f"{ce(CustomEmojis.REFER, '🎁')} <b>INVITE FRIENDS & EARN REWARDS</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"Earn <b>{config.REFERRAL_BONUS_PERCENT}% wallet credit</b> on every purchase made by your invited friends!\n\n"
-        f"🔗 <b>Your Exclusive Referral Link:</b>\n"
+        f"{ce(CustomEmojis.REFER, '🔗')} <b>Your Exclusive Referral Link:</b>\n"
         f"<code>{ref_link}</code>"
     )
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -273,14 +273,14 @@ async def cmd_getemoji(message: types.Message):
 
     if not emoji_ids:
         await message.answer(
-            "ℹ️ <b>Custom Emoji Extractor Tool</b>\n\n"
+            f"{ce(CustomEmojis.SPARKLE, 'ℹ️')} <b>Custom Emoji Extractor Tool</b>\n\n"
             "<b>How to use:</b>\n"
             "1. Send your Telegram Premium animated emojis in chat, then <b>reply to it</b> with <code>/getemoji</code>.\n"
             "2. Or type <code>/getemoji</code> followed by a space and all your premium emojis."
         )
         return
 
-    result = "✨ <b>Detected Telegram Premium Custom Emoji ID(s):</b>\n\n"
+    result = f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Detected Telegram Premium Custom Emoji ID(s):</b>\n\n"
     for eid in emoji_ids:
         result += (
             f"• <b>Emoji ID:</b> <code>{eid}</code>\n"

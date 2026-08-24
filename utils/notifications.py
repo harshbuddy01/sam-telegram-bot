@@ -7,6 +7,7 @@ from datetime import datetime
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import config
+from utils.emojis import CustomEmojis, ce
 
 logger = logging.getLogger(__name__)
 
@@ -54,14 +55,14 @@ async def send_order_notification(
     stock_text = f"Only {stock_left} remaining!" if stock_left <= 10 else f"{stock_left} in stock"
 
     text = (
-        f"📦 <b>New Order Received!</b> 📦\n\n"
-        f"👤 <b>Buyer:</b> <code>{masked_name}</code>\n"
-        f"🎁 <b>Product:</b> {product_title}\n"
-        f"💎 <b>Variant:</b> {variant_name}\n"
-        f"💰 <b>Paid Amount:</b> {config.CURRENCY_SYMBOL}{amount:.2f}\n"
-        f"🔥 <b>Stock Left:</b> {stock_text}\n"
-        f"📅 <b>Time:</b> {time_str}\n\n"
-        f"✅ <b>Thank you for choosing us!</b>"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>New Order Received!</b> {ce(CustomEmojis.SHOP, '📦')}\n\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Buyer:</b> <code>{masked_name}</code>\n"
+        f"{ce(CustomEmojis.GIFT, '🎁')} <b>Product:</b> {product_title}\n"
+        f"{ce(CustomEmojis.DIAMOND, '💎')} <b>Variant:</b> {variant_name}\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid Amount:</b> {config.CURRENCY_SYMBOL}{amount:.2f}\n"
+        f"{ce(CustomEmojis.FIRE, '🔥')} <b>Stock Left:</b> {stock_text}\n"
+        f"{ce(CustomEmojis.STAR, '📅')} <b>Time:</b> {time_str}\n\n"
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>Thank you for choosing us!</b>"
     )
 
     # Deep-link button to the bot
@@ -93,12 +94,12 @@ async def send_restock_alert(
         return
 
     text = (
-        f"🎉 <b>RESTOCK ALERT: {product_title.upper()}</b> 🎉\n"
+        f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>RESTOCK ALERT: {product_title.upper()}</b> {ce(CustomEmojis.SPARKLE, '🎉')}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"🔥 We have just added <b>{added_count} new stock</b> for {product_title}!\n"
-        f"📊 <b>Current Total Stock:</b> <code>{total_stock} unit(s)</code>\n"
+        f"{ce(CustomEmojis.FIRE, '🔥')} We have just added <b>{added_count} new stock</b> for {product_title}!\n"
+        f"{ce(CustomEmojis.TROPHY, '📊')} <b>Current Total Stock:</b> <code>{total_stock} unit(s)</code>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"👇 Click the button below to buy or view details instantly:"
+        f"{ce(CustomEmojis.SPARKLE, '👇')} Click the button below to buy or view details instantly:"
     )
 
     kb = None

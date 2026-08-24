@@ -64,13 +64,13 @@ async def msg_custom_deposit_amount(message: types.Message, state: FSMContext, s
     try:
         amount = float(clean_text)
         if amount < 10:
-            await message.answer("⚠️ Minimum deposit amount is ₹10. Please enter a valid amount:")
+            await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Minimum deposit amount is ₹10. Please enter a valid amount:")
             return
         if amount > 50000:
-            await message.answer("⚠️ Maximum single deposit amount is ₹50,000. Please enter a valid amount:")
+            await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Maximum single deposit amount is ₹50,000. Please enter a valid amount:")
             return
     except ValueError:
-        await message.answer("⚠️ Invalid number. Please reply with digits only (e.g. <code>150</code>):")
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Invalid number. Please reply with digits only (e.g. <code>150</code>):")
         return
 
     await state.clear()
@@ -163,7 +163,7 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
         return
 
     if deposit.status in ("APPROVED", "SUCCESS"):
-        await callback.message.answer("✅ This deposit is already verified and credited to your wallet balance!")
+        await callback.message.answer(f"{ce(CustomEmojis.CHECK, '✅')} This deposit is already verified and credited to your wallet balance!")
         return
 
     # Check status via Gateway
@@ -185,17 +185,17 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
                         delivery_text = (
                             f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER DELIVERED!</b>\n"
                             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                            f"🧾 <b>Order ID:</b> #{order.id}\n"
-                            f"📦 <b>Product:</b> <b>{prod_title}</b>\n"
-                            f"✨ <b>Plan:</b> <b>{target_var.name}</b>\n"
-                            f"💰 <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n\n"
+                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
+                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
+                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n\n"
                             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                             f"{ce(CustomEmojis.KEY, '🔑')} <b>YOUR DELIVERED ACCOUNT / CODE:</b>\n"
                             f"<i>(Tap the box below to copy automatically)</i>\n\n"
                             f"<pre><code>{order.delivered_content}</code></pre>\n"
                             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                             f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Full Warranty:</b> Covered throughout validity!\n"
-                            f"❤️ <i>Thank you for shopping with {config.STORE_NAME}!</i>"
+                            f"{ce(CustomEmojis.HEART, '❤️')} <i>Thank you for shopping with {config.STORE_NAME}!</i>"
                         )
                         kb = get_post_delivery_keyboard(order.id)
                         await callback.message.edit_text(delivery_text, reply_markup=kb)
@@ -219,9 +219,9 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
             text = (
                 f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & CREDITED!</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"🧾 <b>Deposit ID:</b> #{deposit.id}\n"
-                f"💰 <b>Amount Added:</b> <b>+{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b>\n"
-                f"💳 <b>New Wallet Balance:</b> <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n\n"
+                f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Deposit ID:</b> #{deposit.id}\n"
+                f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Added:</b> <b>+{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b>\n"
+                f"{ce(CustomEmojis.CARD, '💳')} <b>New Wallet Balance:</b> <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n\n"
                 f"You can now purchase any subscription instantly from the store!"
             )
             kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -232,7 +232,7 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
             return
 
     await callback.message.answer(
-        "⏳ <b>Payment Not Detected Yet</b>\n\n"
+        f"{ce(CustomEmojis.FIRE, '⏳')} <b>Payment Not Detected Yet</b>\n\n"
         "If you have already paid, please wait a few seconds and tap 'Verify & Credit' again.",
         show_alert=True
     )
@@ -245,7 +245,7 @@ async def cb_submit_proof(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(DepositStates.waiting_for_proof)
 
     text = (
-        f"📸 <b>SUBMIT PAYMENT PROOF FOR DEPOSIT #{deposit_id}</b>\n"
+        f"{ce(CustomEmojis.CARD, '📸')} <b>SUBMIT PAYMENT PROOF FOR DEPOSIT #{deposit_id}</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"Please send the <b>12-digit UPI UTR / Ref Number</b> as text,\n"
         f"OR send a <b>Screenshot photo</b> of the successful payment."
@@ -268,7 +268,7 @@ async def msg_receive_proof(message: types.Message, state: FSMContext, session: 
     elif message.text:
         utr_number = message.text.strip()
     else:
-        await message.answer("⚠️ Please send either text (UTR number) or a screenshot image.")
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Please send either text (UTR number) or a screenshot image.")
         return
 
     deposit = await update_deposit_proof(
@@ -279,31 +279,31 @@ async def msg_receive_proof(message: types.Message, state: FSMContext, session: 
     )
 
     if not deposit:
-        await message.answer("⚠️ Deposit record not found. Please try again.")
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Deposit record not found. Please try again.")
         return
 
     confirm_text = (
-        f"✅ <b>PAYMENT PROOF SUBMITTED SUCCESSFULLY!</b>\n"
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>PAYMENT PROOF SUBMITTED SUCCESSFULLY!</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"<blockquote>"
-        f"🧾 <b>Deposit ID:</b> #{deposit.id}\n"
-        f"💰 <b>Amount:</b> {config.CURRENCY_SYMBOL}{deposit.amount:.2f}\n"
-        f"🔢 <b>Submitted UTR:</b> <code>{utr_number or 'Screenshot Provided'}</code>"
+        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Deposit ID:</b> #{deposit.id}\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount:</b> {config.CURRENCY_SYMBOL}{deposit.amount:.2f}\n"
+        f"{ce(CustomEmojis.KEY, '🔢')} <b>Submitted UTR:</b> <code>{utr_number or 'Screenshot Provided'}</code>"
         f"</blockquote>\n\n"
-        f"⏳ Our admin team is reviewing your transaction. Your wallet will be credited within <b>2-5 minutes</b>.\n\n"
+        f"{ce(CustomEmojis.FIRE, '⏳')} Our admin team is reviewing your transaction. Your wallet will be credited within <b>2-5 minutes</b>.\n\n"
         f"<i>You will receive a notification as soon as it is approved!</i>"
     )
     await message.answer(confirm_text, reply_markup=get_back_button("nav_home"))
 
     # Send Notification to Admins
     admin_alert_text = (
-        f"🔔 <b>NEW DEPOSIT PENDING APPROVAL!</b>\n"
+        f"{ce(CustomEmojis.FIRE, '🔔')} <b>NEW DEPOSIT PENDING APPROVAL!</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"🧾 <b>Deposit ID:</b> #{deposit.id}\n"
-        f"👤 <b>User:</b> {message.from_user.full_name} (@{message.from_user.username or 'NoUser'})\n"
-        f"🆔 <b>Telegram ID:</b> <code>{message.from_user.id}</code>\n"
-        f"💰 <b>Amount:</b> <b>{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b>\n"
-        f"🔢 <b>UTR / Note:</b> <code>{utr_number or 'See Attached Photo'}</code>"
+        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Deposit ID:</b> #{deposit.id}\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>User:</b> {message.from_user.full_name} (@{message.from_user.username or 'NoUser'})\n"
+        f"{ce(CustomEmojis.KEY, '🆔')} <b>Telegram ID:</b> <code>{message.from_user.id}</code>\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount:</b> <b>{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b>\n"
+        f"{ce(CustomEmojis.KEY, '🔢')} <b>UTR / Note:</b> <code>{utr_number or 'See Attached Photo'}</code>"
     )
     from keyboards.admin_keyboards import get_deposit_approval_keyboard
 

@@ -48,9 +48,9 @@ async def cb_view_orders(callback: types.CallbackQuery, session: AsyncSession):
 
     if not orders:
         text = (
-            f"📦 <b>YOUR ORDER HISTORY</b>\n"
+            f"{ce(CustomEmojis.ORDERS, '📦')} <b>YOUR ORDER HISTORY</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"ℹ️ <i>You haven't made any purchases yet.</i>\n\n"
+            f"{ce(CustomEmojis.SPARKLE, 'ℹ️')} <i>You haven't made any purchases yet.</i>\n\n"
             f"Explore our store to buy genuine subscriptions with instant automated delivery!"
         )
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -104,25 +104,25 @@ async def cb_order_detail(callback: types.CallbackQuery, session: AsyncSession):
     elif status == "PENDING_DISPATCH":
         status_line = "⏳ <b>Status:</b> In Progress (Manual Activation within 1–2h)"
         middle_block = (
-            f"📧 <b>Provided Target Details:</b>\n"
+            f"{ce(CustomEmojis.VERIFIED, '📧')} <b>Provided Target Details:</b>\n"
             f"<code>{order.customer_input or 'None'}</code>\n\n"
-            f"⏱️ <i>Our administration is processing your activation. Credentials will be delivered here automatically!</i>\n"
+            f"{ce(CustomEmojis.FIRE, '⏱️')} <i>Our administration is processing your activation. Credentials will be delivered here automatically!</i>\n"
         )
-        footer_line = f"💬 <i>Need expedited delivery? Contact support: {config.SUPPORT_USERNAME}</i>"
+        footer_line = f"{ce(CustomEmojis.SUPPORT, '💬')} <i>Need expedited delivery? Contact support: {config.SUPPORT_USERNAME}</i>"
     else:
         status_line = "❌ <b>Status:</b> Cancelled & Refunded to Wallet"
         middle_block = (
-            f"💰 <i>Amount <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b> has been credited back to your wallet balance.</i>\n"
+            f"{ce(CustomEmojis.WALLET, '💰')} <i>Amount <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b> has been credited back to your wallet balance.</i>\n"
         )
-        footer_line = f"💬 <i>Contact support ({config.SUPPORT_USERNAME}) if you have any questions.</i>"
+        footer_line = f"{ce(CustomEmojis.SUPPORT, '💬')} <i>Contact support ({config.SUPPORT_USERNAME}) if you have any questions.</i>"
 
     text = (
-        f"🧾 <b>ORDER RECEIPT #{order.id}</b>\n"
+        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>ORDER RECEIPT #{order.id}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📦 <b>Product:</b> {prod_icon} {prod_title}\n"
-        f"✨ <b>Plan:</b> <b>{var_name}</b>\n"
-        f"💰 <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
-        f"📅 <b>Ordered On:</b> {date_str}\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} {prod_title}\n"
+        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{var_name}</b>\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
+        f"{ce(CustomEmojis.STAR, '📅')} <b>Ordered On:</b> {date_str}\n"
         f"{status_line}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"{middle_block}"
@@ -151,16 +151,16 @@ async def cb_nav_refer(callback: types.CallbackQuery, session: AsyncSession, bot
         f"{refer_icon} <b>INVITE & EARN PROGRAM</b> {refer_icon}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Share your referral link with friends and earn wallet rewards when they top up or buy!\n\n"
-        f"💰 <b>Per-Order Reward:</b> <b>{config.REFERRAL_BONUS_PERCENT}% Cash Commission</b>\n"
-        f"🎯 <b>Requirement:</b> Unlimited earnings, credited automatically\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Per-Order Reward:</b> <b>{config.REFERRAL_BONUS_PERCENT}% Cash Commission</b>\n"
+        f"{ce(CustomEmojis.TROPHY, '🎯')} <b>Requirement:</b> Unlimited earnings, credited automatically\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📊 <b>YOUR REFERRAL STATS</b>\n"
-        f"👤 <b>Friends Invited:</b> {referrals_count}\n"
-        f"✅ <b>Status:</b> Active & Earning\n"
+        f"{ce(CustomEmojis.TROPHY, '📊')} <b>YOUR REFERRAL STATS</b>\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Friends Invited:</b> {referrals_count}\n"
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>Status:</b> Active & Earning\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔗 <b>YOUR EXCLUSIVE INVITE LINK:</b>\n"
+        f"{ce(CustomEmojis.REFER, '🔗')} <b>YOUR EXCLUSIVE INVITE LINK:</b>\n"
         f"<code>{ref_link}</code>\n\n"
-        f"💡 <i>Tip: Click the link above to copy it instantly.</i>"
+        f"{ce(CustomEmojis.SPARKLE, '💡')} <i>Tip: Click the link above to copy it instantly.</i>"
     )
 
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton

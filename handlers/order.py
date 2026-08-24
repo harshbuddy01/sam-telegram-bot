@@ -72,16 +72,16 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
                 )
 
                 text = (
-                    f"⚡ <b>DIRECT 1-CLICK INSTANT CHECKOUT</b>\n"
+                    f"{ce(CustomEmojis.FIRE, '⚡')} <b>DIRECT 1-CLICK INSTANT CHECKOUT</b>\n"
                     f"{UI.SECTION_BAR}\n\n"
-                    f"📦 <b>Product:</b> {prod_icon} <b>{prod_title}</b>\n"
-                    f"✨ <b>Plan:</b> <b>{variant.name}</b>\n"
-                    f"💰 <b>Total Amount:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
-                    f"⚡ <b>Delivery:</b> Instant Auto-Delivery upon payment\n\n"
+                    f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} <b>{prod_title}</b>\n"
+                    f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
+                    f"{ce(CustomEmojis.WALLET, '💰')} <b>Total Amount:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
+                    f"{ce(CustomEmojis.FIRE, '⚡')} <b>Delivery:</b> Instant Auto-Delivery upon payment\n\n"
                     f"<blockquote>"
-                    f"📱 <b>Supported Apps:</b> Google Pay, PhonePe, Paytm, CRED, BHIM, UPI, Netbanking"
+                    f"{ce(CustomEmojis.CARD, '📱')} <b>Supported Apps:</b> Google Pay, PhonePe, Paytm, CRED, BHIM, UPI, Netbanking"
                     f"</blockquote>\n\n"
-                    f"👇 <i>Click the button below to pay securely — your product will be delivered to chat instantly:</i>"
+                    f"{ce(CustomEmojis.SPARKLE, '👇')} <i>Click the button below to pay securely — your product will be delivered to chat instantly:</i>"
                 )
                 kb = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text=f"PAY {config.CURRENCY_SYMBOL}{amount:.0f} VIA UPI / GPAY / PHONEPE", url=res["payment_url"], icon_custom_emoji_id=CustomEmojis.FIRE)],
@@ -97,17 +97,17 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
         input_file = BufferedInputFile(qr_buffer.read(), filename=f"checkout_qr_{deposit.id}.png")
 
         caption = (
-            f"⚡ <b>DIRECT 1-CLICK INSTANT CHECKOUT</b>\n"
+            f"{ce(CustomEmojis.FIRE, '⚡')} <b>DIRECT 1-CLICK INSTANT CHECKOUT</b>\n"
             f"{UI.SECTION_BAR}\n\n"
-            f"📦 <b>Product:</b> {prod_icon} <b>{prod_title}</b>\n"
-            f"✨ <b>Plan:</b> <b>{variant.name}</b>\n"
-            f"💰 <b>Total Amount:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
-            f"📱 <b>UPI ID:</b> <code>{config.UPI_ID}</code>\n\n"
+            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} <b>{prod_title}</b>\n"
+            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
+            f"{ce(CustomEmojis.WALLET, '💰')} <b>Total Amount:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
+            f"{ce(CustomEmojis.CARD, '📱')} <b>UPI ID:</b> <code>{config.UPI_ID}</code>\n\n"
             f"<blockquote>"
-            f"💻 <b>Desktop / Web:</b> Scan QR code with your phone camera\n"
-            f"📱 <b>Mobile:</b> Pay {config.CURRENCY_SYMBOL}{amount:.0f} via any UPI app"
+            f"{ce(CustomEmojis.SPARKLE, '💻')} <b>Desktop / Web:</b> Scan QR code with your phone camera\n"
+            f"{ce(CustomEmojis.CARD, '📱')} <b>Mobile:</b> Pay {config.CURRENCY_SYMBOL}{amount:.0f} via any UPI app"
             f"</blockquote>\n\n"
-            f"⚡ <i>Your credentials will be delivered to this chat automatically once paid!</i>"
+            f"{ce(CustomEmojis.FIRE, '⚡')} <i>Your credentials will be delivered to this chat automatically once paid!</i>"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Submit UTR / Screenshot", callback_data=f"submitproof_{deposit.id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
@@ -132,14 +132,14 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
 
         prompt_msg = getattr(variant, "input_prompt", None) or "Please send your target Email / Account username for activation:"
         text = (
-            f"✍️ <b>ACTIVATION DETAILS REQUIRED</b>\n"
+            f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>ACTIVATION DETAILS REQUIRED</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"📦 <b>Product:</b> {prod_icon} {prod_title}\n"
-            f"✨ <b>Plan:</b> <b>{variant.name}</b>\n"
-            f"💰 <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
-            f"⏱️ <b>Dispatch Time:</b> within {getattr(variant, 'manual_dispatch_time', '1–2 Hours')}\n\n"
+            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} {prod_title}\n"
+            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
+            f"{ce(CustomEmojis.WALLET, '💰')} <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
+            f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Dispatch Time:</b> within {getattr(variant, 'manual_dispatch_time', '1–2 Hours')}\n\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"👉 <b>{prompt_msg}</b>\n\n"
+            f"{ce(CustomEmojis.SPARKLE, '👉')} <b>{prompt_msg}</b>\n\n"
             f"<i>(Reply to this message with your details to complete your order)</i>"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -153,7 +153,7 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
     
     if error_msg or not order:
         await callback.message.answer(
-            f"⚠️ <b>Purchase Error:</b> {error_msg or 'Unknown error occurred.'}",
+            f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Purchase Error:</b> {error_msg or 'Unknown error occurred.'}",
             show_alert=True
         )
         return
@@ -163,10 +163,10 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
     delivery_text = (
         f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>ORDER #{order.id} COMPLETED & DELIVERED!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📦 <b>Product:</b> {prod_icon} {prod_title}\n"
-        f"✨ <b>Plan:</b> <b>{variant.name}</b>\n"
-        f"💰 <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
-        f"💳 <b>Remaining Balance:</b> {config.CURRENCY_SYMBOL}{user.balance - order.amount:.2f}\n\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} {prod_title}\n"
+        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
+        f"{ce(CustomEmojis.CARD, '💳')} <b>Remaining Balance:</b> {config.CURRENCY_SYMBOL}{user.balance - order.amount:.2f}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"{ce(CustomEmojis.KEY, '🔑')} <b>YOUR DELIVERED ACCOUNT / CODE:</b>\n"
         f"<i>(Tap the box below to copy automatically)</i>\n\n"
@@ -176,7 +176,7 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
         f"✦ Do not edit account master email or passwords.\n"
         f"✦ Saved permanently in <b>Order History</b>.\n"
         f"✦ For replacement support, contact {config.SUPPORT_USERNAME}\n\n"
-        f"❤️ <i>Thank you for shopping with {config.STORE_NAME}!</i>"
+        f"{ce(CustomEmojis.HEART, '❤️')} <i>Thank you for shopping with {config.STORE_NAME}!</i>"
     )
 
     kb = get_post_delivery_keyboard(order.id)
@@ -185,14 +185,14 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
 
     # Admin Alert for Instant Sale
     admin_alert = (
-        f"🔔 <b>NEW AUTO-DELIVERED SALE!</b>\n"
+        f"{ce(CustomEmojis.FIRE, '🔔')} <b>NEW AUTO-DELIVERED SALE!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🧾 <b>Order ID:</b> #{order.id}\n"
-        f"👤 <b>Customer:</b> {callback.from_user.full_name} (@{callback.from_user.username or 'NoUser'})\n"
-        f"🆔 <b>User ID:</b> <code>{callback.from_user.id}</code>\n"
-        f"📦 <b>Item:</b> {prod_title} — {variant.name}\n"
-        f"💰 <b>Paid:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f}\n"
-        f"📊 <b>Remaining Stock:</b> {remaining_stock} available"
+        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {callback.from_user.full_name} (@{callback.from_user.username or 'NoUser'})\n"
+        f"{ce(CustomEmojis.KEY, '🆔')} <b>User ID:</b> <code>{callback.from_user.id}</code>\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {variant.name}\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f}\n"
+        f"{ce(CustomEmojis.TROPHY, '📊')} <b>Remaining Stock:</b> {remaining_stock} available"
     )
     for admin_id in config.ADMIN_IDS:
         try:
@@ -233,7 +233,7 @@ async def msg_order_manual_input(message: types.Message, state: FSMContext, sess
     )
 
     if error_msg or not order:
-        await message.answer(f"⚠️ <b>Order Error:</b> {error_msg or 'Could not place order.'}")
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Order Error:</b> {error_msg or 'Could not place order.'}")
         return
 
     # Customer Confirmation Receipt
@@ -241,13 +241,13 @@ async def msg_order_manual_input(message: types.Message, state: FSMContext, sess
     receipt_text = (
         f"{ce(CustomEmojis.SPARKLE, '⏳')} <b>ORDER #{order.id} RECEIVED — MANUAL ACTIVATION</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📦 <b>Product:</b> {prod_title}\n"
-        f"✨ <b>Plan:</b> <code>{var_name}</code>\n"
-        f"💰 <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
-        f"📧 <b>Target Details:</b> <code>{order.customer_input}</code>\n"
-        f"⏱️ <b>Expected Dispatch:</b> Within {dispatch_time}\n\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_title}\n"
+        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <code>{var_name}</code>\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
+        f"{ce(CustomEmojis.VERIFIED, '📧')} <b>Target Details:</b> <code>{order.customer_input}</code>\n"
+        f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Expected Dispatch:</b> Within {dispatch_time}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"💡 <i>Our administration is processing your activation. You will receive an instant Telegram notification with your login/invite link as soon as it is dispatched!</i>"
+        f"{ce(CustomEmojis.SPARKLE, '💡')} <i>Our administration is processing your activation. You will receive an instant Telegram notification with your login/invite link as soon as it is dispatched!</i>"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📦 View Order Status", callback_data=f"orderdetail_{order.id}")],
@@ -257,14 +257,14 @@ async def msg_order_manual_input(message: types.Message, state: FSMContext, sess
 
     # Admin High-Priority Alert with 1-Click Fulfill & Refund Buttons
     admin_text = (
-        f"🚨 <b>NEW MANUAL ORDER #{order.id} REQUIRING DISPATCH!</b>\n"
+        f"{ce(CustomEmojis.FIRE, '🚨')} <b>NEW MANUAL ORDER #{order.id} REQUIRING DISPATCH!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 <b>Customer:</b> {message.from_user.full_name} (@{message.from_user.username or 'NoUser'})\n"
-        f"🆔 <b>User ID:</b> <code>{message.from_user.id}</code>\n"
-        f"📦 <b>Item:</b> {prod_title} — {var_name}\n"
-        f"💰 <b>Amount:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f}\n"
-        f"📧 <b>Customer Input:</b> <code>{order.customer_input}</code>\n"
-        f"⏱️ <b>Expected Within:</b> {dispatch_time}\n\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {message.from_user.full_name} (@{message.from_user.username or 'NoUser'})\n"
+        f"{ce(CustomEmojis.KEY, '🆔')} <b>User ID:</b> <code>{message.from_user.id}</code>\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {var_name}\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f}\n"
+        f"{ce(CustomEmojis.VERIFIED, '📧')} <b>Customer Input:</b> <code>{order.customer_input}</code>\n"
+        f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Expected Within:</b> {dispatch_time}\n\n"
         f"<i>Click below to fulfill and deliver the credentials or refund:</i>"
     )
     admin_kb = InlineKeyboardMarkup(inline_keyboard=[
