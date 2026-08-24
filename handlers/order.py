@@ -20,59 +20,69 @@ import config
 
 router = Router()
 
+# In-memory lock to debounce multiple rapid clicks from the same user
+_generating_sessions = set()
+
 @router.callback_query(F.data.startswith("buy_"))
 async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
-    await callback.answer()
-    variant_id = int(callback.data.split("_")[1])
-    variant = await get_variant(session, variant_id)
-
-    if not variant:
-        await callback.message.answer("Selected plan was not found.")
+    user_id = callback.from_user.id
+    if user_id in _generating_sessions:
+        await callback.answer("⏳ Generating your payment QR... Please wait a moment!", show_alert=False)
         return
 
-    user = await get_user(session, callback.from_user.id)
-    if not user:
-        await callback.message.answer("User profile not found. Please type /start.")
-        return
+    _generating_sessions.add(user_id)
+    try:
+        await callback.answer("⚡ Generating Secure Razorpay UPI QR... Please wait!", show_alert=False)
+        variant_id = int(callback.data.split("_")[1])
+        variant = await get_variant(session, variant_id)
 
-    product = await get_product(session, variant.product_id)
-    prod_title = product.title if product else "Digital Item"
-    prod_icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if product else "📦"
+        if not variant:
+            await callback.message.answer("Selected plan was not found.")
+            return
 
-    # 1. Check Wallet Balance -> If 0/insufficient, trigger Direct 1-Click Checkout
-    if user.balance < variant.price:
-        import time
-        amount = variant.price
-        customer_name = user.full_name or user.username or f"User {user.telegram_id}"
-        order_ref = f"BUY{user.telegram_id}_{variant.id}_{int(time.time())}"
+        user = await get_user(session, user_id)
+        if not user:
+            await callback.message.answer("User profile not found. Please type /start.")
+            return
 
-        from payments.manager import payment_manager
-        from utils.qr_generator import generate_upi_qr
-        from aiogram.types import BufferedInputFile
+        product = await get_product(session, variant.product_id)
+        prod_title = product.title if product else "Digital Item"
+        prod_icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if product else "📦"
 
-        active_gateway = payment_manager.default_gateway
+        # 1. Check Wallet Balance -> If 0/insufficient, trigger Direct 1-Click Checkout
+        if user.balance < variant.price:
+            import time
+            amount = variant.price
+            customer_name = user.full_name or user.username or f"User {user.telegram_id}"
+            order_ref = f"BUY{user.telegram_id}_{variant.id}_{int(time.time())}"
 
-        # If Razorpay / Cashfree is active
-        if active_gateway in ("RAZORPAY", "CASHFREE"):
-            # First try Razorpay official Dynamic Native UPI QR
-            res = await payment_manager.razorpay.create_qr_code(
-                user_id=user.telegram_id,
-                amount=amount,
-                order_id=order_ref,
-                customer_name=customer_name
-            )
-            if not res.get("success"):
-                # Fallback to payment_links if qr_codes is disabled
-                res = await payment_manager.create_deposit_session(
-                    gateway_name=active_gateway,
+            from payments.manager import payment_manager
+            from utils.qr_generator import generate_upi_qr
+            from aiogram.types import BufferedInputFile
+
+            active_gateway = payment_manager.default_gateway
+
+            # If Razorpay / Cashfree is active
+            if active_gateway in ("RAZORPAY", "CASHFREE"):
+                # First try Razorpay official Dynamic Native UPI QR
+                res = await payment_manager.razorpay.create_qr_code(
                     user_id=user.telegram_id,
                     amount=amount,
                     order_id=order_ref,
                     customer_name=customer_name
                 )
+                if not res.get("success"):
+                    # Fallback to payment_links if qr_codes is disabled
+                    res = await payment_manager.create_deposit_session(
+                        gateway_name=active_gateway,
+                        user_id=user.telegram_id,
+                        amount=amount,
+                        order_id=order_ref,
+                        customer_name=customer_name
+                    )
 
-            if res.get("success"):
-                gateway_order_id = res.get("gateway_order_id") or res.get("order_id")
+                if res.get("success"):
+                    gateway_order_id = res.get("gateway_order_id") or res.get("order_id")
                 deposit = await create_deposit_gateway(
                     session=session,
                     user_id=user.telegram_id,
@@ -149,102 +159,104 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
         await callback.message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
         return
 
-    # 2. Check Fulfillment Mode (MANUAL vs AUTOMATIC)
-    is_manual = (getattr(variant, "fulfillment_type", "AUTOMATIC") == "MANUAL")
+        # 2. Check Fulfillment Mode (MANUAL vs AUTOMATIC)
+        is_manual = (getattr(variant, "fulfillment_type", "AUTOMATIC") == "MANUAL")
 
-    if is_manual:
-        # Prompt customer for email/details
-        await state.set_state(OrderManualStates.waiting_for_input)
-        await state.update_data(
-            variant_id=variant.id,
-            price=variant.price,
-            prod_title=prod_title,
-            var_name=variant.name,
-            dispatch_time=getattr(variant, "manual_dispatch_time", "1–2 Hours") or "1–2 Hours"
-        )
+        if is_manual:
+            # Prompt customer for email/details
+            await state.set_state(OrderManualStates.waiting_for_input)
+            await state.update_data(
+                variant_id=variant.id,
+                price=variant.price,
+                prod_title=prod_title,
+                var_name=variant.name,
+                dispatch_time=getattr(variant, "manual_dispatch_time", "1–2 Hours") or "1–2 Hours"
+            )
 
-        prompt_msg = getattr(variant, "input_prompt", None) or "Please send your target Email / Account username for activation:"
-        text = (
-            f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>ACTIVATION DETAILS REQUIRED</b>\n"
+            prompt_msg = getattr(variant, "input_prompt", None) or "Please send your target Email / Account username for activation:"
+            text = (
+                f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>ACTIVATION DETAILS REQUIRED</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} {prod_title}\n"
+                f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
+                f"{ce(CustomEmojis.WALLET, '💰')} <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
+                f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Dispatch Time:</b> within {getattr(variant, 'manual_dispatch_time', '1–2 Hours')}\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"{ce(CustomEmojis.SPARKLE, '👉')} <b>{prompt_msg}</b>\n\n"
+                f"<i>(Reply to this message with your details to complete your order)</i>"
+            )
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="◀️  Cancel & Go Back", callback_data=f"var_{variant.id}")]
+            ])
+            await callback.message.edit_text(text, reply_markup=kb)
+            return
+
+        # 3. AUTOMATIC Fulfillment (Draws 1 stock from inventory)
+        order, error_msg = await fulfill_order(session, user.telegram_id, variant.id, variant.price)
+        
+        if error_msg or not order:
+            await callback.message.answer(
+                f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Purchase Error:</b> {error_msg or 'Unknown error occurred.'}",
+                show_alert=True
+            )
+            return
+
+        remaining_stock = await get_available_stock_count(session, variant.id)
+
+        delivery_text = (
+            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>ORDER #{order.id} COMPLETED & DELIVERED!</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} {prod_title}\n"
             f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
-            f"{ce(CustomEmojis.WALLET, '💰')} <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
-            f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Dispatch Time:</b> within {getattr(variant, 'manual_dispatch_time', '1–2 Hours')}\n\n"
+            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
+            f"{ce(CustomEmojis.CARD, '💳')} <b>Remaining Balance:</b> {config.CURRENCY_SYMBOL}{user.balance - order.amount:.2f}\n\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{ce(CustomEmojis.SPARKLE, '👉')} <b>{prompt_msg}</b>\n\n"
-            f"<i>(Reply to this message with your details to complete your order)</i>"
+            f"{ce(CustomEmojis.KEY, '🔑')} <b>YOUR DELIVERED ACCOUNT / CODE:</b>\n"
+            f"<i>(Tap the box below to copy automatically)</i>\n\n"
+            f"<pre><code>{order.delivered_content}</code></pre>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Warranty Guidelines:</b>\n"
+            f"✦ Do not edit account master email or passwords.\n"
+            f"✦ Saved permanently in <b>Order History</b>.\n"
+            f"✦ For replacement support, contact {config.SUPPORT_USERNAME}\n\n"
+            f"{ce(CustomEmojis.HEART, '❤️')} <i>Thank you for shopping with {config.STORE_NAME}!</i>"
         )
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="◀️  Cancel & Go Back", callback_data=f"var_{variant.id}")]
-        ])
-        await callback.message.edit_text(text, reply_markup=kb)
-        return
 
-    # 3. AUTOMATIC Fulfillment (Draws 1 stock from inventory)
-    order, error_msg = await fulfill_order(session, user.telegram_id, variant.id, variant.price)
-    
-    if error_msg or not order:
-        await callback.message.answer(
-            f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Purchase Error:</b> {error_msg or 'Unknown error occurred.'}",
-            show_alert=True
+        kb = get_post_delivery_keyboard(order.id)
+
+        await callback.message.edit_text(delivery_text, reply_markup=kb)
+
+        # Admin Alert for Instant Sale
+        admin_alert = (
+            f"{ce(CustomEmojis.FIRE, '🔔')} <b>NEW AUTO-DELIVERED SALE!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
+            f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {callback.from_user.full_name} (@{callback.from_user.username or 'NoUser'})\n"
+            f"{ce(CustomEmojis.KEY, '🆔')} <b>User ID:</b> <code>{callback.from_user.id}</code>\n"
+            f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {variant.name}\n"
+            f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f}\n"
+            f"{ce(CustomEmojis.TROPHY, '📊')} <b>Remaining Stock:</b> {remaining_stock} available"
         )
-        return
+        for admin_id in config.ADMIN_IDS:
+            try:
+                await bot.send_message(admin_id, admin_alert)
+            except Exception:
+                pass
 
-    remaining_stock = await get_available_stock_count(session, variant.id)
-
-    delivery_text = (
-        f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>ORDER #{order.id} COMPLETED & DELIVERED!</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} {prod_title}\n"
-        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
-        f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
-        f"{ce(CustomEmojis.CARD, '💳')} <b>Remaining Balance:</b> {config.CURRENCY_SYMBOL}{user.balance - order.amount:.2f}\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{ce(CustomEmojis.KEY, '🔑')} <b>YOUR DELIVERED ACCOUNT / CODE:</b>\n"
-        f"<i>(Tap the box below to copy automatically)</i>\n\n"
-        f"<pre><code>{order.delivered_content}</code></pre>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Warranty Guidelines:</b>\n"
-        f"✦ Do not edit account master email or passwords.\n"
-        f"✦ Saved permanently in <b>Order History</b>.\n"
-        f"✦ For replacement support, contact {config.SUPPORT_USERNAME}\n\n"
-        f"{ce(CustomEmojis.HEART, '❤️')} <i>Thank you for shopping with {config.STORE_NAME}!</i>"
-    )
-
-    kb = get_post_delivery_keyboard(order.id)
-
-    await callback.message.edit_text(delivery_text, reply_markup=kb)
-
-    # Admin Alert for Instant Sale
-    admin_alert = (
-        f"{ce(CustomEmojis.FIRE, '🔔')} <b>NEW AUTO-DELIVERED SALE!</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
-        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {callback.from_user.full_name} (@{callback.from_user.username or 'NoUser'})\n"
-        f"{ce(CustomEmojis.KEY, '🆔')} <b>User ID:</b> <code>{callback.from_user.id}</code>\n"
-        f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {variant.name}\n"
-        f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f}\n"
-        f"{ce(CustomEmojis.TROPHY, '📊')} <b>Remaining Stock:</b> {remaining_stock} available"
-    )
-    for admin_id in config.ADMIN_IDS:
-        try:
-            await bot.send_message(admin_id, admin_alert)
-        except Exception:
-            pass
-
-    # Group/Channel Notification
-    bot_me = await bot.me()
-    await send_order_notification(
-        bot=bot,
-        order_id=order.id,
-        buyer_name=callback.from_user.full_name,
-        product_title=prod_title,
-        variant_name=variant.name,
-        amount=order.amount,
-        stock_left=remaining_stock,
-        bot_username=bot_me.username or ""
-    )
+        # Group/Channel Notification
+        bot_me = await bot.me()
+        await send_order_notification(
+            bot=bot,
+            order_id=order.id,
+            buyer_name=callback.from_user.full_name,
+            product_title=prod_title,
+            variant_name=variant.name,
+            amount=order.amount,
+            stock_left=remaining_stock,
+            bot_username=bot_me.username or ""
+        )
+    finally:
+        _generating_sessions.discard(user_id)
 
 @router.message(OrderManualStates.waiting_for_input)
 async def msg_order_manual_input(message: types.Message, state: FSMContext, session: AsyncSession, bot: Bot):

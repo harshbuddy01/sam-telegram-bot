@@ -39,12 +39,14 @@ async def cb_deposit_menu(callback: types.CallbackQuery, state: FSMContext, sess
     )
     await callback.message.edit_text(text, reply_markup=get_deposit_preset_keyboard())
 
+_generating_deposits = set()
+
 @router.callback_query(F.data.startswith("depamt_"))
 async def cb_deposit_amount_selected(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
-    await callback.answer()
     amt_str = callback.data.split("_")[1]
 
     if amt_str == "custom":
+        await callback.answer()
         await state.set_state(DepositStates.waiting_for_amount)
         await callback.message.edit_text(
             f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>ENTER CUSTOM DEPOSIT AMOUNT</b>\n"
@@ -83,81 +85,86 @@ async def initiate_deposit_payment(
     session: AsyncSession,
     state: FSMContext
 ):
-    import time
     user_id = from_user.id
-    customer_name = from_user.full_name or from_user.first_name
-    order_ref = f"DEP{user_id}_{int(amount)}_{int(time.time())}"
+    if user_id in _generating_deposits:
+        await message.answer(f"{ce(CustomEmojis.FIRE, '⏳')} A deposit invoice is already being generated for you. Please wait a second!")
+        return
 
-    # Check if Automated Gateway (Razorpay or Cashfree) is active
-    active_gateway = payment_manager.default_gateway
+    _generating_deposits.add(user_id)
+    try:
+        import time
+        customer_name = from_user.full_name or from_user.first_name
+        order_ref = f"DEP{user_id}_{int(amount)}_{int(time.time())}"
 
-    # Check if Automated Gateway (Razorpay or Cashfree) is active
-    active_gateway = payment_manager.default_gateway
+        # Check if Automated Gateway (Razorpay or Cashfree) is active
+        active_gateway = payment_manager.default_gateway
 
-    if active_gateway in ("RAZORPAY", "CASHFREE"):
-        res = await payment_manager.razorpay.create_qr_code(
-            user_id=user_id,
-            amount=amount,
-            order_id=order_ref,
-            customer_name=customer_name
-        )
-        if not res.get("success"):
-            res = await payment_manager.create_deposit_session(
-                gateway_name=active_gateway,
+        if active_gateway in ("RAZORPAY", "CASHFREE"):
+            res = await payment_manager.razorpay.create_qr_code(
                 user_id=user_id,
                 amount=amount,
                 order_id=order_ref,
                 customer_name=customer_name
             )
+            if not res.get("success"):
+                res = await payment_manager.create_deposit_session(
+                    gateway_name=active_gateway,
+                    user_id=user_id,
+                    amount=amount,
+                    order_id=order_ref,
+                    customer_name=customer_name
+                )
 
-        if res.get("success"):
-            gateway_order_id = res.get("gateway_order_id") or res.get("order_id")
-            deposit = await create_deposit_gateway(
-                session=session,
-                user_id=user_id,
-                amount=amount,
-                gateway=active_gateway,
-                gateway_order_id=gateway_order_id
-            )
+            if res.get("success"):
+                gateway_order_id = res.get("gateway_order_id") or res.get("order_id")
+                deposit = await create_deposit_gateway(
+                    session=session,
+                    user_id=user_id,
+                    amount=amount,
+                    gateway=active_gateway,
+                    gateway_order_id=gateway_order_id
+                )
 
-            import io
-            if res.get("qr_image_bytes"):
-                qr_io = io.BytesIO(res["qr_image_bytes"])
-                input_file = BufferedInputFile(qr_io.read(), filename=f"rzp_qr_{deposit.id}.png")
-            else:
-                import qrcode
-                qr_img = qrcode.make(res["payment_url"])
-                qr_buf = io.BytesIO()
-                qr_img.save(qr_buf, format='PNG')
-                qr_buf.seek(0)
-                input_file = BufferedInputFile(qr_buf.read(), filename=f"rzp_deposit_{deposit.id}.png")
+                import io
+                if res.get("qr_image_bytes"):
+                    qr_io = io.BytesIO(res["qr_image_bytes"])
+                    input_file = BufferedInputFile(qr_io.read(), filename=f"rzp_qr_{deposit.id}.png")
+                else:
+                    import qrcode
+                    qr_img = qrcode.make(res["payment_url"])
+                    qr_buf = io.BytesIO()
+                    qr_img.save(qr_buf, format='PNG')
+                    qr_buf.seek(0)
+                    input_file = BufferedInputFile(qr_buf.read(), filename=f"rzp_deposit_{deposit.id}.png")
 
-            caption = (
-                f"{ce(CustomEmojis.WALLET, '💳')} <b>AUTOMATED INSTANT DEPOSIT #{deposit.id} (RAZORPAY)</b>\n"
-                f"{UI.SECTION_BAR}\n\n"
-                f"{ce(CustomEmojis.DIAMOND, '💰')} <b>Amount to Add:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
-                f"{ce(CustomEmojis.FIRE, '⚡')} <b>Gateway:</b> Razorpay (Instant Auto-Credit)\n"
-                f"{ce(CustomEmojis.CHECK, '📱')} <b>Supported:</b> PhonePe, Google Pay, Paytm, BHIM, CRED, Cards\n\n"
-                f"{UI.SECTION_BAR}\n"
-                f"<i>Scan the official QR code above with PhonePe/GPay OR click below to pay:</i>"
-            )
-            pay_btn_url = res.get("payment_url") or "https://rzp.io"
-            kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text=f"💳 PAY {config.CURRENCY_SYMBOL}{amount:.0f} VIA RAZORPAY / UPI", url=pay_btn_url)],
-                [InlineKeyboardButton(text="✅ I Have Paid (Auto-Verify & Credit)", callback_data=f"chkdep_{deposit.id}")],
-                [InlineKeyboardButton(text="Cancel & Return", callback_data="nav_home")]
-            ])
-            await message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
-            return
-        else:
-            err_msg = res.get("error", "Payment gateway session failed.")
-            await message.answer(
-                f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Payment Gateway Error:</b>\n{err_msg}\n\nPlease try again shortly or contact support.",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                caption = (
+                    f"{ce(CustomEmojis.WALLET, '💳')} <b>AUTOMATED INSTANT DEPOSIT #{deposit.id} (RAZORPAY)</b>\n"
+                    f"{UI.SECTION_BAR}\n\n"
+                    f"{ce(CustomEmojis.DIAMOND, '💰')} <b>Amount to Add:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
+                    f"{ce(CustomEmojis.FIRE, '⚡')} <b>Gateway:</b> Razorpay (Instant Auto-Credit)\n"
+                    f"{ce(CustomEmojis.CHECK, '📱')} <b>Supported:</b> PhonePe, Google Pay, Paytm, BHIM, CRED, Cards\n\n"
+                    f"{UI.SECTION_BAR}\n"
+                    f"<i>Scan the official QR code above with PhonePe/GPay OR click below to pay:</i>"
+                )
+                pay_btn_url = res.get("payment_url") or "https://rzp.io"
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=f"💳 PAY {config.CURRENCY_SYMBOL}{amount:.0f} VIA RAZORPAY / UPI", url=pay_btn_url)],
+                    [InlineKeyboardButton(text="✅ I Have Paid (Auto-Verify & Credit)", callback_data=f"chkdep_{deposit.id}")],
+                    [InlineKeyboardButton(text="Cancel & Return", callback_data="nav_home")]
                 ])
-            )
-            return
+                await message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
+                return
+            else:
+                err_msg = res.get("error", "Payment gateway session failed.")
+                await message.answer(
+                    f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Payment Gateway Error:</b>\n{err_msg}\n\nPlease try again shortly or contact support.",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                    ])
+                )
+                return
+    finally:
+        _generating_deposits.discard(user_id)
 
     # Fallback to Direct UPI QR Code Flow
     deposit = await create_deposit(session, user_id=user_id, amount=amount)
