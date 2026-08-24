@@ -83,9 +83,10 @@ async def initiate_deposit_payment(
     session: AsyncSession,
     state: FSMContext
 ):
+    import time
     user_id = from_user.id
     customer_name = from_user.full_name or from_user.first_name
-    order_ref = f"DEP{user_id}_{int(amount)}_{int(from_user.id % 10000)}"
+    order_ref = f"DEP{user_id}_{int(amount)}_{int(time.time())}"
 
     # Check if Automated Gateway (Razorpay or Cashfree) is active
     active_gateway = payment_manager.default_gateway

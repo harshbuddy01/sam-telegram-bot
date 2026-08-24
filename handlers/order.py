@@ -41,9 +41,10 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
 
     # 1. Check Wallet Balance -> If 0/insufficient, trigger Direct 1-Click Checkout
     if user.balance < variant.price:
+        import time
         amount = variant.price
         customer_name = user.full_name or user.username or f"User {user.telegram_id}"
-        order_ref = f"BUY{user.telegram_id}_{variant.id}_{int(amount)}"
+        order_ref = f"BUY{user.telegram_id}_{variant.id}_{int(time.time())}"
 
         from payments.manager import payment_manager
         from utils.qr_generator import generate_upi_qr
