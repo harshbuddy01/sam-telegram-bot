@@ -732,6 +732,34 @@ async def reject_deposit(session: AsyncSession, deposit_id: int) -> Optional[Dep
     await session.refresh(deposit)
     return deposit
 
+async def get_all_deposits(session: AsyncSession, limit: int = 50) -> List[Deposit]:
+    """Admin: Returns most recent deposits (all statuses) for payment history view."""
+    stmt = (
+        select(Deposit)
+        .order_by(Deposit.created_at.desc())
+        .limit(limit)
+    )
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+async def get_deposits_stats(session: AsyncSession):
+    """Returns total captured (SUCCESS+APPROVED) vs pending deposit stats."""
+    captured_stmt = select(func.sum(Deposit.amount)).where(Deposit.status.in_(["APPROVED", "SUCCESS"]))
+    pending_stmt = select(func.sum(Deposit.amount)).where(Deposit.status == "PENDING")
+    count_stmt = select(func.count(Deposit.id))
+
+    cap_res = await session.execute(captured_stmt)
+    pend_res = await session.execute(pending_stmt)
+    cnt_res = await session.execute(count_stmt)
+
+    return {
+        "total_captured": round(cap_res.scalar() or 0.0, 2),
+        "total_pending": round(pend_res.scalar() or 0.0, 2),
+        "total_count": cnt_res.scalar() or 0
+    }
+
+
+
 async def seed_initial_data(session: AsyncSession, force: bool = False):
     """
     Seeds initial catalog ONLY on fresh database initialization.

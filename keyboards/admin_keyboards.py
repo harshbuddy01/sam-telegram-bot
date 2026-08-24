@@ -95,6 +95,25 @@ def get_admin_order_audit_keyboard(order_id: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="Admin Home", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
     ])
 
+def get_admin_payments_keyboard(deposits: list) -> InlineKeyboardMarkup:
+    buttons = []
+    for dep in deposits[:20]:
+        status_icon = "🟢" if dep.status in ("APPROVED", "SUCCESS") else ("⏳" if dep.status == "PENDING" else "❌")
+        gateway_badge = "Rzp" if dep.gateway == "RAZORPAY" else ("CF" if dep.gateway == "CASHFREE" else "UPI")
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{status_icon} #{dep.id} • ₹{dep.amount:.0f} • {gateway_badge} • ID:{dep.user_id}",
+                callback_data=f"adm_dep_detail_{dep.id}",
+                icon_custom_emoji_id=CustomEmojis.WALLET
+            )
+        ])
+    buttons.append([
+        InlineKeyboardButton(text="Admin Home", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+
 def get_admin_stock_inventory_keyboard(variants: list[Variant], stock_counts: dict[int, int]) -> InlineKeyboardMarkup:
     buttons = []
     for var in variants:
