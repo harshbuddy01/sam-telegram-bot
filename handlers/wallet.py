@@ -203,6 +203,59 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
         return
 
     if deposit.status in ("APPROVED", "SUCCESS"):
+        user = await get_user(session, callback.from_user.id)
+        if deposit.target_variant_id:
+            from database.crud import get_variant, fulfill_order, create_manual_order, get_product, get_available_stock_count
+            target_var = await get_variant(session, deposit.target_variant_id)
+            if target_var:
+                is_manual = (getattr(target_var, "fulfillment_type", "AUTOMATIC") == "MANUAL")
+                prod = await get_product(session, target_var.product_id)
+                prod_title = prod.title if prod else "Digital Item"
+
+                order = None
+                if not is_manual:
+                    order, err = await fulfill_order(session, user.telegram_id, target_var.id, target_var.price)
+
+                if order and getattr(order, "delivered_content", None):
+                    delivery_text = (
+                        f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER DELIVERED!</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
+                        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
+                        f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"{ce(CustomEmojis.KEY, '🔑')} <b>YOUR DELIVERED ACCOUNT / CODE:</b>\n"
+                        f"<i>(Tap the box below to copy automatically)</i>\n\n"
+                        f"<pre><code>{order.delivered_content}</code></pre>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                        f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Full Warranty:</b> Covered throughout validity!\n"
+                        f"{ce(CustomEmojis.HEART, '❤️')} <i>Thank you for shopping with {config.STORE_NAME}!</i>"
+                    )
+                    kb = get_post_delivery_keyboard(order.id)
+                    await callback.message.edit_text(delivery_text, reply_markup=kb)
+                    return
+                else:
+                    # MANUAL FULFILLMENT or STOCK EMPTY -> Create manual order
+                    manual_order = await create_manual_order(session, user.telegram_id, target_var.id, target_var.price, customer_input=None)
+                    manual_confirm_text = (
+                        f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER PLACED!</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
+                        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
+                        f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
+                        f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Delivery:</b> 1–2 Hours\n\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"Our team has received your order and is processing your invitation/activation right now! You will receive your details directly in this chat shortly."
+                    )
+                    kb = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🛟 Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}")],
+                        [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                    ])
+                    await callback.message.edit_text(manual_confirm_text, reply_markup=kb)
+                    return
+
         await callback.message.answer(f"{ce(CustomEmojis.CHECK, '✅')} This deposit is already verified and credited to your wallet balance!")
         return
 
