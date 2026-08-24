@@ -319,6 +319,9 @@ def get_admin_variant_edit_keyboard(variant_id: int, product_id: int, is_manual:
             InlineKeyboardButton(text="⏱️ Edit Dispatch Time", callback_data=f"adm_varedit_dispatch_{variant_id}"),
             InlineKeyboardButton(text="✍️ Edit Customer Prompt", callback_data=f"adm_varedit_prompt_{variant_id}")
         ])
+        buttons.append([
+            InlineKeyboardButton(text="📊 Edit Available Stock / Slots", callback_data=f"adm_varedit_stockqty_{variant_id}")
+        ])
     else:
         buttons.append([
             InlineKeyboardButton(text="🔑 Manage Live Stock", callback_data=f"adm_stock_manage_{variant_id}")

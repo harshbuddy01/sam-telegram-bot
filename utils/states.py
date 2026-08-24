@@ -33,6 +33,7 @@ class AdminVariantStates(StatesGroup):
     waiting_for_fulfillment_type = State()
     waiting_for_dispatch_time = State()
     waiting_for_input_prompt = State()
+    waiting_for_stock_qty = State()
     waiting_for_detailed_desc = State()
 
 class AdminStockStates(StatesGroup):
@@ -53,6 +54,7 @@ class AdminVariantEditStates(StatesGroup):
     waiting_for_new_desc = State()
     waiting_for_new_dispatch_time = State()
     waiting_for_new_input_prompt = State()
+    waiting_for_new_stock_qty = State()
 
 class AdminCategoryEditStates(StatesGroup):
     waiting_for_new_name = State()

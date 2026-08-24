@@ -271,7 +271,8 @@ async def create_variant(
     detailed_description: Optional[str] = None,
     fulfillment_type: str = "AUTOMATIC",
     manual_dispatch_time: str = "1–2 Hours",
-    input_prompt: Optional[str] = None
+    input_prompt: Optional[str] = None,
+    stock_quantity: int = 50
 ) -> Variant:
     variant = Variant(
         product_id=product_id,
@@ -281,7 +282,8 @@ async def create_variant(
         detailed_description=detailed_description,
         fulfillment_type=fulfillment_type,
         manual_dispatch_time=manual_dispatch_time,
-        input_prompt=input_prompt
+        input_prompt=input_prompt,
+        stock_quantity=stock_quantity
     )
     session.add(variant)
     await session.commit()
@@ -297,7 +299,8 @@ async def update_variant_details(
     detailed_description: Optional[str] = None,
     fulfillment_type: Optional[str] = None,
     manual_dispatch_time: Optional[str] = None,
-    input_prompt: Optional[str] = None
+    input_prompt: Optional[str] = None,
+    stock_quantity: Optional[int] = None
 ) -> Optional[Variant]:
     variant = await get_variant(session, variant_id)
     if variant:
@@ -315,6 +318,8 @@ async def update_variant_details(
             variant.manual_dispatch_time = manual_dispatch_time
         if input_prompt is not None:
             variant.input_prompt = input_prompt
+        if stock_quantity is not None:
+            variant.stock_quantity = stock_quantity
         await session.commit()
         await session.refresh(variant)
         return variant
@@ -332,18 +337,28 @@ async def delete_variant(session: AsyncSession, variant_id: int) -> bool:
 # ================= STOCK CRUD =================
 
 async def get_available_stock_count(session: AsyncSession, variant_id: int) -> int:
+    variant = await get_variant(session, variant_id)
+    if not variant:
+        return 0
+    if getattr(variant, "fulfillment_type", "AUTOMATIC") == "MANUAL":
+        qty = getattr(variant, "stock_quantity", 50)
+        return qty if qty is not None else 50
     stmt = select(func.count(Stock.id)).where(Stock.variant_id == variant_id, Stock.is_used == False)
     result = await session.execute(stmt)
     return result.scalar() or 0
 
 async def get_product_total_stock_count(session: AsyncSession, product_id: int) -> int:
-    stmt = (
-        select(func.count(Stock.id))
-        .join(Variant, Stock.variant_id == Variant.id)
-        .where(Variant.product_id == product_id, Stock.is_used == False)
-    )
-    result = await session.execute(stmt)
-    return result.scalar() or 0
+    variants = await get_variants_by_product(session, product_id)
+    total_stock = 0
+    for v in variants:
+        if getattr(v, "fulfillment_type", "AUTOMATIC") == "MANUAL":
+            qty = getattr(v, "stock_quantity", 50)
+            total_stock += qty if qty is not None else 50
+        else:
+            stmt = select(func.count(Stock.id)).where(Stock.variant_id == v.id, Stock.is_used == False)
+            res = await session.execute(stmt)
+            total_stock += res.scalar() or 0
+    return total_stock
 
 async def add_stock_bulk(session: AsyncSession, variant_id: int, items: List[str]) -> int:
     added = 0
@@ -467,6 +482,10 @@ async def create_manual_order(
     # Deduct balance
     user.balance = round(user.balance - amount, 2)
     user.total_spent = round(user.total_spent + amount, 2)
+
+    # Decrement manual stock slots if tracked
+    if getattr(variant, "stock_quantity", None) is not None and variant.stock_quantity > 0:
+        variant.stock_quantity -= 1
 
     # Create manual order
     order = Order(

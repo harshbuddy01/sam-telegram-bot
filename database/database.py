@@ -34,6 +34,7 @@ async def init_db():
             "ALTER TABLE variants ADD COLUMN manual_dispatch_time VARCHAR(50) DEFAULT '1–2 Hours'",
             "ALTER TABLE variants ADD COLUMN input_type VARCHAR(50) DEFAULT 'ANY'",
             "ALTER TABLE variants ADD COLUMN input_prompt TEXT",
+            "ALTER TABLE variants ADD COLUMN stock_quantity INTEGER DEFAULT 50",
             "ALTER TABLE orders ADD COLUMN status VARCHAR(30) DEFAULT 'COMPLETED'",
             "ALTER TABLE orders ADD COLUMN customer_input TEXT",
             "ALTER TABLE orders ADD COLUMN fulfilled_at DATETIME",

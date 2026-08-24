@@ -1150,8 +1150,10 @@ async def cb_admin_var_edit(callback: types.CallbackQuery, session: AsyncSession
         f"{ce(CustomEmojis.FIRE, '🚀')} <b>Fulfillment Mode:</b> <b>{mode_str}</b>"
     ]
     if is_manual:
+        stock_qty = variant.stock_quantity if getattr(variant, "stock_quantity", None) is not None else 50
         lines.append(f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Dispatch Time:</b> <code>{dispatch_str}</code>")
         lines.append(f"👉 <b>Customer Prompt:</b> <i>{prompt_str}</i>")
+        lines.append(f"{ce(CustomEmojis.TROPHY, '📊')} <b>Available Slots / Stock:</b> <b>{stock_qty} slots</b>")
 
     lines.append(f"{ce(CustomEmojis.SPARKLE, '📝')} <b>Description:</b> <i>{variant.detailed_description or 'Default template'}</i>\n")
     lines.append("What would you like to edit?")
@@ -1186,8 +1188,10 @@ async def cb_admin_varedit_togglemode(callback: types.CallbackQuery, session: As
         f"{ce(CustomEmojis.FIRE, '🚀')} <b>Fulfillment Mode:</b> <b>{mode_str}</b>"
     ]
     if is_manual:
+        stock_qty = variant.stock_quantity if getattr(variant, "stock_quantity", None) is not None else 50
         lines.append(f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Dispatch Time:</b> <code>{dispatch_str}</code>")
         lines.append(f"👉 <b>Customer Prompt:</b> <i>{prompt_str}</i>")
+        lines.append(f"{ce(CustomEmojis.TROPHY, '📊')} <b>Available Slots / Stock:</b> <b>{stock_qty} slots</b>")
 
     lines.append(f"{ce(CustomEmojis.SPARKLE, '📝')} <b>Description:</b> <i>{variant.detailed_description or 'Default template'}</i>\n")
     lines.append("What would you like to edit?")
@@ -1256,6 +1260,46 @@ async def msg_admin_varedit_prompt(message: types.Message, state: FSMContext, se
         await message.answer(
             f"{ce(CustomEmojis.CHECK, '✅')} <b>Customer Prompt Updated!</b>\n\n"
             f"👉 <b>Prompt:</b> <i>{variant.input_prompt or 'Default'}</i>",
+            reply_markup=get_admin_variant_edit_keyboard(variant.id, variant.product_id, is_manual=is_manual)
+        )
+    else:
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Failed to update plan.")
+
+@router.callback_query(F.data.startswith("adm_varedit_stockqty_"))
+async def cb_admin_varedit_stockqty(callback: types.CallbackQuery, state: FSMContext):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    var_id = int(callback.data.split("_")[3])
+    await state.update_data(edit_var_id=var_id)
+    await state.set_state(AdminVariantEditStates.waiting_for_new_stock_qty)
+    await callback.message.edit_text(
+        f"{ce(CustomEmojis.TROPHY, '📊')} <b>Edit Available Activation Stock / Slots</b>\n\n"
+        "How many manual activations/orders are currently available for this plan?\n\n"
+        "Send the number of available slots (e.g. <code>50</code>, <code>20</code>, <code>10</code> — or send <code>0</code> if out of stock):",
+        reply_markup=get_admin_cancel_keyboard(f"adm_var_edit_{var_id}")
+    )
+
+@router.message(AdminVariantEditStates.waiting_for_new_stock_qty, F.text)
+async def msg_admin_varedit_stockqty(message: types.Message, state: FSMContext, session: AsyncSession):
+    try:
+        new_qty = int(message.text.strip())
+        if new_qty < 0:
+            new_qty = 0
+    except ValueError:
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Invalid number. Send a valid whole number (e.g. <code>50</code> or <code>0</code>):")
+        return
+
+    data = await state.get_data()
+    var_id = data.get("edit_var_id")
+    await state.clear()
+
+    variant = await update_variant_details(session, var_id, stock_quantity=new_qty)
+    if variant:
+        is_manual = (variant.fulfillment_type == "MANUAL")
+        await message.answer(
+            f"{ce(CustomEmojis.CHECK, '✅')} <b>Available Slots / Stock Updated!</b>\n\n"
+            f"{ce(CustomEmojis.TROPHY, '📊')} <b>Current Available Stock:</b> <code>{variant.stock_quantity} slots</code>",
             reply_markup=get_admin_variant_edit_keyboard(variant.id, variant.product_id, is_manual=is_manual)
         )
     else:
