@@ -25,19 +25,23 @@ class PayPalGateway(BasePaymentGateway):
 
     @property
     def client_id(self) -> str:
-        return os.getenv("PAYPAL_CLIENT_ID") or getattr(config, "PAYPAL_CLIENT_ID", "")
+        val = os.getenv("PAYPAL_CLIENT_ID") or getattr(config, "PAYPAL_CLIENT_ID", "")
+        return str(val).strip('"\' ')
 
     @property
     def client_secret(self) -> str:
-        return os.getenv("PAYPAL_CLIENT_SECRET") or getattr(config, "PAYPAL_CLIENT_SECRET", "")
+        val = os.getenv("PAYPAL_CLIENT_SECRET") or getattr(config, "PAYPAL_CLIENT_SECRET", "")
+        return str(val).strip('"\' ')
 
     @property
     def mode(self) -> str:
-        return (os.getenv("PAYPAL_MODE") or getattr(config, "PAYPAL_MODE", "SANDBOX")).upper()
+        val = os.getenv("PAYPAL_MODE") or getattr(config, "PAYPAL_MODE", "LIVE")
+        return str(val).strip('"\' ').upper()
 
     @property
     def currency(self) -> str:
-        return (os.getenv("PAYPAL_CURRENCY") or getattr(config, "PAYPAL_CURRENCY", "USD")).upper()
+        val = os.getenv("PAYPAL_CURRENCY") or getattr(config, "PAYPAL_CURRENCY", "USD")
+        return str(val).strip('"\' ').upper()
 
     @property
     def usd_rate(self) -> float:
