@@ -5,7 +5,6 @@ Handles 'I Got It' confirmations and 'I Need Help' support flows.
 from aiogram import Router, F, types, Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
-from database.crud import get_order
 from utils.emojis import CustomEmojis, ce
 import config
 
