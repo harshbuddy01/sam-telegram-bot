@@ -5,11 +5,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database.crud import get_or_create_user, get_user
 from keyboards.user_keyboards import get_main_menu_keyboard, get_persistent_menu_keyboard
 from utils.emojis import Emojis, UI, format_emoji, CustomEmojis, ce
+from utils.templates import render_template
 import config
 
 router = Router()
 
-def get_welcome_text(first_name: str) -> str:
+async def get_welcome_text(first_name: str, session: AsyncSession = None) -> str:
+    if session:
+        return await render_template(session, "welcome_text", store_name=config.STORE_NAME, first_name=first_name)
     return (
         f"{ce(CustomEmojis.CROWN, '👑')} <b>{config.STORE_NAME.upper()}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -49,7 +52,7 @@ async def cmd_start(message: types.Message, bot: Bot, session: AsyncSession, com
     )
 
     is_user_admin = config.is_admin(message.from_user.id)
-    text = get_welcome_text(message.from_user.first_name)
+    text = await get_welcome_text(message.from_user.first_name, session)
 
     # Attach persistent bottom reply keyboard
     await message.answer(
@@ -74,7 +77,7 @@ async def cmd_start(message: types.Message, bot: Bot, session: AsyncSession, com
 async def cb_nav_home(callback: types.CallbackQuery, session: AsyncSession):
     await callback.answer()
     is_user_admin = config.is_admin(callback.from_user.id)
-    text = get_welcome_text(callback.from_user.first_name)
+    text = await get_welcome_text(callback.from_user.first_name, session)
     try:
         await callback.message.edit_text(
             text,
@@ -87,17 +90,14 @@ async def cb_nav_home(callback: types.CallbackQuery, session: AsyncSession):
         )
 
 @router.callback_query(F.data == "nav_support")
-async def cb_nav_support(callback: types.CallbackQuery):
+async def cb_nav_support(callback: types.CallbackQuery, session: AsyncSession):
     await callback.answer()
-    text = (
-        f"{ce(CustomEmojis.SUPPORT, '🛟')} <b>24/7 CUSTOMER SUPPORT HELPDESK</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"Need assistance with an order, warranty replacement, or deposit?\n\n"
-        f"✦ <b>Official Support:</b> {config.SUPPORT_USERNAME}\n"
-        f"✦ <b>Official Channel:</b> {config.CHANNEL_LINK}\n"
-        f"✦ <b>Community Group:</b> {config.GROUP_LINK}\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>All purchases come with a 100% money-back / replacement guarantee.</i>"
+    text = await render_template(
+        session,
+        "support_text",
+        support_username=config.SUPPORT_USERNAME.replace('@', ''),
+        channel_link=config.CHANNEL_LINK,
+        group_link=config.GROUP_LINK
     )
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(inline_keyboard=[

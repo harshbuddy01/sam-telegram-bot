@@ -24,6 +24,7 @@ from keyboards.user_keyboards import (
     get_back_button
 )
 from utils.emojis import Emojis, UI, format_emoji, CustomEmojis, ce
+from utils.templates import render_template
 import config
 
 router = Router()
@@ -99,18 +100,7 @@ async def cb_nav_shop(callback: types.CallbackQuery, session: AsyncSession):
             cat_lines.append(f"{ce(CustomEmojis.SPARKLE, '✨')} {icon} <b>{cat.name}</b>")
     cat_block = "\n".join(cat_lines) if cat_lines else "<i>No categories active yet.</i>"
 
-    text = (
-        f"{ce(CustomEmojis.SHOP, '🛍️')} <b>PREMIUM DIGITAL STORE CATALOG</b>\n"
-        f"{UI.SECTION_BAR}\n\n"
-        f"<b>Available Categories:</b>\n"
-        f"{cat_block}\n\n"
-        f"<blockquote>"
-        f"{ce(CustomEmojis.FIRE, '⚡')} <b>Instant Delivery:</b> Credentials sent in seconds\n"
-        f"{ce(CustomEmojis.VERIFIED, '🛡️')} <b>Verified Accounts:</b> 100% Genuine & safe\n"
-        f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Full Warranty:</b> Covered throughout validity"
-        f"</blockquote>\n\n"
-        f"<i>Choose a category below to explore:</i>"
-    )
+    text = await render_template(session, "categories_header", store_name=config.STORE_NAME)
     await callback.message.edit_text(text, reply_markup=get_categories_keyboard(categories))
 
 @router.callback_query(F.data.startswith("cat_"))
@@ -131,11 +121,15 @@ async def cb_category_products(callback: types.CallbackQuery, session: AsyncSess
     for prod in products:
         stock = stock_counts.get(prod.id, 0)
         stock_str = f"🟢 {stock} In Stock" if stock > 0 else "🔴 Out of Stock"
-        if "<tg-emoji" in prod.title:
-            prod_lines.append(f"{ce(CustomEmojis.FIRE, '🔥')} <b>{prod.title}</b> — <i>{stock_str}</i>")
-        else:
-            p_icon = format_emoji(prod.emoji or "📦", prod.custom_emoji_id)
-            prod_lines.append(f"{ce(CustomEmojis.FIRE, '🔥')} {p_icon} <b>{prod.title}</b> — <i>{stock_str}</i>")
+        p_icon = format_emoji(prod.emoji or "📦", prod.custom_emoji_id) if "<tg-emoji" not in prod.title else ""
+        line = await render_template(
+            session,
+            "product_item_format",
+            prod_icon=p_icon,
+            product_title=prod.title,
+            stock_badge=stock_str
+        )
+        prod_lines.append(line)
     prod_block = "\n".join(prod_lines) if prod_lines else "<i>No products available yet.</i>"
 
     if "<tg-emoji" in category.name:
@@ -144,12 +138,12 @@ async def cb_category_products(callback: types.CallbackQuery, session: AsyncSess
         cat_emoji = format_emoji(category.emoji, category.custom_emoji_id)
         cat_header = f"{cat_emoji} <b>CATEGORY ➜ {category.name}</b>"
 
-    text = (
-        f"{cat_header}\n"
-        f"{UI.SECTION_BAR}\n\n"
-        f"<b>Available Products:</b>\n"
-        f"{prod_block}\n\n"
-        f"<i>Select an item below to view plans and pricing:</i>"
+    text = await render_template(
+        session,
+        "category_products_header",
+        cat_header=cat_header,
+        category_name=category.name,
+        product_list=prod_block
     )
 
     await callback.message.edit_text(
@@ -169,11 +163,33 @@ async def cb_products_page(callback: types.CallbackQuery, session: AsyncSession)
 
     stock_counts = await get_batch_product_stock_counts(session, [p.id for p in products])
 
-    cat_emoji = format_emoji(category.emoji, category.custom_emoji_id) if category else "📁"
-    text = (
-        f"{cat_emoji} <b>CATEGORY ➜ {category.name if category else 'PRODUCTS'}</b>\n"
-        f"{UI.SECTION_BAR}\n\n"
-        f"<i>Select an item to view plans, pricing, and live inventory:</i>\n"
+    prod_lines = []
+    for prod in products:
+        stock = stock_counts.get(prod.id, 0)
+        stock_str = f"🟢 {stock} In Stock" if stock > 0 else "🔴 Out of Stock"
+        p_icon = format_emoji(prod.emoji or "📦", prod.custom_emoji_id) if "<tg-emoji" not in prod.title else ""
+        line = await render_template(
+            session,
+            "product_item_format",
+            prod_icon=p_icon,
+            product_title=prod.title,
+            stock_badge=stock_str
+        )
+        prod_lines.append(line)
+    prod_block = "\n".join(prod_lines) if prod_lines else "<i>No products available yet.</i>"
+
+    if "<tg-emoji" in category.name:
+        cat_header = f"{ce(CustomEmojis.SHOP, '📁')} <b>CATEGORY ➜ {category.name}</b>"
+    else:
+        cat_emoji = format_emoji(category.emoji, category.custom_emoji_id) if category else "📁"
+        cat_header = f"{cat_emoji} <b>CATEGORY ➜ {category.name if category else 'PRODUCTS'}</b>"
+
+    text = await render_template(
+        session,
+        "category_products_header",
+        cat_header=cat_header,
+        category_name=category.name if category else "Products",
+        product_list=prod_block
     )
 
     await callback.message.edit_text(
@@ -254,20 +270,8 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
         fulfillment_badge = f"{ce(CustomEmojis.FIRE, '⚡')} <b>100% Automated Instant Delivery</b>"
         action_note = f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>Click <b>'PURCHASE NOW'</b> to buy:</i>"
 
-    text = (
-        f"{ce(CustomEmojis.DIAMOND, '💎')} <b>PRODUCT SPECIFICATION & PRICING</b>\n"
-        f"{UI.SECTION_BAR}\n\n"
-        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_display}\n"
-        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
-        f"{ce(CustomEmojis.VERIFIED, '🏷️')} <b>Type:</b> {variant.variant_type}\n"
-        f"{ce(CustomEmojis.WALLET, '💰')} <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
-        f"{ce(CustomEmojis.CHECK, '📊')} <b>Status:</b> {stock_badge}\n"
-        f"{ce(CustomEmojis.FIRE, '⚡')} <b>Fulfillment:</b> {fulfillment_badge}\n\n"
-        f"<blockquote>"
-    )
-
     if variant.detailed_description:
-        text += f"{variant.detailed_description}\n"
+        desc_content = variant.detailed_description
     else:
         cat_name = ""
         if product:
@@ -286,17 +290,34 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
         else:
             quality_text = "Official premium digital subscription"
 
-        text += (
+        desc_content = (
             f"✦ <b>Quality:</b> {quality_text}\n"
             f"✦ <b>Access:</b> Instant login credentials / activation\n"
             f"✦ <b>Warranty:</b> 100% Replacement guarantee during validity\n"
             f"✦ <b>Rules:</b> Use on assigned screen or personal email"
         )
 
-    text += (
-        f"</blockquote>\n\n"
-        f"{action_note}"
+    desc_block = f"<blockquote>{desc_content}</blockquote>\n\n"
+
+    prod_title_clean = product.title if product else "Digital Item"
+    prod_icon_clean = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if product else "📦"
+
+    text = await render_template(
+        session,
+        "variant_detail",
+        prod_header=f"{ce(CustomEmojis.DIAMOND, '💎')} <b>{prod_display}</b>",
+        prod_title=prod_title_clean,
+        prod_icon=prod_icon_clean,
+        variant_name=variant.name,
+        currency=config.CURRENCY_SYMBOL,
+        price=f"{variant.price:.2f}",
+        variant_type=variant.variant_type,
+        fulfillment_badge=fulfillment_badge,
+        stock_badge=stock_badge,
+        description_block=desc_block,
+        delivery_time=dispatch_time if is_manual else "Instant (< 5 seconds)"
     )
+    text += f"\n\n{action_note}"
 
     await callback.message.edit_text(
         text,

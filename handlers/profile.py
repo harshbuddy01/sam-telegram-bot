@@ -5,6 +5,7 @@ from database.crud import get_user, get_user_orders, get_user_referrals_count, g
 from database.models import Order
 from keyboards.user_keyboards import get_profile_keyboard, get_orders_list_keyboard, get_back_button
 from utils.emojis import Emojis, UI, CustomEmojis, ce, format_emoji
+from utils.templates import render_template
 import config
 
 router = Router()
@@ -19,24 +20,17 @@ async def cb_nav_profile(callback: types.CallbackQuery, session: AsyncSession, b
 
     orders = await get_user_orders(session, user.telegram_id, limit=50)
     referrals_count = await get_user_referrals_count(session, user.telegram_id)
-    joined_date_str = user.joined_at.strftime("%d %b %Y")
 
-    wallet_icon = ce(CustomEmojis.WALLET, "💰")
-    orders_icon = ce(CustomEmojis.ORDERS, "📦")
-    verified_icon = ce(CustomEmojis.VERIFIED, "✨")
-
-    text = (
-        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>CUSTOMER ACCOUNT DASHBOARD</b>\n"
-        f"{UI.SECTION_BAR}\n\n"
-        f"{ce(CustomEmojis.VERIFIED, '🆔')} <b>Telegram ID:</b> <code>{user.telegram_id}</code>\n"
-        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Name:</b> <b>{user.full_name}</b> {verified_icon}\n"
-        f"{wallet_icon} <b>Wallet Balance:</b> <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n"
-        f"{orders_icon} <b>Total Orders:</b> {len(orders)}\n"
-        f"{ce(CustomEmojis.CARD, '💳')} <b>Total Spent:</b> {config.CURRENCY_SYMBOL}{user.total_spent:.2f}\n"
-        f"{ce(CustomEmojis.GIFT, '👥')} <b>Friends Invited:</b> {referrals_count}\n"
-        f"{ce(CustomEmojis.STAR, '📅')} <b>Member Since:</b> {joined_date_str}\n\n"
-        f"{UI.SECTION_BAR}\n"
-        f"<i>Manage your funds, view previous keys, or invite friends below:</i>"
+    text = await render_template(
+        session,
+        "profile_text",
+        user_name=user.full_name,
+        user_id=user.telegram_id,
+        currency=config.CURRENCY_SYMBOL,
+        balance=f"{user.balance:.2f}",
+        total_spent=f"{user.total_spent:.2f}",
+        order_count=len(orders),
+        referral_percent=config.REFERRAL_BONUS_PERCENT
     )
 
     await callback.message.edit_text(text, reply_markup=get_profile_keyboard())

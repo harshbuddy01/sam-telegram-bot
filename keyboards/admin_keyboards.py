@@ -29,8 +29,52 @@ def get_admin_main_keyboard(pending_deposits: int = 0, pending_orders: int = 0) 
             InlineKeyboardButton(text="Broadcast Announcement", callback_data="adm_broadcast", icon_custom_emoji_id=CustomEmojis.FIRE)
         ],
         [
+            InlineKeyboardButton(text="🎨 Store Design & Page Customizer", callback_data="adm_customizer", icon_custom_emoji_id=CustomEmojis.SPARKLE)
+        ],
+        [
             InlineKeyboardButton(text="⚙️ Payment & UPI Settings", callback_data="adm_settings", icon_custom_emoji_id=CustomEmojis.CARD),
             InlineKeyboardButton(text="Exit to Store", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_admin_customizer_keyboard() -> InlineKeyboardMarkup:
+    buttons = [
+        [
+            InlineKeyboardButton(text="🏠 Welcome Screen (/start)", callback_data="adm_tmpl_view_welcome_text", icon_custom_emoji_id=CustomEmojis.CROWN),
+            InlineKeyboardButton(text="📁 Categories Header", callback_data="adm_tmpl_view_categories_header", icon_custom_emoji_id=CustomEmojis.SHOP)
+        ],
+        [
+            InlineKeyboardButton(text="📦 Products List Screen", callback_data="adm_tmpl_view_category_products_header", icon_custom_emoji_id=CustomEmojis.SHOP),
+            InlineKeyboardButton(text="✨ Product Line Style", callback_data="adm_tmpl_view_product_item_format", icon_custom_emoji_id=CustomEmojis.SPARKLE)
+        ],
+        [
+            InlineKeyboardButton(text="🏷️ Plan Detail Specs Card", callback_data="adm_tmpl_view_variant_detail", icon_custom_emoji_id=CustomEmojis.DIAMOND),
+            InlineKeyboardButton(text="⚡ 1-Click Checkout Screen", callback_data="adm_tmpl_view_checkout_text", icon_custom_emoji_id=CustomEmojis.FIRE)
+        ],
+        [
+            InlineKeyboardButton(text="🎉 Order Delivery Receipt", callback_data="adm_tmpl_view_delivery_text", icon_custom_emoji_id=CustomEmojis.ORDERS),
+            InlineKeyboardButton(text="👤 Customer Profile", callback_data="adm_tmpl_view_profile_text", icon_custom_emoji_id=CustomEmojis.VERIFIED)
+        ],
+        [
+            InlineKeyboardButton(text="🛟 Support & Help Desk", callback_data="adm_tmpl_view_support_text", icon_custom_emoji_id=CustomEmojis.SUPPORT)
+        ],
+        [
+            InlineKeyboardButton(text="◀️ Back to Admin Panel", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_admin_template_edit_keyboard(key: str) -> InlineKeyboardMarkup:
+    buttons = [
+        [
+            InlineKeyboardButton(text="✏️ Edit This Message Template", callback_data=f"adm_tmpl_edit_{key}", icon_custom_emoji_id=CustomEmojis.SPARKLE)
+        ],
+        [
+            InlineKeyboardButton(text="🔄 Reset to Default Template", callback_data=f"adm_tmpl_reset_{key}", icon_custom_emoji_id=CustomEmojis.LOCK)
+        ],
+        [
+            InlineKeyboardButton(text="◀️ Back to Customizer", callback_data="adm_customizer", icon_custom_emoji_id=CustomEmojis.CROWN)
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)

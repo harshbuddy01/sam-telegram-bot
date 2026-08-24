@@ -66,7 +66,9 @@ from keyboards.admin_keyboards import (
     get_admin_settings_keyboard,
     get_admin_gateway_settings_keyboard,
     get_admin_fulfillment_type_keyboard,
-    get_admin_cancel_keyboard
+    get_admin_cancel_keyboard,
+    get_admin_customizer_keyboard,
+    get_admin_template_edit_keyboard
 )
 from utils.states import (
     AdminCategoryStates,
@@ -79,7 +81,15 @@ from utils.states import (
     AdminBroadcastStates,
     AdminUserManagementStates,
     AdminManualOrderStates,
-    AdminSettingsStates
+    AdminSettingsStates,
+    AdminTemplateStates
+)
+from utils.templates import (
+    get_template,
+    set_template,
+    reset_template,
+    TEMPLATE_METADATA,
+    DEFAULT_TEMPLATES
 )
 from utils.emojis import (
     Emojis,
@@ -2137,4 +2147,125 @@ async def cb_admin_set_manual_upi(callback: types.CallbackQuery):
         f"{ce(CustomEmojis.CARD, '📱')} Payments will now be made directly to your UPI ID (<code>{config.UPI_ID}</code>).\n"
         f"{ce(CustomEmojis.WARRANTY, '🛡️')} Admin gets instant approve/reject notifications with 1-tap delivery!",
         reply_markup=get_admin_gateway_settings_keyboard(False, False)
+    )
+
+# ================= 10. STORE DESIGN & PAGE CUSTOMIZER =================
+
+@router.callback_query(F.data == "adm_customizer")
+async def cb_admin_customizer(callback: types.CallbackQuery, state: FSMContext):
+    if not check_admin(callback.from_user.id):
+        return
+    await state.clear()
+    await callback.answer()
+
+    text = (
+        f"{ce(CustomEmojis.SPARKLE, '🎨')} <b>STORE DESIGN & PAGE CUSTOMIZER</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"Customize the headers, message layout, emojis, dividers, and text for every customer screen in real-time.\n\n"
+        f"<b>Select a page below to view and edit its template:</b>"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_customizer_keyboard())
+
+@router.callback_query(F.data.startswith("adm_tmpl_view_"))
+async def cb_admin_tmpl_view(callback: types.CallbackQuery, session: AsyncSession, state: FSMContext):
+    if not check_admin(callback.from_user.id):
+        return
+    await state.clear()
+    await callback.answer()
+
+    key = callback.data.replace("adm_tmpl_view_", "")
+    meta = TEMPLATE_METADATA.get(key, {"title": key, "desc": "Custom page template", "tags": []})
+    current_content = await get_template(session, key)
+
+    tags_str = " ".join([f"<code>{t}</code>" for t in meta.get("tags", [])])
+    if not tags_str:
+        tags_str = "<i>No dynamic variables required</i>"
+
+    text = (
+        f"{ce(CustomEmojis.SPARKLE, '🎨')} <b>{meta.get('title')}</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"<b>Description:</b> {meta.get('desc')}\n"
+        f"<b>Available Variables:</b> {tags_str}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>CURRENT LIVE PREVIEW:</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{current_content}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<i>Tap below to edit this template or reset to standard default:</i>"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_template_edit_keyboard(key))
+
+@router.callback_query(F.data.startswith("adm_tmpl_edit_"))
+async def cb_admin_tmpl_edit(callback: types.CallbackQuery, state: FSMContext):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+
+    key = callback.data.replace("adm_tmpl_edit_", "")
+    meta = TEMPLATE_METADATA.get(key, {"title": key, "tags": []})
+    await state.update_data(editing_template_key=key)
+    await state.set_state(AdminTemplateStates.waiting_for_template_content)
+
+    tags_str = "\n".join([f"• <code>{t}</code>" for t in meta.get("tags", [])])
+
+    text = (
+        f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>EDITING: {meta.get('title')}</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"Send your new message below. You can use:\n"
+        f"• Telegram Custom Emojis (<code>&lt;tg-emoji&gt;</code>)\n"
+        f"• HTML tags: <code>&lt;b&gt;bold&lt;/b&gt;</code>, <code>&lt;i&gt;italic&lt;/i&gt;</code>, <code>&lt;code&gt;code&lt;/code&gt;</code>, <code>&lt;blockquote&gt;quote&lt;/blockquote&gt;</code>\n\n"
+        f"<b>Available Variables you can use:</b>\n"
+        f"{tags_str}\n\n"
+        f"<i>(Send your new template message below now):</i>"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard("adm_customizer"))
+
+@router.message(AdminTemplateStates.waiting_for_template_content, F.text)
+async def msg_admin_template_content(message: types.Message, state: FSMContext, session: AsyncSession):
+    data = await state.get_data()
+    key = data.get("editing_template_key")
+    if not key:
+        await state.clear()
+        await message.answer("Editing session expired. Please open the customizer again.")
+        return
+
+    new_content = get_message_html_text(message)
+    if not new_content.strip():
+        await message.answer("Please send non-empty text.")
+        return
+
+    await set_template(session, key, new_content)
+    await state.clear()
+
+    meta = TEMPLATE_METADATA.get(key, {"title": key})
+    await message.answer(
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>Template Updated Successfully!</b>\n\n"
+        f"<b>Section:</b> {meta.get('title')}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>NEW LIVE PREVIEW:</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{new_content}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<i>All customers will now see your newly customized design!</i>",
+        reply_markup=get_admin_template_edit_keyboard(key)
+    )
+
+@router.callback_query(F.data.startswith("adm_tmpl_reset_"))
+async def cb_admin_tmpl_reset(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+
+    key = callback.data.replace("adm_tmpl_reset_", "")
+    meta = TEMPLATE_METADATA.get(key, {"title": key})
+    default_content = await reset_template(session, key)
+
+    await callback.message.edit_text(
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>Template Reset to Default!</b>\n\n"
+        f"<b>Section:</b> {meta.get('title')}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>DEFAULT PREVIEW:</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{default_content}",
+        reply_markup=get_admin_template_edit_keyboard(key)
     )

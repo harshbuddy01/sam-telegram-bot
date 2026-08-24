@@ -30,6 +30,7 @@ AsyncSessionLocal = async_sessionmaker(
 Base = declarative_base()
 
 async def init_db():
+    from database import models # Register all models on Base.metadata
     db_dir = os.path.dirname(os.path.abspath(config.DB_PATH))
     if db_dir:
         try:

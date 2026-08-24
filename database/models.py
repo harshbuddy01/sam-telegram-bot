@@ -117,3 +117,10 @@ class Deposit(Base):
     approved_at = Column(DateTime, nullable=True)
 
     user = relationship("User", back_populates="deposits")
+
+class BotTemplate(Base):
+    __tablename__ = "bot_templates"
+
+    key = Column(String(50), primary_key=True, index=True) # e.g. "welcome_text", "category_products_header", "product_item_format", "variant_detail", "checkout_text", "delivery_text", "profile_text", "support_text"
+    content = Column(Text, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

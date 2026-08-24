@@ -15,6 +15,7 @@ from database.crud import (
 )
 from utils.states import OrderManualStates
 from utils.emojis import Emojis, UI, format_emoji, CustomEmojis, ce
+from utils.templates import render_template
 from utils.notifications import send_order_notification
 from keyboards.user_keyboards import get_post_delivery_keyboard
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -166,23 +167,16 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
 
         remaining_stock = await get_available_stock_count(session, variant.id)
 
-        delivery_text = (
-            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>ORDER #{order.id} COMPLETED & DELIVERED!</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} {prod_title}\n"
-            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
-            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
-            f"{ce(CustomEmojis.CARD, '💳')} <b>Remaining Balance:</b> {config.CURRENCY_SYMBOL}{user.balance - order.amount:.2f}\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{ce(CustomEmojis.KEY, '🔑')} <b>YOUR DELIVERED ACCOUNT / CODE:</b>\n"
-            f"<i>(Tap the box below to copy automatically)</i>\n\n"
-            f"<pre><code>{order.delivered_content}</code></pre>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Warranty Guidelines:</b>\n"
-            f"✦ Do not edit account master email or passwords.\n"
-            f"✦ Saved permanently in <b>Order History</b>.\n"
-            f"✦ For replacement support, contact {config.SUPPORT_USERNAME}\n\n"
-            f"{ce(CustomEmojis.HEART, '❤️')} <i>Thank you for shopping with {config.STORE_NAME}!</i>"
+        delivery_text = await render_template(
+            session,
+            "delivery_text",
+            order_id=order.id,
+            prod_title=prod_title,
+            variant_name=variant.name,
+            currency=config.CURRENCY_SYMBOL,
+            price=f"{order.amount:.2f}",
+            delivered_content=order.delivered_content,
+            store_name=config.STORE_NAME
         )
 
         kb = get_post_delivery_keyboard(order.id)
@@ -395,17 +389,14 @@ async def initiate_1click_checkout(
                 qr_buf.seek(0)
                 input_file = BufferedInputFile(qr_buf.read(), filename=f"rzp_checkout_{deposit.id}.png")
 
-            caption = (
-                f"{ce(CustomEmojis.FIRE, '⚡')} <b>DIRECT 1-CLICK INSTANT CHECKOUT (RAZORPAY)</b>\n"
-                f"{UI.SECTION_BAR}\n\n"
-                f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} <b>{prod_title}</b>\n"
-                f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
-                f"{ce(CustomEmojis.WALLET, '💰')} <b>Total Amount:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
-                f"{ce(CustomEmojis.FIRE, '⚡')} <b>Delivery:</b> Instant Auto-Delivery upon payment\n\n"
-                f"<blockquote>"
-                f"{ce(CustomEmojis.CARD, '📱')} <b>Supported:</b> PhonePe, Google Pay, Paytm, BHIM, CRED, Cards"
-                f"</blockquote>\n\n"
-                f"{ce(CustomEmojis.SPARKLE, '👇')} <i>Scan QR code above with PhonePe/GPay OR click the button below to pay:</i>"
+            caption = await render_template(
+                session,
+                "checkout_text",
+                prod_title=prod_title,
+                prod_icon=prod_icon,
+                variant_name=variant.name,
+                currency=config.CURRENCY_SYMBOL,
+                price=f"{amount:.2f}"
             )
             pay_btn_url = res.get("payment_url") or "https://rzp.io"
             kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -430,18 +421,14 @@ async def initiate_1click_checkout(
     qr_buffer = generate_upi_qr(amount=amount, note=f"Order_{deposit.id}")
     input_file = BufferedInputFile(qr_buffer.read(), filename=f"checkout_qr_{deposit.id}.png")
 
-    caption = (
-        f"{ce(CustomEmojis.FIRE, '⚡')} <b>DIRECT 1-CLICK INSTANT CHECKOUT</b>\n"
-        f"{UI.SECTION_BAR}\n\n"
-        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} <b>{prod_title}</b>\n"
-        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
-        f"{ce(CustomEmojis.WALLET, '💰')} <b>Total Amount:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
-        f"{ce(CustomEmojis.CARD, '📱')} <b>UPI ID:</b> <code>{config.UPI_ID}</code>\n\n"
-        f"<blockquote>"
-        f"{ce(CustomEmojis.SPARKLE, '💻')} <b>Desktop / Web:</b> Scan QR code with your phone camera\n"
-        f"{ce(CustomEmojis.CARD, '📱')} <b>Mobile:</b> Pay {config.CURRENCY_SYMBOL}{amount:.0f} via any UPI app"
-        f"</blockquote>\n\n"
-        f"{ce(CustomEmojis.FIRE, '⚡')} <i>Your credentials will be delivered to this chat automatically once paid!</i>"
+    caption = await render_template(
+        session,
+        "checkout_text",
+        prod_title=prod_title,
+        prod_icon=prod_icon,
+        variant_name=variant.name,
+        currency=config.CURRENCY_SYMBOL,
+        price=f"{amount:.2f}"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Submit UTR / Screenshot", callback_data=f"submitproof_{deposit.id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
