@@ -281,6 +281,11 @@ async def handle_razorpay_webhook(request: web.Request) -> web.Response:
                 except Exception:
                     pass
 
+            return web.json_response({"status": "credited_deposit"})
+
+    # Always return 200 OK for any unhandled events like qr_code.created, payment.authorized, etc.
+    return web.json_response({"status": f"ignored_event_{event}"})
+
 async def handle_razorpay_webhook_get(request: web.Request) -> web.Response:
     return web.json_response({
         "status": "ok",
