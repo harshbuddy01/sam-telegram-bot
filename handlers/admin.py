@@ -98,6 +98,7 @@ from utils.emojis import (
     extract_clean_name_and_emoji,
     extract_emoji_and_custom_id,
     get_message_html_text,
+    clean_button_text,
     CustomEmojis,
     ce
 )
