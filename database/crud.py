@@ -268,14 +268,20 @@ async def create_variant(
     name: str,
     price: float,
     variant_type: str = "Private",
-    detailed_description: Optional[str] = None
+    detailed_description: Optional[str] = None,
+    fulfillment_type: str = "AUTOMATIC",
+    manual_dispatch_time: str = "1–2 Hours",
+    input_prompt: Optional[str] = None
 ) -> Variant:
     variant = Variant(
         product_id=product_id,
         name=name,
         price=price,
         variant_type=variant_type,
-        detailed_description=detailed_description
+        detailed_description=detailed_description,
+        fulfillment_type=fulfillment_type,
+        manual_dispatch_time=manual_dispatch_time,
+        input_prompt=input_prompt
     )
     session.add(variant)
     await session.commit()
@@ -288,7 +294,10 @@ async def update_variant_details(
     name: Optional[str] = None,
     price: Optional[float] = None,
     variant_type: Optional[str] = None,
-    detailed_description: Optional[str] = None
+    detailed_description: Optional[str] = None,
+    fulfillment_type: Optional[str] = None,
+    manual_dispatch_time: Optional[str] = None,
+    input_prompt: Optional[str] = None
 ) -> Optional[Variant]:
     variant = await get_variant(session, variant_id)
     if variant:
@@ -300,6 +309,12 @@ async def update_variant_details(
             variant.variant_type = variant_type
         if detailed_description is not None:
             variant.detailed_description = detailed_description
+        if fulfillment_type is not None:
+            variant.fulfillment_type = fulfillment_type
+        if manual_dispatch_time is not None:
+            variant.manual_dispatch_time = manual_dispatch_time
+        if input_prompt is not None:
+            variant.input_prompt = input_prompt
         await session.commit()
         await session.refresh(variant)
         return variant

@@ -61,6 +61,7 @@ from keyboards.admin_keyboards import (
     get_deposit_approval_keyboard,
     get_admin_settings_keyboard,
     get_admin_gateway_settings_keyboard,
+    get_admin_fulfillment_type_keyboard,
     get_admin_cancel_keyboard
 )
 from utils.states import (
@@ -1117,17 +1118,110 @@ async def cb_admin_var_edit(callback: types.CallbackQuery, session: AsyncSession
         await callback.message.answer("Plan not found.")
         return
 
-    text = (
-        f"{ce(CustomEmojis.SPARKLE, '✏️')} <b>EDIT SUBSCRIPTION PLAN</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{variant.product.title if variant.product else 'Digital Item'}</b>\n"
-        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan Name:</b> <b>{variant.name}</b>\n"
-        f"{ce(CustomEmojis.WALLET, '💰')} <b>Current Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>\n"
-        f"{ce(CustomEmojis.DIAMOND, '🏷️')} <b>Plan Type:</b> <code>{variant.variant_type}</code>\n"
-        f"{ce(CustomEmojis.SPARKLE, '📝')} <b>Description:</b> <i>{variant.detailed_description or 'Default template'}</i>\n\n"
-        f"What would you like to edit?"
+    is_manual = (getattr(variant, "fulfillment_type", "AUTOMATIC") == "MANUAL")
+    mode_str = "⏱️ MANUAL (Dispatch by Admin)" if is_manual else "⚡ AUTOMATIC (Instant Auto-Stock)"
+    dispatch_str = variant.manual_dispatch_time or "1–2 Hours"
+    prompt_str = variant.input_prompt or "Default (Asks Email / Phone)"
+
+    lines = [
+        f"{ce(CustomEmojis.SPARKLE, '✏️')} <b>EDIT SUBSCRIPTION PLAN</b>",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{variant.product.title if variant.product else 'Digital Item'}</b>",
+        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan Name:</b> <b>{variant.name}</b>",
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Current Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>",
+        f"{ce(CustomEmojis.DIAMOND, '🏷️')} <b>Plan Type:</b> <code>{variant.variant_type}</code>",
+        f"{ce(CustomEmojis.FIRE, '🚀')} <b>Fulfillment Mode:</b> <b>{mode_str}</b>"
+    ]
+    if is_manual:
+        lines.append(f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Dispatch Time:</b> <code>{dispatch_str}</code>")
+        lines.append(f"👉 <b>Customer Prompt:</b> <i>{prompt_str}</i>")
+
+    lines.append(f"{ce(CustomEmojis.SPARKLE, '📝')} <b>Description:</b> <i>{variant.detailed_description or 'Default template'}</i>\n")
+    lines.append("What would you like to edit?")
+
+    text = "\n".join(lines)
+    await callback.message.edit_text(text, reply_markup=get_admin_variant_edit_keyboard(var_id, variant.product_id, is_manual=is_manual))
+
+@router.callback_query(F.data.startswith("adm_varedit_togglemode_"))
+async def cb_admin_varedit_togglemode(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    var_id = int(callback.data.split("_")[3])
+    variant = await get_variant(session, var_id)
+    if not variant:
+        return
+    new_mode = "MANUAL" if variant.fulfillment_type != "MANUAL" else "AUTOMATIC"
+    await update_variant_details(session, var_id, fulfillment_type=new_mode)
+    
+    callback.data = f"adm_var_edit_{var_id}"
+    await cb_admin_var_edit(callback, session)
+
+@router.callback_query(F.data.startswith("adm_varedit_dispatch_"))
+async def cb_admin_varedit_dispatch(callback: types.CallbackQuery, state: FSMContext):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    var_id = int(callback.data.split("_")[3])
+    await state.update_data(edit_var_id=var_id)
+    await state.set_state(AdminVariantEditStates.waiting_for_new_dispatch_time)
+    await callback.message.edit_text(
+        f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Edit Expected Dispatch Time</b>\n\n"
+        "Send the dispatch timeframe shown to customers (e.g. <code>1–2 Hours</code>, <code>30 Mins</code>, <code>10 Mins</code>, <code>Instant</code>):",
+        reply_markup=get_admin_cancel_keyboard(f"adm_var_edit_{var_id}")
     )
-    await callback.message.edit_text(text, reply_markup=get_admin_variant_edit_keyboard(var_id, variant.product_id))
+
+@router.message(AdminVariantEditStates.waiting_for_new_dispatch_time, F.text)
+async def msg_admin_varedit_dispatch(message: types.Message, state: FSMContext, session: AsyncSession):
+    new_dispatch = message.text.strip()
+    data = await state.get_data()
+    var_id = data.get("edit_var_id")
+    await state.clear()
+
+    variant = await update_variant_details(session, var_id, manual_dispatch_time=new_dispatch)
+    if variant:
+        is_manual = (variant.fulfillment_type == "MANUAL")
+        await message.answer(
+            f"{ce(CustomEmojis.CHECK, '✅')} <b>Dispatch Time Updated!</b>\n\n"
+            f"{ce(CustomEmojis.FIRE, '⏱️')} <b>New Dispatch Time:</b> <code>{variant.manual_dispatch_time}</code>",
+            reply_markup=get_admin_variant_edit_keyboard(variant.id, variant.product_id, is_manual=is_manual)
+        )
+    else:
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Failed to update plan.")
+
+@router.callback_query(F.data.startswith("adm_varedit_prompt_"))
+async def cb_admin_varedit_prompt(callback: types.CallbackQuery, state: FSMContext):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    var_id = int(callback.data.split("_")[3])
+    await state.update_data(edit_var_id=var_id)
+    await state.set_state(AdminVariantEditStates.waiting_for_new_input_prompt)
+    await callback.message.edit_text(
+        f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>Edit Customer Input Prompt</b>\n\n"
+        "Send the question/prompt asked to the customer before payment (e.g. <code>Please send your Gmail address:</code> or <code>Please send your Jio mobile number:</code>):",
+        reply_markup=get_admin_cancel_keyboard(f"adm_var_edit_{var_id}")
+    )
+
+@router.message(AdminVariantEditStates.waiting_for_new_input_prompt, F.text)
+async def msg_admin_varedit_prompt(message: types.Message, state: FSMContext, session: AsyncSession):
+    new_prompt = get_message_html_text(message)
+    if message.text.strip().lower() == "skip":
+        new_prompt = None
+    data = await state.get_data()
+    var_id = data.get("edit_var_id")
+    await state.clear()
+
+    variant = await update_variant_details(session, var_id, input_prompt=new_prompt)
+    if variant:
+        is_manual = (variant.fulfillment_type == "MANUAL")
+        await message.answer(
+            f"{ce(CustomEmojis.CHECK, '✅')} <b>Customer Prompt Updated!</b>\n\n"
+            f"👉 <b>Prompt:</b> <i>{variant.input_prompt or 'Default'}</i>",
+            reply_markup=get_admin_variant_edit_keyboard(variant.id, variant.product_id, is_manual=is_manual)
+        )
+    else:
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Failed to update plan.")
 
 @router.callback_query(F.data.startswith("adm_varedit_name_"))
 async def cb_admin_varedit_name(callback: types.CallbackQuery, state: FSMContext):
@@ -1152,11 +1246,12 @@ async def msg_admin_varedit_name(message: types.Message, state: FSMContext, sess
     new_name = get_message_html_text(message)
     variant = await update_variant_details(session, var_id, name=new_name)
     if variant:
+        is_manual = (variant.fulfillment_type == "MANUAL")
         await message.answer(
             f"{ce(CustomEmojis.CHECK, '✅')} <b>Plan Name Updated!</b>\n\n"
             f"{ce(CustomEmojis.SPARKLE, '✨')} <b>New Name:</b> <b>{variant.name}</b>\n"
             f"{ce(CustomEmojis.WALLET, '💰')} <b>Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>",
-            reply_markup=get_admin_variant_edit_keyboard(variant.id, variant.product_id)
+            reply_markup=get_admin_variant_edit_keyboard(variant.id, variant.product_id, is_manual=is_manual)
         )
     else:
         await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Failed to update plan.")
@@ -1189,11 +1284,12 @@ async def msg_admin_varedit_price(message: types.Message, state: FSMContext, ses
 
     variant = await update_variant_details(session, var_id, price=new_price)
     if variant:
+        is_manual = (variant.fulfillment_type == "MANUAL")
         await message.answer(
             f"{ce(CustomEmojis.CHECK, '✅')} <b>Plan Price Updated!</b>\n\n"
             f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
             f"{ce(CustomEmojis.WALLET, '💰')} <b>New Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>",
-            reply_markup=get_admin_variant_edit_keyboard(variant.id, variant.product_id)
+            reply_markup=get_admin_variant_edit_keyboard(variant.id, variant.product_id, is_manual=is_manual)
         )
     else:
         await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Failed to update plan.")
@@ -1224,11 +1320,12 @@ async def msg_admin_varedit_desc(message: types.Message, state: FSMContext, sess
 
     variant = await update_variant_details(session, var_id, detailed_description=new_desc)
     if variant:
+        is_manual = (variant.fulfillment_type == "MANUAL")
         await message.answer(
             f"{ce(CustomEmojis.CHECK, '✅')} <b>Plan Description Updated!</b>\n\n"
             f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
             f"{ce(CustomEmojis.WALLET, '💰')} <b>Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>",
-            reply_markup=get_admin_variant_edit_keyboard(variant.id, variant.product_id)
+            reply_markup=get_admin_variant_edit_keyboard(variant.id, variant.product_id, is_manual=is_manual)
         )
     else:
         await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Failed to update plan.")
@@ -1300,16 +1397,39 @@ async def msg_admin_var_type(message: types.Message, state: FSMContext):
     )
 
 @router.message(AdminVariantStates.waiting_for_detailed_desc, F.text)
-async def msg_admin_var_desc(message: types.Message, state: FSMContext, session: AsyncSession):
+async def msg_admin_var_desc(message: types.Message, state: FSMContext):
     detailed_desc = get_message_html_text(message)
     if message.text.strip().lower() == "skip":
         detailed_desc = None
 
+    await state.update_data(detailed_description=detailed_desc)
+    await state.set_state(AdminVariantStates.waiting_for_fulfillment_type)
+
+    data = await state.get_data()
+    prod_id = data.get("prod_id")
+
+    text = (
+        f"{ce(CustomEmojis.FIRE, '🚀')} <b>Choose Fulfillment Delivery Mode</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"How should this subscription plan be delivered to customers?\n\n"
+        f"⚡ <b>100% Automated Instant Stock:</b>\n"
+        f"Bot automatically draws from uploaded accounts/keys and delivers within 1 second after payment.\n\n"
+        f"⏱️ <b>Manual Activation (Ask Email / Phone):</b>\n"
+        f"Bot asks customer for their Gmail/Phone number (e.g. YouTube family invite / Hotstar activation), creates a pending order, and you fulfill it manually."
+    )
+    await message.answer(text, reply_markup=get_admin_fulfillment_type_keyboard(f"adm_selprod_viewvars_{prod_id}"))
+
+@router.callback_query(AdminVariantStates.waiting_for_fulfillment_type, F.data == "adm_var_ff_AUTOMATIC")
+async def cb_admin_var_ff_auto(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
     data = await state.get_data()
     prod_id = data.get("prod_id")
     name = data.get("name")
     price = data.get("price")
     variant_type = data.get("variant_type")
+    detailed_desc = data.get("detailed_description")
     await state.clear()
 
     variant = await create_variant(
@@ -1318,21 +1438,95 @@ async def msg_admin_var_desc(message: types.Message, state: FSMContext, session:
         name=name,
         price=price,
         variant_type=variant_type,
-        detailed_description=detailed_desc
+        detailed_description=detailed_desc,
+        fulfillment_type="AUTOMATIC"
     )
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔑  Upload Stock to this Plan", callback_data=f"adm_stock_add_{variant.id}")],
-        [InlineKeyboardButton(text="➕  Add Another Plan", callback_data=f"adm_var_add_{prod_id}")],
-        [InlineKeyboardButton(text="🏷️  View All Plans for this Product", callback_data=f"adm_selprod_viewvars_{prod_id}")],
-        [InlineKeyboardButton(text="⚡  Admin Panel Home", callback_data="admin_home")]
+        [InlineKeyboardButton(text="🔑 Upload Stock to this Plan", callback_data=f"adm_stock_add_{variant.id}")],
+        [InlineKeyboardButton(text="➕ Add Another Plan", callback_data=f"adm_var_add_{prod_id}")],
+        [InlineKeyboardButton(text="🏷️ View All Plans for this Product", callback_data=f"adm_selprod_viewvars_{prod_id}")],
+        [InlineKeyboardButton(text="⚡ Admin Panel Home", callback_data="admin_home")]
+    ])
+
+    await callback.message.edit_text(
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>Automated Plan Created Successfully!</b>\n\n"
+        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
+        f"{ce(CustomEmojis.FIRE, '🚀')} <b>Mode:</b> ⚡ Automated Instant Stock\n\n"
+        f"What would you like to do next?",
+        reply_markup=kb
+    )
+
+@router.callback_query(AdminVariantStates.waiting_for_fulfillment_type, F.data == "adm_var_ff_MANUAL")
+async def cb_admin_var_ff_manual(callback: types.CallbackQuery, state: FSMContext):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    await state.set_state(AdminVariantStates.waiting_for_dispatch_time)
+    await callback.message.edit_text(
+        f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Expected Dispatch Timeframe</b>\n\n"
+        f"Send the dispatch time shown to customers (e.g. <code>1–2 Hours</code>, <code>30 Mins</code>, <code>10 Mins</code>, <code>Instant</code>):\n\n"
+        f"<i>(Send <code>skip</code> to use default <code>1–2 Hours</code>):</i>"
+    )
+
+@router.message(AdminVariantStates.waiting_for_dispatch_time, F.text)
+async def msg_admin_var_dispatch(message: types.Message, state: FSMContext):
+    dispatch_time = message.text.strip()
+    if dispatch_time.lower() == "skip":
+        dispatch_time = "1–2 Hours"
+    await state.update_data(manual_dispatch_time=dispatch_time)
+    await state.set_state(AdminVariantStates.waiting_for_input_prompt)
+    await message.answer(
+        f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>Customer Details Prompt</b>\n\n"
+        f"What should the bot ask the customer before they purchase?\n\n"
+        f"<b>Examples:</b>\n"
+        f"• <code>Please send your Gmail address for YouTube invite activation:</code>\n"
+        f"• <code>Please send your registered Jio mobile number:</code>\n"
+        f"• <code>Please send your SonyLIV mobile number for OTP login:</code>\n\n"
+        f"<i>(Send your prompt below or send <code>skip</code> for standard prompt):</i>"
+    )
+
+@router.message(AdminVariantStates.waiting_for_input_prompt, F.text)
+async def msg_admin_var_input_prompt(message: types.Message, state: FSMContext, session: AsyncSession):
+    prompt_text = get_message_html_text(message)
+    if message.text.strip().lower() == "skip":
+        prompt_text = "Please send your registered Email or Mobile Number for manual activation:"
+
+    data = await state.get_data()
+    prod_id = data.get("prod_id")
+    name = data.get("name")
+    price = data.get("price")
+    variant_type = data.get("variant_type")
+    detailed_desc = data.get("detailed_description")
+    dispatch_time = data.get("manual_dispatch_time") or "1–2 Hours"
+    await state.clear()
+
+    variant = await create_variant(
+        session,
+        product_id=prod_id,
+        name=name,
+        price=price,
+        variant_type=variant_type,
+        detailed_description=detailed_desc,
+        fulfillment_type="MANUAL",
+        manual_dispatch_time=dispatch_time,
+        input_prompt=prompt_text
+    )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Add Another Plan", callback_data=f"adm_var_add_{prod_id}")],
+        [InlineKeyboardButton(text="🏷️ View All Plans for this Product", callback_data=f"adm_selprod_viewvars_{prod_id}")],
+        [InlineKeyboardButton(text="⚡ Admin Panel Home", callback_data="admin_home")]
     ])
 
     await message.answer(
-        f"{ce(CustomEmojis.CHECK, '✅')} <b>Plan Created Successfully!</b>\n\n"
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>Manual Plan Created Successfully!</b>\n\n"
         f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
         f"{ce(CustomEmojis.WALLET, '💰')} <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
-        f"{ce(CustomEmojis.DIAMOND, '🏷️')} <b>Type:</b> {variant.variant_type}\n\n"
+        f"{ce(CustomEmojis.FIRE, '🚀')} <b>Mode:</b> ⏱️ Manual Activation\n"
+        f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Dispatch Time:</b> <code>{variant.manual_dispatch_time}</code>\n"
+        f"👉 <b>Prompt:</b> <i>{variant.input_prompt}</i>\n\n"
         f"What would you like to do next?",
         reply_markup=kb
     )

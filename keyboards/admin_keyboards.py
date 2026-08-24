@@ -300,7 +300,9 @@ def get_admin_variants_keyboard(variants: list[Variant], product_id: int) -> Inl
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_admin_variant_edit_keyboard(variant_id: int, product_id: int) -> InlineKeyboardMarkup:
+def get_admin_variant_edit_keyboard(variant_id: int, product_id: int, is_manual: bool = False) -> InlineKeyboardMarkup:
+    mode_btn_text = "⚡ Switch to MANUAL Mode" if not is_manual else "⚡ Switch to AUTOMATIC Mode"
+    
     buttons = [
         [
             InlineKeyboardButton(text="🏷️ Edit Plan Name", callback_data=f"adm_varedit_name_{variant_id}"),
@@ -308,14 +310,32 @@ def get_admin_variant_edit_keyboard(variant_id: int, product_id: int) -> InlineK
         ],
         [
             InlineKeyboardButton(text="📝 Edit Description", callback_data=f"adm_varedit_desc_{variant_id}"),
-            InlineKeyboardButton(text="🔑 Manage Stock", callback_data=f"adm_stock_manage_{variant_id}")
-        ],
-        [
-            InlineKeyboardButton(text="◀️ Back to Plans", callback_data=f"adm_selprod_viewvars_{product_id}"),
-            InlineKeyboardButton(text="🏠 Admin Home", callback_data="admin_home")
+            InlineKeyboardButton(text=mode_btn_text, callback_data=f"adm_varedit_togglemode_{variant_id}")
         ]
     ]
+
+    if is_manual:
+        buttons.append([
+            InlineKeyboardButton(text="⏱️ Edit Dispatch Time", callback_data=f"adm_varedit_dispatch_{variant_id}"),
+            InlineKeyboardButton(text="✍️ Edit Customer Prompt", callback_data=f"adm_varedit_prompt_{variant_id}")
+        ])
+    else:
+        buttons.append([
+            InlineKeyboardButton(text="🔑 Manage Live Stock", callback_data=f"adm_stock_manage_{variant_id}")
+        ])
+
+    buttons.append([
+        InlineKeyboardButton(text="◀️ Back to Plans", callback_data=f"adm_selprod_viewvars_{product_id}"),
+        InlineKeyboardButton(text="🏠 Admin Home", callback_data="admin_home")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_admin_fulfillment_type_keyboard(cancel_cb: str = "admin_home") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⚡ 100% Automated Instant Stock (Auto-Deliver)", callback_data="adm_var_ff_AUTOMATIC")],
+        [InlineKeyboardButton(text="⏱️ Manual Activation (Ask Customer Email / Phone)", callback_data="adm_var_ff_MANUAL")],
+        [InlineKeyboardButton(text=f"{Emojis.CANCEL} Cancel", callback_data=cancel_cb)]
+    ])
 
 def get_deposit_approval_keyboard(deposit_id: int) -> InlineKeyboardMarkup:
     buttons = [
