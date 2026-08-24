@@ -316,13 +316,7 @@ async def initiate_1click_checkout(
                 target_variant_id=variant.id
             )
 
-            qr_img = qrcode.make(res["payment_url"])
-            qr_buf = io.BytesIO()
-            qr_img.save(qr_buf, format='PNG')
-            qr_buf.seek(0)
-            input_file = BufferedInputFile(qr_buf.read(), filename=f"paypal_buy_{deposit.id}.png")
-
-            caption = (
+            text = (
                 f"{ce(CustomEmojis.FIRE, '⚡')} <b>DIRECT 1-CLICK INSTANT CHECKOUT (PAYPAL)</b>\n"
                 f"{UI.SECTION_BAR}\n\n"
                 f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} <b>{prod_title}</b>\n"
@@ -333,15 +327,18 @@ async def initiate_1click_checkout(
                 f"{ce(CustomEmojis.FIRE, '💵')} <b>Total Charged:</b> <b>${res.get('total_usd', 0):.2f} USD</b> ({config.CURRENCY_SYMBOL}{res.get('total_inr', 0):.2f})\n"
                 f"{ce(CustomEmojis.CHECK, '🛡️')} <b>Delivery:</b> Instant Auto-Delivery upon payment"
                 f"</blockquote>\n\n"
-                f"<i>Scan QR above or click below to complete your checkout:</i>"
+                f"<i>Tap the button below to pay securely with PayPal / Debit / Credit Card:</i>"
             )
             pay_btn_url = res.get("payment_url") or "https://paypal.com"
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=f"🅿️ PAY ${res.get('total_usd', 0):.2f} VIA PAYPAL", url=pay_btn_url)],
                 [InlineKeyboardButton(text="✅ I Have Paid (Auto-Verify & Deliver)", callback_data=f"chkdep_{deposit.id}")],
-                [InlineKeyboardButton(text="Cancel & Return", callback_data=f"var_{variant.id}")]
+                [InlineKeyboardButton(text="◀️ Cancel & Return", callback_data=f"var_{variant.id}")]
             ])
-            await message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
+            try:
+                await message.edit_text(text, reply_markup=kb)
+            except Exception:
+                await message.answer(text, reply_markup=kb)
             return
         else:
             err_msg = res.get("error", "PayPal session failed.")
