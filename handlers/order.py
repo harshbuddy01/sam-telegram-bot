@@ -54,14 +54,24 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
 
         # If Razorpay / Cashfree is active
         if active_gateway in ("RAZORPAY", "CASHFREE"):
-            res = await payment_manager.create_deposit_session(
-                gateway_name=active_gateway,
+            # First try Razorpay official Dynamic Native UPI QR
+            res = await payment_manager.razorpay.create_qr_code(
                 user_id=user.telegram_id,
                 amount=amount,
                 order_id=order_ref,
                 customer_name=customer_name
             )
-            if res.get("success") and res.get("payment_url"):
+            if not res.get("success"):
+                # Fallback to payment_links if qr_codes is disabled
+                res = await payment_manager.create_deposit_session(
+                    gateway_name=active_gateway,
+                    user_id=user.telegram_id,
+                    amount=amount,
+                    order_id=order_ref,
+                    customer_name=customer_name
+                )
+
+            if res.get("success"):
                 gateway_order_id = res.get("gateway_order_id") or res.get("order_id")
                 deposit = await create_deposit_gateway(
                     session=session,
@@ -72,14 +82,17 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
                     target_variant_id=variant.id
                 )
 
-                # Generate QR code for the Razorpay Payment URL
-                import qrcode
                 import io
-                qr_img = qrcode.make(res["payment_url"])
-                qr_buf = io.BytesIO()
-                qr_img.save(qr_buf, format='PNG')
-                qr_buf.seek(0)
-                input_file = BufferedInputFile(qr_buf.read(), filename=f"rzp_checkout_{deposit.id}.png")
+                if res.get("qr_image_bytes"):
+                    qr_io = io.BytesIO(res["qr_image_bytes"])
+                    input_file = BufferedInputFile(qr_io.read(), filename=f"rzp_qr_{deposit.id}.png")
+                else:
+                    import qrcode
+                    qr_img = qrcode.make(res["payment_url"])
+                    qr_buf = io.BytesIO()
+                    qr_img.save(qr_buf, format='PNG')
+                    qr_buf.seek(0)
+                    input_file = BufferedInputFile(qr_buf.read(), filename=f"rzp_checkout_{deposit.id}.png")
 
                 caption = (
                     f"{ce(CustomEmojis.FIRE, '⚡')} <b>DIRECT 1-CLICK INSTANT CHECKOUT (RAZORPAY)</b>\n"
@@ -89,12 +102,13 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
                     f"{ce(CustomEmojis.WALLET, '💰')} <b>Total Amount:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
                     f"{ce(CustomEmojis.FIRE, '⚡')} <b>Delivery:</b> Instant Auto-Delivery upon payment\n\n"
                     f"<blockquote>"
-                    f"{ce(CustomEmojis.CARD, '📱')} <b>Supported:</b> Google Pay, PhonePe, Paytm, CRED, UPI, Cards, NetBanking"
+                    f"{ce(CustomEmojis.CARD, '📱')} <b>Supported:</b> PhonePe, Google Pay, Paytm, BHIM, CRED, Cards"
                     f"</blockquote>\n\n"
-                    f"{ce(CustomEmojis.SPARKLE, '👇')} <i>Scan QR code above with any UPI app OR click the button below to pay:</i>"
+                    f"{ce(CustomEmojis.SPARKLE, '👇')} <i>Scan QR code above with PhonePe/GPay OR click the button below to pay:</i>"
                 )
+                pay_btn_url = res.get("payment_url") or "https://rzp.io"
                 kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text=f"💳 PAY {config.CURRENCY_SYMBOL}{amount:.0f} VIA RAZORPAY / UPI", url=res["payment_url"])],
+                    [InlineKeyboardButton(text=f"💳 PAY {config.CURRENCY_SYMBOL}{amount:.0f} VIA RAZORPAY / UPI", url=pay_btn_url)],
                     [InlineKeyboardButton(text="✅ I Have Paid (Auto-Verify & Deliver)", callback_data=f"chkdep_{deposit.id}")],
                     [InlineKeyboardButton(text="Cancel & Return", callback_data=f"var_{variant.id}")]
                 ])

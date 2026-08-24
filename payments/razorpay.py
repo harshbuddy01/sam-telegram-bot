@@ -124,8 +124,8 @@ class RazorpayGateway(BasePaymentGateway):
                     res_data = await response.json()
                     if response.status == 200:
                         status = res_data.get("status") # "created", "paid", "partially_paid", "expired", "cancelled"
-                        is_paid = (status == "paid")
-                        amount = float(res_data.get("amount_paid", 0)) / 100.0
+                        is_paid = (status in ("paid", "closed") and res_data.get("payments_count_received", 0) > 0) or (status == "paid")
+                        amount = float(res_data.get("amount_paid", 0) or res_data.get("payments_amount_received", 0)) / 100.0
                         return {
                             "is_paid": is_paid,
                             "status": status,
@@ -136,6 +136,61 @@ class RazorpayGateway(BasePaymentGateway):
                         return {"is_paid": False, "status": "NOT_FOUND"}
         except Exception as e:
             return {"is_paid": False, "status": "ERROR", "error": str(e)}
+
+    async def create_qr_code(
+        self,
+        user_id: int,
+        amount: float,
+        order_id: str,
+        customer_name: str
+    ) -> Dict[str, Any]:
+        """
+        Creates an official Razorpay Dynamic Native UPI QR Code (single_use).
+        Scanning this in PhonePe / GPay / Paytm opens the native UPI payment window directly.
+        """
+        if not self.is_configured:
+            return {"success": False, "error": "Razorpay not configured."}
+
+        url = f"{self.base_url}/payments/qr_codes"
+        auth = aiohttp.BasicAuth(self.key_id, self.key_secret)
+
+        amount_in_paise = int(round(amount * 100))
+        payload = {
+            "type": "upi_qr",
+            "name": "SamStore Services",
+            "usage": "single_use",
+            "fixed_amount": True,
+            "payment_amount": amount_in_paise,
+            "description": f"Order #{order_id}",
+            "notes": {
+                "user_id": str(user_id),
+                "order_id": order_id
+            }
+        }
+
+        try:
+            connector = aiohttp.TCPConnector(ssl=False)
+            async with aiohttp.ClientSession(connector=connector) as session:
+                async with session.post(url, json=payload, auth=auth) as response:
+                    res_data = await response.json()
+                    if response.status in (200, 201):
+                        qr_id = res_data.get("id")
+                        image_url = res_data.get("image_url")
+                        
+                        # Download Razorpay official QR code image bytes
+                        async with session.get(image_url) as img_resp:
+                            img_bytes = await img_resp.read()
+                            return {
+                                "success": True,
+                                "gateway_order_id": qr_id,
+                                "qr_image_bytes": img_bytes,
+                                "payment_url": image_url
+                            }
+                    else:
+                        err = res_data.get("error", {}).get("description", "Razorpay QR creation failed.")
+                        return {"success": False, "error": err}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     def verify_webhook_signature(self, body_bytes: bytes, signature_header: str) -> bool:
         """
