@@ -109,21 +109,29 @@ async def initiate_deposit_payment(
                 gateway_order_id=gateway_order_id
             )
 
-            text = (
-                f"{ce(CustomEmojis.WALLET, '💳')} <b>AUTOMATED INSTANT DEPOSIT #{deposit.id}</b>\n"
+            import qrcode
+            import io
+            qr_img = qrcode.make(res["payment_url"])
+            qr_buf = io.BytesIO()
+            qr_img.save(qr_buf, format='PNG')
+            qr_buf.seek(0)
+            input_file = BufferedInputFile(qr_buf.read(), filename=f"rzp_deposit_{deposit.id}.png")
+
+            caption = (
+                f"{ce(CustomEmojis.WALLET, '💳')} <b>AUTOMATED INSTANT DEPOSIT #{deposit.id} (RAZORPAY)</b>\n"
                 f"{UI.SECTION_BAR}\n\n"
                 f"{ce(CustomEmojis.DIAMOND, '💰')} <b>Amount to Add:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
-                f"{ce(CustomEmojis.FIRE, '⚡')} <b>Gateway:</b> {active_gateway} (Instant Auto-Credit)\n"
-                f"{ce(CustomEmojis.CHECK, '📱')} <b>Supported:</b> Google Pay, PhonePe, Paytm, UPI, Cards, Netbanking\n\n"
+                f"{ce(CustomEmojis.FIRE, '⚡')} <b>Gateway:</b> Razorpay (Instant Auto-Credit)\n"
+                f"{ce(CustomEmojis.CHECK, '📱')} <b>Supported:</b> Google Pay, PhonePe, Paytm, UPI, Cards, NetBanking\n\n"
                 f"{UI.SECTION_BAR}\n"
-                f"<i>Click the button below to pay securely:</i>"
+                f"<i>Scan the QR code above with any UPI app OR click below to pay:</i>"
             )
             kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text=f"PAY {config.CURRENCY_SYMBOL}{amount:.0f} VIA UPI / GPAY / PHONEPE", url=res["payment_url"], icon_custom_emoji_id=CustomEmojis.FIRE)],
-                [InlineKeyboardButton(text="I Have Paid (Verify & Credit)", callback_data=f"chkdep_{deposit.id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
-                [InlineKeyboardButton(text="Cancel & Return", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                [InlineKeyboardButton(text=f"💳 PAY {config.CURRENCY_SYMBOL}{amount:.0f} VIA RAZORPAY / UPI", url=res["payment_url"])],
+                [InlineKeyboardButton(text="✅ I Have Paid (Auto-Verify & Credit)", callback_data=f"chkdep_{deposit.id}")],
+                [InlineKeyboardButton(text="Cancel & Return", callback_data="nav_home")]
             ])
-            await message.answer(text, reply_markup=kb)
+            await message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
             return
 
     # Fallback to Direct UPI QR Code Flow
