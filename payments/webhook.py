@@ -31,6 +31,7 @@ async def handle_health(request: web.Request) -> web.Response:
         "service": "SamStore Telegram Sales Bot",
         "gateways": {
             "razorpay": payment_manager.razorpay.is_configured,
+            "paypal": payment_manager.paypal.is_configured,
             "cashfree": payment_manager.cashfree.is_configured
         }
     })
@@ -292,6 +293,248 @@ async def handle_razorpay_webhook_get(request: web.Request) -> web.Response:
         "message": "Razorpay Webhook endpoint is active and listening for POST payment events."
     })
 
+async def handle_paypal_webhook_get(request: web.Request) -> web.Response:
+    return web.json_response({
+        "status": "ok",
+        "message": "PayPal Webhook endpoint is active and listening for POST payment events."
+    })
+
+async def handle_paypal_webhook(request: web.Request) -> web.Response:
+    bot: Bot = request.app["bot"]
+    body_bytes = await request.read()
+
+    try:
+        payload = json.loads(body_bytes.decode("utf-8"))
+    except Exception as e:
+        logger.error(f"Failed to parse PayPal webhook JSON: {e}")
+        return web.Response(status=400, text="Bad JSON")
+
+    event_type = payload.get("event_type", "")
+    resource = payload.get("resource", {})
+    logger.info(f"Received PayPal Webhook Event: {event_type}")
+
+    # Relevant event types: CHECKOUT.ORDER.APPROVED, PAYMENT.CAPTURE.COMPLETED, CHECKOUT.ORDER.COMPLETED
+    if event_type in ("CHECKOUT.ORDER.APPROVED", "PAYMENT.CAPTURE.COMPLETED", "CHECKOUT.ORDER.COMPLETED"):
+        paypal_order_id = resource.get("id")
+        capture_id = resource.get("id") if event_type == "PAYMENT.CAPTURE.COMPLETED" else ""
+        
+        # If it's a capture event, the order id may be inside supplementary_data
+        if event_type == "PAYMENT.CAPTURE.COMPLETED":
+            supp = resource.get("supplementary_data", {}).get("related_ids", {})
+            if supp.get("order_id"):
+                paypal_order_id = supp.get("order_id")
+
+        custom_id = resource.get("custom_id")
+        if not custom_id and "purchase_units" in resource:
+            pu = resource["purchase_units"]
+            if isinstance(pu, list) and len(pu) > 0:
+                custom_id = pu[0].get("custom_id") or pu[0].get("reference_id")
+
+        async with AsyncSessionLocal() as session:
+            deposit = None
+            if paypal_order_id:
+                stmt = select(Deposit).where(Deposit.gateway_order_id == paypal_order_id)
+                res = await session.execute(stmt)
+                deposit = res.scalar_one_or_none()
+
+            # Fallback by custom_id (user_id) if not found by paypal_order_id
+            if not deposit and custom_id:
+                try:
+                    uid = int(str(custom_id).replace("BUY", "").replace("DEP", "").split("_")[0])
+                    stmt = select(Deposit).where(Deposit.user_id == uid, Deposit.status == "PENDING", Deposit.gateway == "PAYPAL").order_by(Deposit.created_at.desc())
+                    res = await session.execute(stmt)
+                    deposit = res.scalar_one_or_none()
+                except Exception:
+                    pass
+
+            if not deposit:
+                logger.info(f"PayPal webhook: No matching pending deposit found for order={paypal_order_id}, custom_id={custom_id}")
+                return web.json_response({"status": "ignored_no_match"})
+
+            # Idempotency check
+            if deposit.status in ("APPROVED", "SUCCESS"):
+                logger.info(f"Deposit #{deposit.id} already approved. Skipping duplicate webhook.")
+                return web.json_response({"status": "already_processed"})
+
+            # If event is CHECKOUT.ORDER.APPROVED, verify & capture via PayPal API
+            if event_type == "CHECKOUT.ORDER.APPROVED":
+                status_res = await payment_manager.paypal.verify_payment_status(deposit.gateway_order_id)
+                if not status_res.get("is_paid"):
+                    logger.warning(f"PayPal capture not completed yet for deposit #{deposit.id}: {status_res}")
+                    return web.json_response({"status": "capture_pending"})
+                capture_id = status_res.get("capture_id") or capture_id
+
+            # Process & Credit Deposit
+            deposit, user = await credit_user_deposit_automated(session, deposit.gateway_order_id, capture_id or "PAYPAL_AUTO")
+            if not deposit or not user:
+                return web.json_response({"status": "credit_failed"})
+
+            logger.info(f"Deposit #{deposit.id} successfully credited via PayPal webhook for User {user.telegram_id} (Amount: ₹{deposit.amount})")
+
+            # Check if this was a Direct 1-Click Purchase
+            if deposit.target_variant_id:
+                target_var = await get_variant(session, deposit.target_variant_id)
+                if target_var:
+                    is_manual = (getattr(target_var, "fulfillment_type", "AUTOMATIC") == "MANUAL")
+                    prod = await get_product(session, target_var.product_id)
+                    prod_title = prod.title if prod else "Digital Item"
+
+                    order = None
+                    if not is_manual:
+                        order, err = await fulfill_order(session, user.telegram_id, target_var.id, target_var.price)
+
+                    if order and getattr(order, "delivered_content", None):
+                        delivery_text = (
+                            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER DELIVERED!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
+                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
+                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b> (via PayPal)\n\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"{ce(CustomEmojis.KEY, '🔑')} <b>YOUR DELIVERED ACCOUNT / CODE:</b>\n"
+                            f"<i>(Tap the box below to copy automatically)</i>\n\n"
+                            f"<pre><code>{order.delivered_content}</code></pre>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Full Warranty:</b> Covered throughout validity!\n"
+                            f"{ce(CustomEmojis.HEART, '❤️')} <i>Thank you for shopping with {config.STORE_NAME}!</i>"
+                        )
+                        kb = get_post_delivery_keyboard(order.id)
+                        try:
+                            await bot.send_message(user.telegram_id, delivery_text, reply_markup=kb)
+                        except Exception as e:
+                            logger.error(f"Failed to send delivery to user {user.telegram_id}: {e}")
+
+                        # Group/Channel Notification
+                        remaining = await get_available_stock_count(session, target_var.id)
+                        bot_me = await bot.me()
+                        await send_order_notification(
+                            bot=bot,
+                            order_id=order.id,
+                            buyer_name=user.full_name or "Customer",
+                            product_title=prod_title,
+                            variant_name=target_var.name,
+                            amount=order.amount,
+                            stock_left=remaining,
+                            bot_username=bot_me.username or ""
+                        )
+
+                        # Alert Admins
+                        admin_alert = (
+                            f"{ce(CustomEmojis.FIRE, '🔔')} <b>PAYPAL AUTO-DELIVERED SALE!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
+                            f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {user.full_name} (@{user.username or 'NoUser'})\n"
+                            f"{ce(CustomEmojis.KEY, '🆔')} <b>User ID:</b> <code>{user.telegram_id}</code>\n"
+                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {target_var.name}\n"
+                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f} (PayPal)\n"
+                            f"{ce(CustomEmojis.TROPHY, '📊')} <b>Remaining Stock:</b> {remaining} available"
+                        )
+                        for admin_id in config.ADMIN_IDS:
+                            try:
+                                await bot.send_message(admin_id, admin_alert)
+                            except Exception:
+                                pass
+
+                        return web.json_response({"status": "delivered_auto"})
+
+                    else:
+                        # MANUAL FULFILLMENT or STOCK EMPTY -> Create manual order
+                        manual_order, m_err = await create_manual_order(session, user.telegram_id, target_var.id, target_var.price, customer_input=None)
+
+                        manual_confirm_text = (
+                            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYPAL PAYMENT CONFIRMED & ORDER PLACED!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
+                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
+                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
+                            f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Delivery:</b> 1–2 Hours\n\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"Our team has received your order and is processing your activation right now! You will receive details directly in this chat shortly."
+                        )
+                        try:
+                            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                            kb = InlineKeyboardMarkup(inline_keyboard=[
+                                [InlineKeyboardButton(text="🛟 Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}")],
+                                [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                            ])
+                            await bot.send_message(user.telegram_id, manual_confirm_text, reply_markup=kb)
+                        except Exception as e:
+                            logger.error(f"Failed to send manual confirm to user {user.telegram_id}: {e}")
+
+                        # Notify Group
+                        remaining = await get_available_stock_count(session, target_var.id)
+                        bot_me = await bot.me()
+                        await send_order_notification(
+                            bot=bot,
+                            order_id=manual_order.id,
+                            buyer_name=user.full_name or "Customer",
+                            product_title=prod_title,
+                            variant_name=target_var.name,
+                            amount=manual_order.amount,
+                            stock_left=remaining,
+                            bot_username=bot_me.username or ""
+                        )
+
+                        # Alert Admins with Fulfill Button
+                        from keyboards.admin_keyboards import get_admin_order_actions_keyboard
+                        admin_manual_alert = (
+                            f"{ce(CustomEmojis.FIRE, '🚨')} <b>NEW 1-CLICK PAYPAL ORDER TO FULFILL!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
+                            f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {user.full_name} (@{user.username or 'NoUser'})\n"
+                            f"{ce(CustomEmojis.KEY, '🆔')} <b>User ID:</b> <code>{user.telegram_id}</code>\n"
+                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {target_var.name}\n"
+                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid:</b> {config.CURRENCY_SYMBOL}{manual_order.amount:.2f} (PayPal)\n\n"
+                            f"{ce(CustomEmojis.SPARKLE, '👉')} <i>Click 'Fulfill Order' below to send invite/credentials:</i>"
+                        )
+                        for admin_id in config.ADMIN_IDS:
+                            try:
+                                await bot.send_message(admin_id, admin_manual_alert, reply_markup=get_admin_order_actions_keyboard(manual_order.id))
+                            except Exception:
+                                pass
+
+                        return web.json_response({"status": "placed_manual"})
+
+            # Normal Top-Up Deposit notification to user
+            deposit_msg = (
+                f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYPAL PAYMENT CONFIRMED & CREDITED!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Deposit ID:</b> #{deposit.id}\n"
+                f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Added:</b> <b>+{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b>\n"
+                f"{ce(CustomEmojis.CARD, '💳')} <b>New Wallet Balance:</b> <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n\n"
+                f"You can now purchase any subscription instantly from the store!"
+            )
+            try:
+                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🛍️ Explore Store", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
+                    [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                ])
+                await bot.send_message(user.telegram_id, deposit_msg, reply_markup=kb)
+            except Exception as e:
+                logger.error(f"Failed to notify user of deposit: {e}")
+
+            # Notify Admin of Deposit
+            admin_dep_alert = (
+                f"{ce(CustomEmojis.FIRE, '🔔')} <b>AUTO-DEPOSIT CAPTURED VIA PAYPAL!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Deposit ID:</b> #{deposit.id}\n"
+                f"{ce(CustomEmojis.VERIFIED, '👤')} <b>User:</b> {user.full_name} (@{user.username or 'NoUser'})\n"
+                f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount:</b> <b>+{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b>\n"
+                f"{ce(CustomEmojis.KEY, '🔢')} <b>Capture ID:</b> <code>{capture_id or 'Auto'}</code>"
+            )
+            for admin_id in config.ADMIN_IDS:
+                try:
+                    await bot.send_message(admin_id, admin_dep_alert)
+                except Exception:
+                    pass
+
+            return web.json_response({"status": "credited_deposit"})
+
+    return web.json_response({"status": f"ignored_event_{event_type}"})
+
 def create_webhook_app(bot: Bot) -> web.Application:
     app = web.Application()
     app["bot"] = bot
@@ -299,4 +542,6 @@ def create_webhook_app(bot: Bot) -> web.Application:
     app.router.add_get("/health", handle_health)
     app.router.add_get("/webhook/razorpay", handle_razorpay_webhook_get)
     app.router.add_post("/webhook/razorpay", handle_razorpay_webhook)
+    app.router.add_get("/webhook/paypal", handle_paypal_webhook_get)
+    app.router.add_post("/webhook/paypal", handle_paypal_webhook)
     return app

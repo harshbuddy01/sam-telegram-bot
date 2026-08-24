@@ -51,113 +51,42 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
 
         # 1. Check Wallet Balance -> If 0/insufficient, trigger Direct 1-Click Checkout
         if user.balance < variant.price:
-            import time
-            amount = variant.price
-            customer_name = user.full_name or user.username or f"User {user.telegram_id}"
-            order_ref = f"BUY{user.telegram_id}_{variant.id}_{int(time.time())}"
-
             from payments.manager import payment_manager
-            from utils.qr_generator import generate_upi_qr
-            from aiogram.types import BufferedInputFile
+            available_gateways = payment_manager.get_available_gateways()
 
-            active_gateway = payment_manager.default_gateway
-
-            # If Razorpay / Cashfree is active
-            if active_gateway in ("RAZORPAY", "CASHFREE"):
-                # First try Razorpay official Dynamic Native UPI QR
-                res = await payment_manager.razorpay.create_qr_code(
-                    user_id=user.telegram_id,
-                    amount=amount,
-                    order_id=order_ref,
-                    customer_name=customer_name
-                )
-                if not res.get("success"):
-                    # Fallback to payment_links if qr_codes is disabled
-                    res = await payment_manager.create_deposit_session(
-                        gateway_name=active_gateway,
-                        user_id=user.telegram_id,
-                        amount=amount,
-                        order_id=order_ref,
-                        customer_name=customer_name
-                    )
-
-                if res.get("success"):
-                    gateway_order_id = res.get("gateway_order_id") or res.get("order_id")
-                    deposit = await create_deposit_gateway(
-                        session=session,
-                        user_id=user.telegram_id,
-                        amount=amount,
-                        gateway=active_gateway,
-                        gateway_order_id=gateway_order_id,
-                        target_variant_id=variant.id
-                    )
-
-                    import io
-                    if res.get("qr_image_bytes"):
-                        qr_io = io.BytesIO(res["qr_image_bytes"])
-                        input_file = BufferedInputFile(qr_io.read(), filename=f"rzp_qr_{deposit.id}.png")
-                    else:
-                        import qrcode
-                        qr_img = qrcode.make(res["payment_url"])
-                        qr_buf = io.BytesIO()
-                        qr_img.save(qr_buf, format='PNG')
-                        qr_buf.seek(0)
-                        input_file = BufferedInputFile(qr_buf.read(), filename=f"rzp_checkout_{deposit.id}.png")
-
-                    caption = (
-                        f"{ce(CustomEmojis.FIRE, '⚡')} <b>DIRECT 1-CLICK INSTANT CHECKOUT (RAZORPAY)</b>\n"
-                        f"{UI.SECTION_BAR}\n\n"
-                        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} <b>{prod_title}</b>\n"
-                        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
-                        f"{ce(CustomEmojis.WALLET, '💰')} <b>Total Amount:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
-                        f"{ce(CustomEmojis.FIRE, '⚡')} <b>Delivery:</b> Instant Auto-Delivery upon payment\n\n"
-                        f"<blockquote>"
-                        f"{ce(CustomEmojis.CARD, '📱')} <b>Supported:</b> PhonePe, Google Pay, Paytm, BHIM, CRED, Cards"
-                        f"</blockquote>\n\n"
-                        f"{ce(CustomEmojis.SPARKLE, '👇')} <i>Scan QR code above with PhonePe/GPay OR click the button below to pay:</i>"
-                    )
-                    pay_btn_url = res.get("payment_url") or "https://rzp.io"
-                    kb = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text=f"💳 PAY {config.CURRENCY_SYMBOL}{amount:.0f} VIA RAZORPAY / UPI", url=pay_btn_url)],
-                        [InlineKeyboardButton(text="✅ I Have Paid (Auto-Verify & Deliver)", callback_data=f"chkdep_{deposit.id}")],
-                        [InlineKeyboardButton(text="Cancel & Return", callback_data=f"var_{variant.id}")]
-                    ])
-                    await callback.message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
-                    return
-                else:
-                    err_msg = res.get("error", "Payment gateway session failed.")
-                    await callback.message.answer(
-                        f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Payment Gateway Error:</b>\n{err_msg}\n\nPlease try again shortly or contact support.",
-                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                            [InlineKeyboardButton(text="◀️ Back to Plans", callback_data=f"prod_{variant.product_id}")]
-                        ])
-                    )
-                    return
-            else:
-                # Direct Dynamic UPI QR Flow (only if no automated gateway configured)
-                deposit = await create_deposit(session, user_id=user.telegram_id, amount=amount, target_variant_id=variant.id)
-                qr_buffer = generate_upi_qr(amount=amount, note=f"Order_{deposit.id}")
-                input_file = BufferedInputFile(qr_buffer.read(), filename=f"checkout_qr_{deposit.id}.png")
-
-                caption = (
-                    f"{ce(CustomEmojis.FIRE, '⚡')} <b>DIRECT 1-CLICK INSTANT CHECKOUT</b>\n"
+            if len(available_gateways) > 1 and "PAYPAL" in available_gateways:
+                base_inr, surcharge_inr, total_inr, total_usd = payment_manager.paypal.calculate_amounts(variant.price)
+                text = (
+                    f"{ce(CustomEmojis.WALLET, '💳')} <b>SELECT PAYMENT METHOD FOR 1-CLICK ORDER</b>\n"
                     f"{UI.SECTION_BAR}\n\n"
-                    f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} <b>{prod_title}</b>\n"
-                    f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
-                    f"{ce(CustomEmojis.WALLET, '💰')} <b>Total Amount:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
-                    f"{ce(CustomEmojis.CARD, '📱')} <b>UPI ID:</b> <code>{config.UPI_ID}</code>\n\n"
+                    f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_icon} <b>{prod_title}</b> — <b>{variant.name}</b>\n"
+                    f"{ce(CustomEmojis.WALLET, '💰')} <b>Item Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n\n"
+                    f"Choose your payment method below for instant auto-delivery:\n\n"
                     f"<blockquote>"
-                    f"{ce(CustomEmojis.SPARKLE, '💻')} <b>Desktop / Web:</b> Scan QR code with your phone camera\n"
-                    f"{ce(CustomEmojis.CARD, '📱')} <b>Mobile:</b> Pay {config.CURRENCY_SYMBOL}{amount:.0f} via any UPI app"
-                    f"</blockquote>\n\n"
-                    f"{ce(CustomEmojis.FIRE, '⚡')} <i>Your credentials will be delivered to this chat automatically once paid!</i>"
+                    f"⚡ <b>Instant UPI / Razorpay:</b> Zero fees (0% fee)\n"
+                    f"🅿️ <b>PayPal & Cards:</b> +5% merchant fee ({config.CURRENCY_SYMBOL}{total_inr:.2f} / ${total_usd:.2f} USD)"
+                    f"</blockquote>"
                 )
-                kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="Submit UTR / Screenshot", callback_data=f"submitproof_{deposit.id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
-                    [InlineKeyboardButton(text="Cancel", callback_data=f"var_{variant.id}", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                buttons = []
+                if payment_manager.razorpay.is_configured:
+                    buttons.append([
+                        InlineKeyboardButton(text=f"⚡ Instant UPI / Razorpay ({config.CURRENCY_SYMBOL}{variant.price:.0f})", callback_data=f"buygw_razorpay_{variant.id}")
+                    ])
+                if payment_manager.paypal.is_configured:
+                    buttons.append([
+                        InlineKeyboardButton(text=f"🅿️ PayPal / Cards (${total_usd:.2f} USD)", callback_data=f"buygw_paypal_{variant.id}")
+                    ])
+                buttons.append([
+                    InlineKeyboardButton(text=f"📱 Manual UPI QR ({config.CURRENCY_SYMBOL}{variant.price:.0f})", callback_data=f"buygw_manual_{variant.id}")
                 ])
-                await callback.message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
+                buttons.append([
+                    InlineKeyboardButton(text="◀️ Back to Plans", callback_data=f"prod_{variant.product_id}")
+                ])
+                await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
                 return
+
+            await initiate_1click_checkout(callback.message, user, variant, prod_title, prod_icon, session)
+            return
 
         # 2. Check Fulfillment Mode (MANUAL vs AUTOMATIC)
         is_manual = (getattr(variant, "fulfillment_type", "AUTOMATIC") == "MANUAL")
@@ -321,3 +250,196 @@ async def msg_order_manual_input(message: types.Message, state: FSMContext, sess
             await bot.send_message(admin_id, admin_text, reply_markup=admin_kb)
         except Exception:
             pass
+
+@router.callback_query(F.data.startswith("buygw_"))
+async def cb_buy_variant_gateway(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
+    parts = callback.data.split("_")
+    gw_name = parts[1].upper()
+    variant_id = int(parts[2])
+
+    variant = await get_variant(session, variant_id)
+    if not variant:
+        await callback.answer("Product plan not found.", show_alert=True)
+        return
+
+    user = await get_user(session, callback.from_user.id)
+    if not user:
+        await callback.answer("User profile not found.", show_alert=True)
+        return
+
+    product = await get_product(session, variant.product_id)
+    prod_title = product.title if product else "Digital Item"
+    prod_icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if product else "📦"
+
+    await callback.answer()
+    await initiate_1click_checkout(callback.message, user, variant, prod_title, prod_icon, session, preferred_gateway=gw_name)
+
+async def initiate_1click_checkout(
+    message: types.Message,
+    user,
+    variant,
+    prod_title: str,
+    prod_icon: str,
+    session: AsyncSession,
+    preferred_gateway: Optional[str] = None
+):
+    import time
+    import io
+    import qrcode
+    from payments.manager import payment_manager
+    from utils.qr_generator import generate_upi_qr
+    from aiogram.types import BufferedInputFile
+
+    amount = variant.price
+    customer_name = user.full_name or user.username or f"User {user.telegram_id}"
+    order_ref = f"BUY{user.telegram_id}_{variant.id}_{int(time.time())}"
+
+    active_gateway = (preferred_gateway or payment_manager.default_gateway).upper()
+
+    # 1. PayPal 1-Click Flow (5% merchant fee surcharge paid by customer)
+    if active_gateway == "PAYPAL" and payment_manager.paypal.is_configured:
+        res = await payment_manager.paypal.create_payment_order(
+            user_id=user.telegram_id,
+            amount=amount,
+            order_id=order_ref,
+            customer_name=customer_name
+        )
+        if res.get("success"):
+            gateway_order_id = res.get("gateway_order_id")
+            deposit = await create_deposit_gateway(
+                session=session,
+                user_id=user.telegram_id,
+                amount=amount,
+                gateway="PAYPAL",
+                gateway_order_id=gateway_order_id,
+                target_variant_id=variant.id
+            )
+
+            qr_img = qrcode.make(res["payment_url"])
+            qr_buf = io.BytesIO()
+            qr_img.save(qr_buf, format='PNG')
+            qr_buf.seek(0)
+            input_file = BufferedInputFile(qr_buf.read(), filename=f"paypal_buy_{deposit.id}.png")
+
+            caption = (
+                f"{ce(CustomEmojis.FIRE, '⚡')} <b>DIRECT 1-CLICK INSTANT CHECKOUT (PAYPAL)</b>\n"
+                f"{UI.SECTION_BAR}\n\n"
+                f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} <b>{prod_title}</b>\n"
+                f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n\n"
+                f"<blockquote>"
+                f"{ce(CustomEmojis.WALLET, '💰')} <b>Item Price:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
+                f"{ce(CustomEmojis.CARD, '💳')} <b>PayPal Fee (5%):</b> +{config.CURRENCY_SYMBOL}{res.get('surcharge_amount', 0):.2f}\n"
+                f"{ce(CustomEmojis.FIRE, '💵')} <b>Total Charged:</b> <b>${res.get('total_usd', 0):.2f} USD</b> ({config.CURRENCY_SYMBOL}{res.get('total_inr', 0):.2f})\n"
+                f"{ce(CustomEmojis.CHECK, '🛡️')} <b>Delivery:</b> Instant Auto-Delivery upon payment"
+                f"</blockquote>\n\n"
+                f"<i>Scan QR above or click below to complete your checkout:</i>"
+            )
+            pay_btn_url = res.get("payment_url") or "https://paypal.com"
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=f"🅿️ PAY ${res.get('total_usd', 0):.2f} VIA PAYPAL", url=pay_btn_url)],
+                [InlineKeyboardButton(text="✅ I Have Paid (Auto-Verify & Deliver)", callback_data=f"chkdep_{deposit.id}")],
+                [InlineKeyboardButton(text="Cancel & Return", callback_data=f"var_{variant.id}")]
+            ])
+            await message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
+            return
+        else:
+            err_msg = res.get("error", "PayPal session failed.")
+            await message.answer(
+                f"{ce(CustomEmojis.LOCK, '⚠️')} <b>PayPal Error:</b>\n{err_msg}\n\nPlease try again or select another payment method.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="◀️ Back to Plans", callback_data=f"prod_{variant.product_id}")]
+                ])
+            )
+            return
+
+    # 2. Razorpay / Cashfree 1-Click Flow
+    elif active_gateway in ("RAZORPAY", "CASHFREE"):
+        res = await payment_manager.razorpay.create_qr_code(
+            user_id=user.telegram_id,
+            amount=amount,
+            order_id=order_ref,
+            customer_name=customer_name
+        )
+        if not res.get("success"):
+            res = await payment_manager.create_deposit_session(
+                gateway_name=active_gateway,
+                user_id=user.telegram_id,
+                amount=amount,
+                order_id=order_ref,
+                customer_name=customer_name
+            )
+
+        if res.get("success"):
+            gateway_order_id = res.get("gateway_order_id") or res.get("order_id")
+            deposit = await create_deposit_gateway(
+                session=session,
+                user_id=user.telegram_id,
+                amount=amount,
+                gateway=active_gateway,
+                gateway_order_id=gateway_order_id,
+                target_variant_id=variant.id
+            )
+
+            if res.get("qr_image_bytes"):
+                qr_io = io.BytesIO(res["qr_image_bytes"])
+                input_file = BufferedInputFile(qr_io.read(), filename=f"rzp_qr_{deposit.id}.png")
+            else:
+                qr_img = qrcode.make(res["payment_url"])
+                qr_buf = io.BytesIO()
+                qr_img.save(qr_buf, format='PNG')
+                qr_buf.seek(0)
+                input_file = BufferedInputFile(qr_buf.read(), filename=f"rzp_checkout_{deposit.id}.png")
+
+            caption = (
+                f"{ce(CustomEmojis.FIRE, '⚡')} <b>DIRECT 1-CLICK INSTANT CHECKOUT (RAZORPAY)</b>\n"
+                f"{UI.SECTION_BAR}\n\n"
+                f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} <b>{prod_title}</b>\n"
+                f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
+                f"{ce(CustomEmojis.WALLET, '💰')} <b>Total Amount:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
+                f"{ce(CustomEmojis.FIRE, '⚡')} <b>Delivery:</b> Instant Auto-Delivery upon payment\n\n"
+                f"<blockquote>"
+                f"{ce(CustomEmojis.CARD, '📱')} <b>Supported:</b> PhonePe, Google Pay, Paytm, BHIM, CRED, Cards"
+                f"</blockquote>\n\n"
+                f"{ce(CustomEmojis.SPARKLE, '👇')} <i>Scan QR code above with PhonePe/GPay OR click the button below to pay:</i>"
+            )
+            pay_btn_url = res.get("payment_url") or "https://rzp.io"
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=f"💳 PAY {config.CURRENCY_SYMBOL}{amount:.0f} VIA RAZORPAY / UPI", url=pay_btn_url)],
+                [InlineKeyboardButton(text="✅ I Have Paid (Auto-Verify & Deliver)", callback_data=f"chkdep_{deposit.id}")],
+                [InlineKeyboardButton(text="Cancel & Return", callback_data=f"var_{variant.id}")]
+            ])
+            await message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
+            return
+        else:
+            err_msg = res.get("error", "Payment gateway session failed.")
+            await message.answer(
+                f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Payment Gateway Error:</b>\n{err_msg}\n\nPlease try again shortly or contact support.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="◀️ Back to Plans", callback_data=f"prod_{variant.product_id}")]
+                ])
+            )
+            return
+
+    # 3. Fallback to Direct Manual UPI QR Flow
+    deposit = await create_deposit(session, user_id=user.telegram_id, amount=amount, target_variant_id=variant.id)
+    qr_buffer = generate_upi_qr(amount=amount, note=f"Order_{deposit.id}")
+    input_file = BufferedInputFile(qr_buffer.read(), filename=f"checkout_qr_{deposit.id}.png")
+
+    caption = (
+        f"{ce(CustomEmojis.FIRE, '⚡')} <b>DIRECT 1-CLICK INSTANT CHECKOUT</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} <b>{prod_title}</b>\n"
+        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Total Amount:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
+        f"{ce(CustomEmojis.CARD, '📱')} <b>UPI ID:</b> <code>{config.UPI_ID}</code>\n\n"
+        f"<blockquote>"
+        f"{ce(CustomEmojis.SPARKLE, '💻')} <b>Desktop / Web:</b> Scan QR code with your phone camera\n"
+        f"{ce(CustomEmojis.CARD, '📱')} <b>Mobile:</b> Pay {config.CURRENCY_SYMBOL}{amount:.0f} via any UPI app"
+        f"</blockquote>\n\n"
+        f"{ce(CustomEmojis.FIRE, '⚡')} <i>Your credentials will be delivered to this chat automatically once paid!</i>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Submit UTR / Screenshot", callback_data=f"submitproof_{deposit.id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
+        [InlineKeyboardButton(text="Cancel", callback_data=f"var_{variant.id}", icon_custom_emoji_id=CustomEmojis.CROWN)]
+    ])
+    await message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)

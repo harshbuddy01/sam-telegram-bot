@@ -58,7 +58,50 @@ async def cb_deposit_amount_selected(callback: types.CallbackQuery, state: FSMCo
         return
 
     amount = float(amt_str)
-    await initiate_deposit_payment(callback.message, callback.from_user, amount, session, state)
+    # Check if multiple gateways are available to give user a choice
+    available_gateways = payment_manager.get_available_gateways()
+    if len(available_gateways) > 1 and "PAYPAL" in available_gateways:
+        await prompt_payment_gateway_choice(callback.message, amount)
+    else:
+        await initiate_deposit_payment(callback.message, callback.from_user, amount, session, state)
+
+@router.callback_query(F.data.startswith("deppay_"))
+async def cb_deposit_gateway_chosen(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
+    parts = callback.data.split("_")
+    gw_name = parts[1].upper()
+    amount = float(parts[2])
+    await callback.answer()
+    await initiate_deposit_payment(callback.message, callback.from_user, amount, session, state, preferred_gateway=gw_name)
+
+async def prompt_payment_gateway_choice(message: types.Message, amount: float):
+    base_inr, surcharge_inr, total_inr, total_usd = payment_manager.paypal.calculate_amounts(amount)
+
+    text = (
+        f"{ce(CustomEmojis.WALLET, '💳')} <b>SELECT PAYMENT METHOD</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"<b>Deposit Amount:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n\n"
+        f"Choose how you would like to complete your payment:\n\n"
+        f"<blockquote>"
+        f"⚡ <b>Instant UPI / Razorpay:</b> Zero fees (0% fee)\n"
+        f"🅿️ <b>PayPal & International Cards:</b> +5% merchant fee ({config.CURRENCY_SYMBOL}{total_inr:.2f} / ${total_usd:.2f} USD)"
+        f"</blockquote>"
+    )
+    buttons = []
+    if payment_manager.razorpay.is_configured:
+        buttons.append([
+            InlineKeyboardButton(text=f"⚡ Instant UPI / Razorpay ({config.CURRENCY_SYMBOL}{amount:.0f})", callback_data=f"deppay_razorpay_{int(amount)}")
+        ])
+    if payment_manager.paypal.is_configured:
+        buttons.append([
+            InlineKeyboardButton(text=f"🅿️ PayPal / Cards (${total_usd:.2f} USD)", callback_data=f"deppay_paypal_{int(amount)}")
+        ])
+    buttons.append([
+        InlineKeyboardButton(text=f"📱 Manual UPI QR ({config.CURRENCY_SYMBOL}{amount:.0f})", callback_data=f"deppay_manual_{int(amount)}")
+    ])
+    buttons.append([
+        InlineKeyboardButton(text="◀️ Back to Presets", callback_data="nav_deposit")
+    ])
+    await message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
 @router.message(DepositStates.waiting_for_amount)
 async def msg_custom_deposit_amount(message: types.Message, state: FSMContext, session: AsyncSession):
@@ -76,14 +119,20 @@ async def msg_custom_deposit_amount(message: types.Message, state: FSMContext, s
         return
 
     await state.clear()
-    await initiate_deposit_payment(message, message.from_user, amount, session, state)
+    available_gateways = payment_manager.get_available_gateways()
+    if len(available_gateways) > 1 and "PAYPAL" in available_gateways:
+        sent_msg = await message.answer("Preparing payment options...")
+        await prompt_payment_gateway_choice(sent_msg, amount)
+    else:
+        await initiate_deposit_payment(message, message.from_user, amount, session, state)
 
 async def initiate_deposit_payment(
     message: types.Message,
     from_user: types.User,
     amount: float,
     session: AsyncSession,
-    state: FSMContext
+    state: FSMContext,
+    preferred_gateway: Optional[str] = None
 ):
     user_id = from_user.id
     if user_id in _generating_deposits:
@@ -93,13 +142,67 @@ async def initiate_deposit_payment(
     _generating_deposits.add(user_id)
     try:
         import time
+        import io
+        import qrcode
         customer_name = from_user.full_name or from_user.first_name
         order_ref = f"DEP{user_id}_{int(amount)}_{int(time.time())}"
 
-        # Check if Automated Gateway (Razorpay or Cashfree) is active
-        active_gateway = payment_manager.default_gateway
+        active_gateway = (preferred_gateway or payment_manager.default_gateway).upper()
 
-        if active_gateway in ("RAZORPAY", "CASHFREE"):
+        # 1. PayPal Flow (includes 5% merchant fee surcharge paid by customer)
+        if active_gateway == "PAYPAL" and payment_manager.paypal.is_configured:
+            res = await payment_manager.paypal.create_payment_order(
+                user_id=user_id,
+                amount=amount,
+                order_id=order_ref,
+                customer_name=customer_name
+            )
+            if res.get("success"):
+                gateway_order_id = res.get("gateway_order_id")
+                deposit = await create_deposit_gateway(
+                    session=session,
+                    user_id=user_id,
+                    amount=amount, # Credits base amount to wallet
+                    gateway="PAYPAL",
+                    gateway_order_id=gateway_order_id
+                )
+
+                qr_img = qrcode.make(res["payment_url"])
+                qr_buf = io.BytesIO()
+                qr_img.save(qr_buf, format='PNG')
+                qr_buf.seek(0)
+                input_file = BufferedInputFile(qr_buf.read(), filename=f"paypal_deposit_{deposit.id}.png")
+
+                caption = (
+                    f"{ce(CustomEmojis.WALLET, '💳')} <b>AUTOMATED INSTANT DEPOSIT #{deposit.id} (PAYPAL)</b>\n"
+                    f"{UI.SECTION_BAR}\n\n"
+                    f"<blockquote>"
+                    f"{ce(CustomEmojis.DIAMOND, '💰')} <b>Wallet Top-Up:</b> <b>+{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
+                    f"{ce(CustomEmojis.CARD, '💳')} <b>PayPal Fee (5%):</b> +{config.CURRENCY_SYMBOL}{res.get('surcharge_amount', 0):.2f}\n"
+                    f"{ce(CustomEmojis.FIRE, '💵')} <b>Total Charged:</b> <b>${res.get('total_usd', 0):.2f} USD</b> ({config.CURRENCY_SYMBOL}{res.get('total_inr', 0):.2f})\n"
+                    f"{ce(CustomEmojis.CHECK, '🛡️')} <b>Gateway:</b> PayPal (Balance / Debit / Credit Cards)"
+                    f"</blockquote>\n\n"
+                    f"<i>Scan QR above or tap 'Pay via PayPal' below. Once paid, tap 'Auto-Verify & Credit':</i>"
+                )
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=f"🅿️ PAY ${res.get('total_usd', 0):.2f} VIA PAYPAL", url=res["payment_url"])],
+                    [InlineKeyboardButton(text="✅ I Have Paid (Auto-Verify & Credit)", callback_data=f"chkdep_{deposit.id}")],
+                    [InlineKeyboardButton(text="Cancel & Return", callback_data="nav_home")]
+                ])
+                await message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
+                return
+            else:
+                err_msg = res.get("error", "PayPal session failed.")
+                await message.answer(
+                    f"{ce(CustomEmojis.LOCK, '⚠️')} <b>PayPal Error:</b>\n{err_msg}\n\nPlease try again or select another payment method.",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                    ])
+                )
+                return
+
+        # 2. Razorpay / Cashfree Automated Flow
+        elif active_gateway in ("RAZORPAY", "CASHFREE"):
             res = await payment_manager.razorpay.create_qr_code(
                 user_id=user_id,
                 amount=amount,
@@ -125,12 +228,10 @@ async def initiate_deposit_payment(
                     gateway_order_id=gateway_order_id
                 )
 
-                import io
                 if res.get("qr_image_bytes"):
                     qr_io = io.BytesIO(res["qr_image_bytes"])
                     input_file = BufferedInputFile(qr_io.read(), filename=f"rzp_qr_{deposit.id}.png")
                 else:
-                    import qrcode
                     qr_img = qrcode.make(res["payment_url"])
                     qr_buf = io.BytesIO()
                     qr_img.save(qr_buf, format='PNG')
@@ -166,7 +267,7 @@ async def initiate_deposit_payment(
     finally:
         _generating_deposits.discard(user_id)
 
-    # Fallback to Direct UPI QR Code Flow
+    # 3. Fallback to Direct UPI QR Code Flow
     deposit = await create_deposit(session, user_id=user_id, amount=amount)
     qr_buffer = generate_upi_qr(amount=amount, note=f"Deposit_{deposit.id}")
     input_file = BufferedInputFile(qr_buffer.read(), filename=f"upi_qr_{deposit.id}.png")
@@ -259,127 +360,132 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
         await callback.message.answer(f"{ce(CustomEmojis.CHECK, '✅')} This deposit is already verified and credited to your wallet balance!")
         return
 
-    # Check status via Gateway
-    if deposit.gateway == "RAZORPAY" and deposit.gateway_order_id:
-        from payments.manager import payment_manager
+    # Check status via Gateways (PayPal, Razorpay, Cashfree)
+    status_res = {"is_paid": False}
+    if deposit.gateway == "PAYPAL" and deposit.gateway_order_id:
+        status_res = await payment_manager.paypal.verify_payment_status(deposit.gateway_order_id)
+    elif deposit.gateway == "RAZORPAY" and deposit.gateway_order_id:
         status_res = await payment_manager.razorpay.verify_payment_status(deposit.gateway_order_id)
-        if status_res.get("is_paid"):
-            dep, user = await credit_user_deposit_automated(session, deposit.gateway_order_id)
-            
-            # Check if this was a Direct 1-Click Purchase
-            if deposit.target_variant_id:
-                from database.crud import get_variant, fulfill_order, create_manual_order, get_product, get_available_stock_count
-                target_var = await get_variant(session, deposit.target_variant_id)
-                if target_var:
-                    is_manual = (getattr(target_var, "fulfillment_type", "AUTOMATIC") == "MANUAL")
-                    prod = await get_product(session, target_var.product_id)
-                    prod_title = prod.title if prod else "Digital Item"
+    elif deposit.gateway == "CASHFREE" and deposit.gateway_order_id:
+        status_res = await payment_manager.cashfree.verify_payment_status(deposit.gateway_order_id)
+
+    if status_res.get("is_paid"):
+        dep, user = await credit_user_deposit_automated(session, deposit.gateway_order_id, status_res.get("capture_id", "AUTO_VERIFIED"))
+        
+        # Check if this was a Direct 1-Click Purchase
+        if deposit.target_variant_id:
+            from database.crud import get_variant, fulfill_order, create_manual_order, get_product, get_available_stock_count
+            target_var = await get_variant(session, deposit.target_variant_id)
+            if target_var:
+                is_manual = (getattr(target_var, "fulfillment_type", "AUTOMATIC") == "MANUAL")
+                prod = await get_product(session, target_var.product_id)
+                prod_title = prod.title if prod else "Digital Item"
+                
+                order = None
+                if not is_manual:
+                    order, err = await fulfill_order(session, user.telegram_id, target_var.id, target_var.price)
+                
+                if order and getattr(order, "delivered_content", None):
+                    delivery_text = (
+                        f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER DELIVERED!</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
+                        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
+                        f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"{ce(CustomEmojis.KEY, '🔑')} <b>YOUR DELIVERED ACCOUNT / CODE:</b>\n"
+                        f"<i>(Tap the box below to copy automatically)</i>\n\n"
+                        f"<pre><code>{order.delivered_content}</code></pre>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                        f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Full Warranty:</b> Covered throughout validity!\n"
+                        f"{ce(CustomEmojis.HEART, '❤️')} <i>Thank you for shopping with {config.STORE_NAME}!</i>"
+                    )
+                    kb = get_post_delivery_keyboard(order.id)
+                    await callback.message.edit_text(delivery_text, reply_markup=kb)
+
+                    # Group/Channel Notification
+                    remaining = await get_available_stock_count(session, target_var.id)
+                    bot_me = await bot.me()
+                    await send_order_notification(
+                        bot=bot,
+                        order_id=order.id,
+                        buyer_name=callback.from_user.full_name,
+                        product_title=prod_title,
+                        variant_name=target_var.name,
+                        amount=order.amount,
+                        stock_left=remaining,
+                        bot_username=bot_me.username or ""
+                    )
+                    return
+                else:
+                    # MANUAL FULFILLMENT or STOCK EMPTY -> Create manual order
+                    manual_order = await create_manual_order(session, user.telegram_id, target_var.id, target_var.price, customer_input=None)
                     
-                    order = None
-                    if not is_manual:
-                        order, err = await fulfill_order(session, user.telegram_id, target_var.id, target_var.price)
-                    
-                    if order and getattr(order, "delivered_content", None):
-                        delivery_text = (
-                            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER DELIVERED!</b>\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
-                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
-                            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
-                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                            f"{ce(CustomEmojis.KEY, '🔑')} <b>YOUR DELIVERED ACCOUNT / CODE:</b>\n"
-                            f"<i>(Tap the box below to copy automatically)</i>\n\n"
-                            f"<pre><code>{order.delivered_content}</code></pre>\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                            f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Full Warranty:</b> Covered throughout validity!\n"
-                            f"{ce(CustomEmojis.HEART, '❤️')} <i>Thank you for shopping with {config.STORE_NAME}!</i>"
-                        )
-                        kb = get_post_delivery_keyboard(order.id)
-                        await callback.message.edit_text(delivery_text, reply_markup=kb)
+                    manual_confirm_text = (
+                        f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER PLACED!</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
+                        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
+                        f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
+                        f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Delivery:</b> 1–2 Hours\n\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"Our team has received your order and is processing your invitation/activation right now! You will receive your details directly in this chat shortly."
+                    )
+                    kb = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🛟 Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}")],
+                        [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                    ])
+                    await callback.message.edit_text(manual_confirm_text, reply_markup=kb)
 
-                        # Group/Channel Notification
-                        remaining = await get_available_stock_count(session, target_var.id)
-                        bot_me = await bot.me()
-                        await send_order_notification(
-                            bot=bot,
-                            order_id=order.id,
-                            buyer_name=callback.from_user.full_name,
-                            product_title=prod_title,
-                            variant_name=target_var.name,
-                            amount=order.amount,
-                            stock_left=remaining,
-                            bot_username=bot_me.username or ""
-                        )
-                        return
-                    else:
-                        # MANUAL FULFILLMENT or STOCK EMPTY -> Create manual order
-                        manual_order = await create_manual_order(session, user.telegram_id, target_var.id, target_var.price, customer_input=None)
-                        
-                        manual_confirm_text = (
-                            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER PLACED!</b>\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
-                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
-                            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
-                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
-                            f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Delivery:</b> 1–2 Hours\n\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                            f"Our team has received your order and is processing your invitation/activation right now! You will receive your details directly in this chat shortly."
-                        )
-                        kb = InlineKeyboardMarkup(inline_keyboard=[
-                            [InlineKeyboardButton(text="🛟 Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}")],
-                            [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
-                        ])
-                        await callback.message.edit_text(manual_confirm_text, reply_markup=kb)
+                    # Group/Channel Notification
+                    remaining = await get_available_stock_count(session, target_var.id)
+                    bot_me = await bot.me()
+                    await send_order_notification(
+                        bot=bot,
+                        order_id=manual_order.id,
+                        buyer_name=callback.from_user.full_name,
+                        product_title=prod_title,
+                        variant_name=target_var.name,
+                        amount=manual_order.amount,
+                        stock_left=remaining,
+                        bot_username=bot_me.username or ""
+                    )
 
-                        # Group/Channel Notification
-                        remaining = await get_available_stock_count(session, target_var.id)
-                        bot_me = await bot.me()
-                        await send_order_notification(
-                            bot=bot,
-                            order_id=manual_order.id,
-                            buyer_name=callback.from_user.full_name,
-                            product_title=prod_title,
-                            variant_name=target_var.name,
-                            amount=manual_order.amount,
-                            stock_left=remaining,
-                            bot_username=bot_me.username or ""
-                        )
+                    # Alert Admins with Fulfill Button
+                    from keyboards.admin_keyboards import get_admin_order_actions_keyboard
+                    admin_manual_alert = (
+                        f"{ce(CustomEmojis.FIRE, '🚨')} <b>NEW 1-CLICK PAID ORDER TO FULFILL!</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
+                        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {user.full_name} (@{user.username or 'NoUser'})\n"
+                        f"{ce(CustomEmojis.KEY, '🆔')} <b>User ID:</b> <code>{user.telegram_id}</code>\n"
+                        f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {target_var.name}\n"
+                        f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid:</b> {config.CURRENCY_SYMBOL}{manual_order.amount:.2f} (Razorpay)\n\n"
+                        f"{ce(CustomEmojis.SPARKLE, '👉')} <i>Click 'Fulfill Order' below to send invite/credentials:</i>"
+                    )
+                    for admin_id in config.ADMIN_IDS:
+                        try:
+                            await bot.send_message(admin_id, admin_manual_alert, reply_markup=get_admin_order_actions_keyboard(manual_order.id))
+                        except Exception:
+                            pass
+                    return
 
-                        # Alert Admins with Fulfill Button
-                        from keyboards.admin_keyboards import get_admin_order_actions_keyboard
-                        admin_manual_alert = (
-                            f"{ce(CustomEmojis.FIRE, '🚨')} <b>NEW 1-CLICK PAID ORDER TO FULFILL!</b>\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
-                            f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {user.full_name} (@{user.username or 'NoUser'})\n"
-                            f"{ce(CustomEmojis.KEY, '🆔')} <b>User ID:</b> <code>{user.telegram_id}</code>\n"
-                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {target_var.name}\n"
-                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid:</b> {config.CURRENCY_SYMBOL}{manual_order.amount:.2f} (Razorpay)\n\n"
-                            f"{ce(CustomEmojis.SPARKLE, '👉')} <i>Click 'Fulfill Order' below to send invite/credentials:</i>"
-                        )
-                        for admin_id in config.ADMIN_IDS:
-                            try:
-                                await bot.send_message(admin_id, admin_manual_alert, reply_markup=get_admin_order_actions_keyboard(manual_order.id))
-                            except Exception:
-                                pass
-                        return
-
-            text = (
-                f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & CREDITED!</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Deposit ID:</b> #{deposit.id}\n"
-                f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Added:</b> <b>+{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b>\n"
-                f"{ce(CustomEmojis.CARD, '💳')} <b>New Wallet Balance:</b> <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n\n"
-                f"You can now purchase any subscription instantly from the store!"
-            )
-            kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🛍️ Explore Store", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
-                [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
-            ])
-            await callback.message.edit_text(text, reply_markup=kb)
-            return
+        text = (
+            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & CREDITED!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Deposit ID:</b> #{deposit.id}\n"
+            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Added:</b> <b>+{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b>\n"
+            f"{ce(CustomEmojis.CARD, '💳')} <b>New Wallet Balance:</b> <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n\n"
+            f"You can now purchase any subscription instantly from the store!"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🛍️ Explore Store", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
+            [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+        ])
+        await callback.message.edit_text(text, reply_markup=kb)
+        return
 
     await callback.message.answer(
         f"{ce(CustomEmojis.FIRE, '⏳')} <b>Payment Not Detected Yet</b>\n\n"

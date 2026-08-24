@@ -11,6 +11,10 @@ env/
 venv/
 ENV/
 
-# Database (optional to ignore if deploying fresh, or keep if seeding locally)
+# Database
+*.db
 *.db-journal
 *.db-wal
+
+# Test Assets
+test_*.png

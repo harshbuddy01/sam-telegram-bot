@@ -2,20 +2,24 @@ from typing import Optional, Dict, Any
 from payments.manual_upi import ManualUPIGateway
 from payments.cashfree import CashfreeGateway
 from payments.razorpay import RazorpayGateway
+from payments.paypal import PayPalGateway
 
 class PaymentManager:
     """
-    Central Payment Gateway Manager supporting Razorpay, Cashfree & Manual UPI.
+    Central Payment Gateway Manager supporting Razorpay, PayPal, Cashfree & Manual UPI.
     """
     def __init__(self):
         self.manual_upi = ManualUPIGateway()
         self.cashfree = CashfreeGateway()
         self.razorpay = RazorpayGateway()
+        self.paypal = PayPalGateway()
 
     @property
     def default_gateway(self) -> str:
         if self.razorpay.is_configured:
             return "RAZORPAY"
+        elif self.paypal.is_configured:
+            return "PAYPAL"
         elif self.cashfree.is_configured:
             return "CASHFREE"
         return "MANUAL_UPI"
@@ -24,6 +28,8 @@ class PaymentManager:
         gateways = []
         if self.razorpay.is_configured:
             gateways.append("RAZORPAY")
+        if self.paypal.is_configured:
+            gateways.append("PAYPAL")
         if self.cashfree.is_configured:
             gateways.append("CASHFREE")
         gateways.append("MANUAL_UPI")
@@ -41,7 +47,16 @@ class PaymentManager:
     ) -> Dict[str, Any]:
         gw = (gateway_name or self.default_gateway).upper()
 
-        if gw == "RAZORPAY" and self.razorpay.is_configured:
+        if gw == "PAYPAL" and self.paypal.is_configured:
+            return await self.paypal.create_payment_order(
+                 user_id=user_id,
+                 amount=amount,
+                 order_id=order_id,
+                 customer_name=customer_name,
+                 customer_phone=customer_phone,
+                 customer_email=customer_email
+            )
+        elif gw == "RAZORPAY" and self.razorpay.is_configured:
             return await self.razorpay.create_payment_order(
                 user_id=user_id,
                 amount=amount,
