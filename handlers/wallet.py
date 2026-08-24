@@ -133,6 +133,15 @@ async def initiate_deposit_payment(
             ])
             await message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
             return
+        else:
+            err_msg = res.get("error", "Payment gateway session failed.")
+            await message.answer(
+                f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Payment Gateway Error:</b>\n{err_msg}\n\nPlease try again shortly or contact support.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                ])
+            )
+            return
 
     # Fallback to Direct UPI QR Code Flow
     deposit = await create_deposit(session, user_id=user_id, amount=amount)

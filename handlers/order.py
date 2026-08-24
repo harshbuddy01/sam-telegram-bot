@@ -99,6 +99,15 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
                 ])
                 await callback.message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
                 return
+            else:
+                err_msg = res.get("error", "Payment gateway session failed.")
+                await callback.message.answer(
+                    f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Payment Gateway Error:</b>\n{err_msg}\n\nPlease try again shortly or contact support.",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="◀️ Back to Plans", callback_data=f"prod_{variant.product_id}")]
+                    ])
+                )
+                return
 
         # Direct Dynamic UPI QR Flow
         deposit = await create_deposit(session, user_id=user.telegram_id, amount=amount, target_variant_id=variant.id)
