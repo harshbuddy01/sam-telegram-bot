@@ -237,7 +237,7 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
                     return
                 else:
                     # MANUAL FULFILLMENT or STOCK EMPTY -> Create manual order
-                    manual_order = await create_manual_order(session, user.telegram_id, target_var.id, target_var.price, customer_input=None)
+                    manual_order, m_err = await create_manual_order(session, user.telegram_id, target_var.id, target_var.price, customer_input=None)
                     manual_confirm_text = (
                         f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER PLACED!</b>\n"
                         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
