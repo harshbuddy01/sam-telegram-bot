@@ -280,13 +280,23 @@ async def cmd_getemoji(message: types.Message):
         )
         return
 
-    result = f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Detected Telegram Premium Custom Emoji ID(s):</b>\n\n"
-    for eid in emoji_ids:
-        result += (
-            f"• <b>Emoji ID:</b> <code>{eid}</code>\n"
-            f"  <b>Live Render:</b> <tg-emoji emoji-id=\"{eid}\">✨</tg-emoji>\n"
-            f"  <b>HTML Code:</b> <code>&lt;tg-emoji emoji-id=\"{eid}\"&gt;✨&lt;/tg-emoji&gt;</code>\n\n"
-        )
+    chunk_size = 15
+    chunks = [emoji_ids[i:i + chunk_size] for i in range(0, len(emoji_ids), chunk_size)]
 
-    result += "<i>Copy the HTML code to paste into any product title or description!</i>"
-    await message.answer(result)
+    for idx, chunk in enumerate(chunks, 1):
+        if len(chunks) > 1:
+            result = f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Detected Custom Emojis (Part {idx}/{len(chunks)} — {len(emoji_ids)} Total):</b>\n\n"
+        else:
+            result = f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Detected Telegram Premium Custom Emoji ID(s):</b>\n\n"
+
+        for eid in chunk:
+            result += (
+                f"• <b>Emoji ID:</b> <code>{eid}</code>\n"
+                f"  <b>Live Render:</b> <tg-emoji emoji-id=\"{eid}\">✨</tg-emoji>\n"
+                f"  <b>HTML Code:</b> <code>&lt;tg-emoji emoji-id=\"{eid}\"&gt;✨&lt;/tg-emoji&gt;</code>\n\n"
+            )
+
+        if idx == len(chunks):
+            result += "<i>Copy the HTML code to paste into any product title or description!</i>"
+
+        await message.answer(result)
