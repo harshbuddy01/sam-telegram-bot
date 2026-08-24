@@ -120,74 +120,132 @@ async def handle_razorpay_webhook(request: web.Request) -> web.Response:
             if not deposit or not user:
                 return web.json_response({"status": "credit_failed"})
 
-            logger.info(f"Deposit #{deposit.id} successfully credited via webhook for User {user.telegram_id} (Amount: ₹{deposit.amount})")
-
-            # Check if this was a Direct 1-Click Purchase
+            logger.info(f"Deposit #{deposit.id} successfully credited via webhook for User {user.telegram_id} (Amount: ₹{deposit.amount})")            # Check if this was a Direct 1-Click Purchase
             if deposit.target_variant_id:
                 target_var = await get_variant(session, deposit.target_variant_id)
                 if target_var:
                     is_manual = (getattr(target_var, "fulfillment_type", "AUTOMATIC") == "MANUAL")
+                    prod = await get_product(session, target_var.product_id)
+                    prod_title = prod.title if prod else "Digital Item"
                     
+                    order = None
                     if not is_manual:
-                        # 100% AUTOMATIC INSTANT FULFILLMENT
                         order, err = await fulfill_order(session, user.telegram_id, target_var.id, target_var.price)
-                        if order and not err:
-                            prod = await get_product(session, target_var.product_id)
-                            prod_title = prod.title if prod else "Digital Item"
-                            
-                            delivery_text = (
-                                f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER DELIVERED!</b>\n"
-                                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                                f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
-                                f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
-                                f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
-                                f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n\n"
-                                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                                f"{ce(CustomEmojis.KEY, '🔑')} <b>YOUR DELIVERED ACCOUNT / CODE:</b>\n"
-                                f"<i>(Tap the box below to copy automatically)</i>\n\n"
-                                f"<pre><code>{order.delivered_content}</code></pre>\n"
-                                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                                f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Full Warranty:</b> Covered throughout validity!\n"
-                                f"{ce(CustomEmojis.HEART, '❤️')} <i>Thank you for shopping with {config.STORE_NAME}!</i>"
-                            )
-                            kb = get_post_delivery_keyboard(order.id)
+                    
+                    # If auto fulfillment worked
+                    if order and getattr(order, "delivered_content", None):
+                        delivery_text = (
+                            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER DELIVERED!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
+                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
+                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"{ce(CustomEmojis.KEY, '🔑')} <b>YOUR DELIVERED ACCOUNT / CODE:</b>\n"
+                            f"<i>(Tap the box below to copy automatically)</i>\n\n"
+                            f"<pre><code>{order.delivered_content}</code></pre>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Full Warranty:</b> Covered throughout validity!\n"
+                            f"{ce(CustomEmojis.HEART, '❤️')} <i>Thank you for shopping with {config.STORE_NAME}!</i>"
+                        )
+                        kb = get_post_delivery_keyboard(order.id)
+                        try:
+                            await bot.send_message(user.telegram_id, delivery_text, reply_markup=kb)
+                        except Exception as e:
+                            logger.error(f"Failed to send delivery to user {user.telegram_id}: {e}")
+
+                        # Group/Channel Notification
+                        remaining = await get_available_stock_count(session, target_var.id)
+                        bot_me = await bot.me()
+                        await send_order_notification(
+                            bot=bot,
+                            order_id=order.id,
+                            buyer_name=user.full_name or "Customer",
+                            product_title=prod_title,
+                            variant_name=target_var.name,
+                            amount=order.amount,
+                            stock_left=remaining,
+                            bot_username=bot_me.username or ""
+                        )
+                        
+                        # Alert Admins
+                        admin_alert = (
+                            f"{ce(CustomEmojis.FIRE, '🔔')} <b>WEBHOOK AUTO-DELIVERED SALE!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
+                            f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {user.full_name} (@{user.username or 'NoUser'})\n"
+                            f"{ce(CustomEmojis.KEY, '🆔')} <b>User ID:</b> <code>{user.telegram_id}</code>\n"
+                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {target_var.name}\n"
+                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f} (Razorpay)\n"
+                            f"{ce(CustomEmojis.TROPHY, '📊')} <b>Remaining Stock:</b> {remaining} available"
+                        )
+                        for admin_id in config.ADMIN_IDS:
                             try:
-                                await bot.send_message(user.telegram_id, delivery_text, reply_markup=kb)
-                            except Exception as e:
-                                logger.error(f"Failed to send delivery to user {user.telegram_id}: {e}")
+                                await bot.send_message(admin_id, admin_alert)
+                            except Exception:
+                                pass
 
-                            # Notify Channel / Group
-                            remaining = await get_available_stock_count(session, target_var.id)
-                            bot_me = await bot.me()
-                            await send_order_notification(
-                                bot=bot,
-                                order_id=order.id,
-                                buyer_name=user.full_name or "Customer",
-                                product_title=prod_title,
-                                variant_name=target_var.name,
-                                amount=order.amount,
-                                stock_left=remaining,
-                                bot_username=bot_me.username or ""
-                            )
-                            
-                            # Alert Admins
-                            admin_alert = (
-                                f"{ce(CustomEmojis.FIRE, '🔔')} <b>WEBHOOK AUTO-DELIVERED SALE!</b>\n"
-                                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                                f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
-                                f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {user.full_name} (@{user.username or 'NoUser'})\n"
-                                f"{ce(CustomEmojis.KEY, '🆔')} <b>User ID:</b> <code>{user.telegram_id}</code>\n"
-                                f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {target_var.name}\n"
-                                f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f} (Razorpay)\n"
-                                f"{ce(CustomEmojis.TROPHY, '📊')} <b>Remaining Stock:</b> {remaining} available"
-                            )
-                            for admin_id in config.ADMIN_IDS:
-                                try:
-                                    await bot.send_message(admin_id, admin_alert)
-                                except Exception:
-                                    pass
+                        return web.json_response({"status": "delivered_auto"})
+                    
+                    else:
+                        # MANUAL FULFILLMENT or STOCK EMPTY -> Create manual order
+                        manual_order = await create_manual_order(session, user.telegram_id, target_var.id, target_var.price, customer_input=None)
+                        
+                        manual_confirm_text = (
+                            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER PLACED!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
+                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
+                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
+                            f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Delivery:</b> 1–2 Hours\n\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"Our team has received your order and is processing your invitation/activation right now! You will receive your details directly in this chat shortly."
+                        )
+                        try:
+                            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                            kb = InlineKeyboardMarkup(inline_keyboard=[
+                                [InlineKeyboardButton(text="🛟 Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}")],
+                                [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                            ])
+                            await bot.send_message(user.telegram_id, manual_confirm_text, reply_markup=kb)
+                        except Exception as e:
+                            logger.error(f"Failed to send manual confirm to user {user.telegram_id}: {e}")
 
-                            return web.json_response({"status": "delivered_auto"})
+                        # Notify Group
+                        remaining = await get_available_stock_count(session, target_var.id)
+                        bot_me = await bot.me()
+                        await send_order_notification(
+                            bot=bot,
+                            order_id=manual_order.id,
+                            buyer_name=user.full_name or "Customer",
+                            product_title=prod_title,
+                            variant_name=target_var.name,
+                            amount=manual_order.amount,
+                            stock_left=remaining,
+                            bot_username=bot_me.username or ""
+                        )
+
+                        # Alert Admins with Fulfill Button
+                        from keyboards.admin_keyboards import get_admin_order_actions_keyboard
+                        admin_manual_alert = (
+                            f"{ce(CustomEmojis.FIRE, '🚨')} <b>NEW 1-CLICK PAID ORDER TO FULFILL!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
+                            f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {user.full_name} (@{user.username or 'NoUser'})\n"
+                            f"{ce(CustomEmojis.KEY, '🆔')} <b>User ID:</b> <code>{user.telegram_id}</code>\n"
+                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {target_var.name}\n"
+                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid:</b> {config.CURRENCY_SYMBOL}{manual_order.amount:.2f} (Razorpay)\n\n"
+                            f"{ce(CustomEmojis.SPARKLE, '👉')} <i>Click 'Fulfill Order' below to send invite/credentials:</i>"
+                        )
+                        for admin_id in config.ADMIN_IDS:
+                            try:
+                                await bot.send_message(admin_id, admin_manual_alert, reply_markup=get_admin_order_actions_keyboard(manual_order.id))
+                            except Exception:
+                                pass
+
+                        return web.json_response({"status": "placed_manual"})
 
             # Normal Top-Up Deposit notification to user
             deposit_msg = (

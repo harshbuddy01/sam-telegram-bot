@@ -208,13 +208,18 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
             
             # Check if this was a Direct 1-Click Purchase
             if deposit.target_variant_id:
-                from database.crud import get_variant, fulfill_order, get_product
+                from database.crud import get_variant, fulfill_order, create_manual_order, get_product, get_available_stock_count
                 target_var = await get_variant(session, deposit.target_variant_id)
                 if target_var:
-                    order, err = await fulfill_order(session, user.telegram_id, target_var.id, target_var.price)
-                    if order and not err:
-                        prod = await get_product(session, target_var.product_id)
-                        prod_title = prod.title if prod else "Digital Item"
+                    is_manual = (getattr(target_var, "fulfillment_type", "AUTOMATIC") == "MANUAL")
+                    prod = await get_product(session, target_var.product_id)
+                    prod_title = prod.title if prod else "Digital Item"
+                    
+                    order = None
+                    if not is_manual:
+                        order, err = await fulfill_order(session, user.telegram_id, target_var.id, target_var.price)
+                    
+                    if order and getattr(order, "delivered_content", None):
                         delivery_text = (
                             f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER DELIVERED!</b>\n"
                             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -234,7 +239,6 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
                         await callback.message.edit_text(delivery_text, reply_markup=kb)
 
                         # Group/Channel Notification
-                        from database.crud import get_available_stock_count
                         remaining = await get_available_stock_count(session, target_var.id)
                         bot_me = await bot.me()
                         await send_order_notification(
@@ -247,6 +251,59 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
                             stock_left=remaining,
                             bot_username=bot_me.username or ""
                         )
+                        return
+                    else:
+                        # MANUAL FULFILLMENT or STOCK EMPTY -> Create manual order
+                        manual_order = await create_manual_order(session, user.telegram_id, target_var.id, target_var.price, customer_input=None)
+                        
+                        manual_confirm_text = (
+                            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER PLACED!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
+                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
+                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
+                            f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Delivery:</b> 1–2 Hours\n\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"Our team has received your order and is processing your invitation/activation right now! You will receive your details directly in this chat shortly."
+                        )
+                        kb = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="🛟 Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}")],
+                            [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                        ])
+                        await callback.message.edit_text(manual_confirm_text, reply_markup=kb)
+
+                        # Group/Channel Notification
+                        remaining = await get_available_stock_count(session, target_var.id)
+                        bot_me = await bot.me()
+                        await send_order_notification(
+                            bot=bot,
+                            order_id=manual_order.id,
+                            buyer_name=callback.from_user.full_name,
+                            product_title=prod_title,
+                            variant_name=target_var.name,
+                            amount=manual_order.amount,
+                            stock_left=remaining,
+                            bot_username=bot_me.username or ""
+                        )
+
+                        # Alert Admins with Fulfill Button
+                        from keyboards.admin_keyboards import get_admin_order_actions_keyboard
+                        admin_manual_alert = (
+                            f"{ce(CustomEmojis.FIRE, '🚨')} <b>NEW 1-CLICK PAID ORDER TO FULFILL!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
+                            f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {user.full_name} (@{user.username or 'NoUser'})\n"
+                            f"{ce(CustomEmojis.KEY, '🆔')} <b>User ID:</b> <code>{user.telegram_id}</code>\n"
+                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {target_var.name}\n"
+                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid:</b> {config.CURRENCY_SYMBOL}{manual_order.amount:.2f} (Razorpay)\n\n"
+                            f"{ce(CustomEmojis.SPARKLE, '👉')} <i>Click 'Fulfill Order' below to send invite/credentials:</i>"
+                        )
+                        for admin_id in config.ADMIN_IDS:
+                            try:
+                                await bot.send_message(admin_id, admin_manual_alert, reply_markup=get_admin_order_actions_keyboard(manual_order.id))
+                            except Exception:
+                                pass
                         return
 
             text = (
