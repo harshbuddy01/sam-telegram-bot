@@ -55,11 +55,11 @@ async def send_order_notification(
     stock_text = f"Only {stock_left} remaining!" if stock_left <= 10 else f"{stock_left} in stock"
 
     text = (
-        f"{ce(CustomEmojis.SHOP, '📦')} <b>New Order Received!</b> {ce(CustomEmojis.SHOP, '📦')}\n\n"
+        f"{ce(CustomEmojis.SHOP, '🛍️')} <b>New Order Received!</b> {ce(CustomEmojis.SHOP, '🛍️')}\n\n"
         f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Buyer:</b> <code>{masked_name}</code>\n"
-        f"{ce(CustomEmojis.GIFT, '🎁')} <b>Product:</b> {product_title}\n"
+        f"{ce(CustomEmojis.GIFT, '📦')} <b>Product:</b> {product_title}\n"
         f"{ce(CustomEmojis.DIAMOND, '💎')} <b>Variant:</b> {variant_name}\n"
-        f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid Amount:</b> {config.CURRENCY_SYMBOL}{amount:.2f}\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid Amount:</b> {config.CURRENCY_SYMBOL}{amount:.1f}\n"
         f"{ce(CustomEmojis.FIRE, '🔥')} <b>Stock Left:</b> {stock_text}\n"
         f"{ce(CustomEmojis.STAR, '📅')} <b>Time:</b> {time_str}\n\n"
         f"{ce(CustomEmojis.CHECK, '✅')} <b>Thank you for choosing us!</b>"
@@ -73,7 +73,7 @@ async def send_order_notification(
         ])
 
     try:
-        await bot.send_message(channel_id, text, reply_markup=kb)
+        await bot.send_message(channel_id, text, reply_markup=kb, parse_mode="HTML")
     except Exception as e:
         logger.warning(f"Failed to send order notification to channel {channel_id}: {e}")
 
@@ -112,6 +112,6 @@ async def send_restock_alert(
         ])
 
     try:
-        await bot.send_message(channel_id, text, reply_markup=kb)
+        await bot.send_message(channel_id, text, reply_markup=kb, parse_mode="HTML")
     except Exception as e:
         logger.warning(f"Failed to send restock alert to channel {channel_id}: {e}")
