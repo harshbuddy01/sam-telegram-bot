@@ -341,8 +341,8 @@ async def get_available_stock_count(session: AsyncSession, variant_id: int) -> i
     if not variant:
         return 0
     if getattr(variant, "fulfillment_type", "AUTOMATIC") == "MANUAL":
-        qty = getattr(variant, "stock_quantity", 50)
-        return qty if qty is not None else 50
+        qty = getattr(variant, "stock_quantity", 0)
+        return qty if qty is not None else 0
     stmt = select(func.count(Stock.id)).where(Stock.variant_id == variant_id, Stock.is_used == False)
     result = await session.execute(stmt)
     return result.scalar() or 0
@@ -352,8 +352,8 @@ async def get_product_total_stock_count(session: AsyncSession, product_id: int) 
     total_stock = 0
     for v in variants:
         if getattr(v, "fulfillment_type", "AUTOMATIC") == "MANUAL":
-            qty = getattr(v, "stock_quantity", 50)
-            total_stock += qty if qty is not None else 50
+            qty = getattr(v, "stock_quantity", 0)
+            total_stock += qty if qty is not None else 0
         else:
             stmt = select(func.count(Stock.id)).where(Stock.variant_id == v.id, Stock.is_used == False)
             res = await session.execute(stmt)

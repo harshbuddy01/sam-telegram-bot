@@ -121,7 +121,8 @@ def get_admin_stock_inventory_keyboard(variants: list[Variant], stock_counts: di
         is_manual = (getattr(var, "fulfillment_type", "AUTOMATIC") == "MANUAL")
         
         if is_manual:
-            badge = "⏱️ Manual"
+            stock = stock_counts.get(var.id, 0)
+            badge = f"⏱️ Manual ({stock})" if stock > 0 else "🔴 Out of Stock"
         else:
             stock = stock_counts.get(var.id, 0)
             badge = f"🟢 {stock}" if stock > 0 else "🔴 0"
@@ -149,6 +150,10 @@ def get_admin_variant_stock_actions_keyboard(variant_id: int, is_manual: bool = 
                 InlineKeyboardButton(text=f"View Unsold Accounts ({stock_count})", callback_data=f"adm_stock_view_{variant_id}", icon_custom_emoji_id=CustomEmojis.ORDERS),
                 InlineKeyboardButton(text="Clear Unsold Stock", callback_data=f"adm_stock_clear_{variant_id}", icon_custom_emoji_id=CustomEmojis.LOCK)
             ])
+    else:
+        buttons.append([
+            InlineKeyboardButton(text=f"✏️ Set Available Slots / Stock ({stock_count})", callback_data=f"adm_stock_setslots_{variant_id}", icon_custom_emoji_id=CustomEmojis.KEY)
+        ])
     buttons.append([
         InlineKeyboardButton(text="Back to Stock List", callback_data="adm_stock", icon_custom_emoji_id=CustomEmojis.KEY),
         InlineKeyboardButton(text="Admin Home", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)

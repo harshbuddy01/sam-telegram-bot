@@ -708,17 +708,28 @@ async def cb_admin_stock_view(callback: types.CallbackQuery, session: AsyncSessi
 
     await callback.message.edit_text(stock_text, reply_markup=get_admin_cancel_keyboard(f"adm_stock_manage_{variant_id}"))
 
-@router.callback_query(F.data.startswith("adm_stock_clear_"))
-async def cb_admin_stock_clear(callback: types.CallbackQuery, session: AsyncSession):
+@router.callback_query(F.data.startswith("adm_stock_setslots_"))
+async def cb_admin_stock_setslots(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
     if not check_admin(callback.from_user.id):
         return
     await callback.answer()
     variant_id = int(callback.data.split("_")[3])
-    deleted_count = await delete_unsold_stock_by_variant(session, variant_id)
+    variant = await get_variant(session, variant_id)
+    if not variant:
+        await callback.message.answer("Plan not found.")
+        return
+    current_slots = await get_available_stock_count(session, variant_id)
+    prod_title = variant.product.title if variant.product else "Product"
 
+    await state.update_data(edit_var_id=variant_id, from_stock_hub=True)
+    await state.set_state(AdminVariantEditStates.waiting_for_new_stock_qty)
     await callback.message.edit_text(
-        f"{ce(CustomEmojis.LOCK, '🗑️')} <b>Cleared {deleted_count} unsold stock items</b> from this plan.\n\n"
-        f"Stock count is now 0.",
+        f"{ce(CustomEmojis.TROPHY, '📊')} <b>SET AVAILABLE SLOTS FOR:</b>\n"
+        f"<b>{prod_title} — {variant.name}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Current available slots: <b>{current_slots}</b>\n\n"
+        f"How many activation slots/accounts do you have ready right now?\n"
+        f"<i>(Send a number below, e.g. <code>10</code>, <code>25</code>, or <code>0</code>):</i>",
         reply_markup=get_admin_cancel_keyboard(f"adm_stock_manage_{variant_id}")
     )
 
@@ -1285,7 +1296,7 @@ async def cb_admin_varedit_stockqty(callback: types.CallbackQuery, state: FSMCon
     )
 
 @router.message(AdminVariantEditStates.waiting_for_new_stock_qty, F.text)
-async def msg_admin_varedit_stockqty(message: types.Message, state: FSMContext, session: AsyncSession):
+async def msg_admin_varedit_stockqty(message: types.Message, state: FSMContext, session: AsyncSession, bot: Bot):
     try:
         new_qty = int(message.text.strip())
         if new_qty < 0:
@@ -1296,16 +1307,43 @@ async def msg_admin_varedit_stockqty(message: types.Message, state: FSMContext, 
 
     data = await state.get_data()
     var_id = data.get("edit_var_id")
+    from_stock_hub = data.get("from_stock_hub", False)
     await state.clear()
 
     variant = await update_variant_details(session, var_id, stock_quantity=new_qty)
     if variant:
         is_manual = (variant.fulfillment_type == "MANUAL")
+        prod_title = variant.product.title if variant.product else "Product"
+
+        if from_stock_hub:
+            reply_kb = get_admin_variant_stock_actions_keyboard(variant.id, is_manual=is_manual, stock_count=variant.stock_quantity or 0)
+        else:
+            reply_kb = get_admin_variant_edit_keyboard(variant.id, variant.product_id, is_manual=is_manual)
+
         await message.answer(
             f"{ce(CustomEmojis.CHECK, '✅')} <b>Available Slots / Stock Updated!</b>\n\n"
-            f"{ce(CustomEmojis.TROPHY, '📊')} <b>Current Available Stock:</b> <code>{variant.stock_quantity} slots</code>",
-            reply_markup=get_admin_variant_edit_keyboard(variant.id, variant.product_id, is_manual=is_manual)
+            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_title}\n"
+            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> {variant.name}\n"
+            f"{ce(CustomEmojis.TROPHY, '📊')} <b>Current Available Stock:</b> <code>{variant.stock_quantity} slots</code>"
+            + (f"\n\n📣 <i>Restock alert posted to your sales group!</i>" if new_qty > 0 else ""),
+            reply_markup=reply_kb
         )
+
+        # Broadcast Restock Alert to Sales Group
+        if new_qty > 0:
+            from utils.notifications import send_restock_alert
+            try:
+                bot_me = await bot.me()
+                await send_restock_alert(
+                    bot=bot,
+                    product_title=prod_title,
+                    variant_name=variant.name,
+                    added_count=new_qty,
+                    total_stock=variant.stock_quantity,
+                    bot_username=bot_me.username or ""
+                )
+            except Exception as e:
+                logger.warning(f"Restock alert to group failed: {e}")
     else:
         await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Failed to update plan.")
 
@@ -1609,7 +1647,6 @@ async def msg_admin_var_input_prompt(message: types.Message, state: FSMContext, 
     variant_type = data.get("variant_type")
     detailed_desc = data.get("detailed_description")
     dispatch_time = data.get("manual_dispatch_time") or "1–2 Hours"
-    await state.clear()
 
     variant = await create_variant(
         session,
@@ -1623,6 +1660,48 @@ async def msg_admin_var_input_prompt(message: types.Message, state: FSMContext, 
         input_prompt=prompt_text
     )
 
+    # Save variant_id and prod_id, then ask for initial stock slot count
+    await state.set_data({"variant_id": variant.id, "prod_id": prod_id, "variant_name": variant.name, "prod_title": variant.product.title if variant.product else name})
+    await state.set_state(AdminVariantStates.waiting_for_stock_qty)
+
+    await message.answer(
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>Manual Plan Created!</b>\n\n"
+        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
+        f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Dispatch:</b> {dispatch_time}\n"
+        f"👉 <b>Prompt:</b> <i>{variant.input_prompt}</i>\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{ce(CustomEmojis.TROPHY, '📊')} <b>How many slots (capacity) do you have available right now?</b>\n\n"
+        f"This number will be shown to customers so they know stock is available.\n"
+        f"<i>(e.g. send <code>10</code> if you have 10 invites ready. Send <code>0</code> if none yet.)</i>",
+        reply_markup=get_admin_cancel_keyboard("adm_stock")
+    )
+
+@router.message(AdminVariantStates.waiting_for_stock_qty, F.text)
+async def msg_admin_var_manual_stock_qty(message: types.Message, state: FSMContext, session: AsyncSession, bot: Bot):
+    text = message.text.strip()
+    try:
+        qty = int(text)
+        if qty < 0:
+            raise ValueError
+    except ValueError:
+        await message.answer(
+            f"{ce(CustomEmojis.LOCK, '⚠️')} Please send a valid number (e.g. <code>10</code> or <code>0</code>):"
+        )
+        return
+
+    data = await state.get_data()
+    variant_id = data.get("variant_id")
+    prod_id = data.get("prod_id")
+    prod_title = data.get("prod_title", "Product")
+    variant_name = data.get("variant_name", "Plan")
+    await state.clear()
+
+    # Update the manual variant's stock_quantity field
+    variant = await get_variant(session, variant_id)
+    if variant:
+        variant.stock_quantity = qty
+        await session.commit()
+
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕ Add Another Plan", callback_data=f"adm_var_add_{prod_id}")],
         [InlineKeyboardButton(text="🏷️ View All Plans for this Product", callback_data=f"adm_selprod_viewvars_{prod_id}")],
@@ -1630,15 +1709,29 @@ async def msg_admin_var_input_prompt(message: types.Message, state: FSMContext, 
     ])
 
     await message.answer(
-        f"{ce(CustomEmojis.CHECK, '✅')} <b>Manual Plan Created Successfully!</b>\n\n"
-        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
-        f"{ce(CustomEmojis.WALLET, '💰')} <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
-        f"{ce(CustomEmojis.FIRE, '🚀')} <b>Mode:</b> ⏱️ Manual Activation\n"
-        f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Dispatch Time:</b> <code>{variant.manual_dispatch_time}</code>\n"
-        f"👉 <b>Prompt:</b> <i>{variant.input_prompt}</i>\n\n"
-        f"What would you like to do next?",
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>Stock set to {qty} slots!</b>\n\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_title}\n"
+        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> {variant_name}\n"
+        f"{ce(CustomEmojis.TROPHY, '📊')} <b>Available Slots:</b> <b>{qty}</b>\n\n"
+        + (f"📣 Sending restock alert to your sales group..." if qty > 0 else ""),
         reply_markup=kb
     )
+
+    # Send restock alert to group if qty > 0
+    if qty > 0:
+        from utils.notifications import send_restock_alert
+        try:
+            bot_me = await bot.me()
+            await send_restock_alert(
+                bot=bot,
+                product_title=prod_title,
+                variant_name=variant_name,
+                added_count=qty,
+                total_stock=qty,
+                bot_username=bot_me.username or ""
+            )
+        except Exception as e:
+            logger.warning(f"Restock alert failed: {e}")
 
 # ================= 8. BROADCAST SYSTEM =================
 
