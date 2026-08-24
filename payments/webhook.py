@@ -61,28 +61,43 @@ async def handle_razorpay_webhook(request: web.Request) -> web.Response:
     logger.info(f"Received Razorpay Webhook Event: {event}")
 
     # Process events
-    if event in ("payment_link.paid", "payment.captured", "order.paid"):
+    if event in ("payment_link.paid", "payment.captured", "order.paid", "qr_code.credited", "qr_code.closed"):
         plink_data = payload.get("payload", {}).get("payment_link", {}).get("entity", {})
         payment_data = payload.get("payload", {}).get("payment", {}).get("entity", {})
+        qr_data = payload.get("payload", {}).get("qr_code", {}).get("entity", {})
         
+        # For QR code events, the qr_code ID is the gateway_order_id
+        qr_id = qr_data.get("id")
         plink_id = plink_data.get("id") or payment_data.get("order_id") or payment_data.get("id")
         payment_id = payment_data.get("id", "")
         reference_id = plink_data.get("reference_id")
         
-        notes = plink_data.get("notes") or payment_data.get("notes") or {}
+        # Extract notes from whichever entity has them
+        notes = qr_data.get("notes") or plink_data.get("notes") or payment_data.get("notes") or {}
+        if isinstance(notes, list):
+            notes = {}
         user_id_str = notes.get("user_id")
+        
+        # The ID to match in our deposits table
+        match_id = qr_id or plink_id
         
         async with AsyncSessionLocal() as session:
             deposit = None
             
-            # Match deposit by plink_id
-            if plink_id:
+            # Match deposit by qr_id or plink_id
+            if match_id:
+                stmt = select(Deposit).where(Deposit.gateway_order_id == match_id)
+                res = await session.execute(stmt)
+                deposit = res.scalar_one_or_none()
+            
+            # If QR event, also try matching by plink_id
+            if not deposit and plink_id and plink_id != match_id:
                 stmt = select(Deposit).where(Deposit.gateway_order_id == plink_id)
                 res = await session.execute(stmt)
                 deposit = res.scalar_one_or_none()
                 
-            # Fallback match by reference_id / user_id
-            if not deposit and reference_id and user_id_str:
+            # Fallback match by user_id + PENDING status
+            if not deposit and user_id_str:
                 try:
                     uid = int(user_id_str)
                     stmt = select(Deposit).where(Deposit.user_id == uid, Deposit.status == "PENDING").order_by(Deposit.created_at.desc())
@@ -92,7 +107,7 @@ async def handle_razorpay_webhook(request: web.Request) -> web.Response:
                     pass
 
             if not deposit:
-                logger.info(f"No pending deposit matching gateway_order_id={plink_id} or ref={reference_id}")
+                logger.info(f"No pending deposit matching gateway_order_id={match_id} or plink={plink_id} or user={user_id_str}")
                 return web.json_response({"status": "ignored_no_match"})
 
             # Idempotency check: Already processed

@@ -109,12 +109,18 @@ class RazorpayGateway(BasePaymentGateway):
 
     async def verify_payment_status(self, gateway_order_id: str) -> Dict[str, Any]:
         """
-        Polls Razorpay for the status of a payment link.
+        Polls Razorpay for the status of a payment link OR a QR code.
+        Auto-detects based on the ID prefix (qr_ vs plink_).
         """
         if not self.is_configured:
             return {"is_paid": False, "status": "NOT_CONFIGURED"}
 
-        url = f"{self.base_url}/payment_links/{gateway_order_id}"
+        # Detect if this is a QR code ID or payment link ID
+        if gateway_order_id.startswith("qr_"):
+            url = f"{self.base_url}/payments/qr_codes/{gateway_order_id}"
+        else:
+            url = f"{self.base_url}/payment_links/{gateway_order_id}"
+
         auth = aiohttp.BasicAuth(self.key_id, self.key_secret)
 
         try:
@@ -123,9 +129,19 @@ class RazorpayGateway(BasePaymentGateway):
                 async with session.get(url, auth=auth) as response:
                     res_data = await response.json()
                     if response.status == 200:
-                        status = res_data.get("status") # "created", "paid", "partially_paid", "expired", "cancelled"
-                        is_paid = (status in ("paid", "closed") and res_data.get("payments_count_received", 0) > 0) or (status == "paid")
-                        amount = float(res_data.get("amount_paid", 0) or res_data.get("payments_amount_received", 0)) / 100.0
+                        status = res_data.get("status", "")
+                        payments_received = res_data.get("payments_count_received", 0)
+                        
+                        # QR codes: status becomes "closed" with close_reason "paid"
+                        if gateway_order_id.startswith("qr_"):
+                            close_reason = res_data.get("close_reason", "")
+                            is_paid = (status == "closed" and close_reason == "paid" and payments_received > 0)
+                            amount = float(res_data.get("payments_amount_received", 0)) / 100.0
+                        else:
+                            # Payment links: status becomes "paid"
+                            is_paid = (status == "paid")
+                            amount = float(res_data.get("amount_paid", 0)) / 100.0
+
                         return {
                             "is_paid": is_paid,
                             "status": status,
