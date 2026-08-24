@@ -165,14 +165,33 @@ async def run_tests():
     assert len(qr_bytes) > 500, "QR code image buffer is too small!"
 
     # 7. Test Admin Analytics
-    print("\n[7/7] Testing Admin Analytics...")
+    print("\n[7/8] Testing Admin Analytics...")
     async with AsyncSessionLocal() as session:
         total_orders, revenue = await get_total_orders_and_revenue(session)
         print(f"  -> Total Orders: {total_orders} | Total Sales: ₹{revenue}")
         assert total_orders >= 2, "Total orders should be at least 2"
 
+    # 8. Test Safe Category & Product Deletion with Active Orders (Prevents Foreign Key / NOT NULL IntegrityError)
+    print("\n[8/8] Testing Safe Category Deletion with Active Orders...")
+    async with AsyncSessionLocal() as session:
+        from database.crud import create_category, create_product, create_variant, delete_category
+        # Create test category, product, variant and order
+        cat_temp = await create_category(session, name="Temp Test Cat", emoji="🧪")
+        prod_temp = await create_product(session, category_id=cat_temp.id, title="Temp Product")
+        var_temp = await create_variant(session, product_id=prod_temp.id, name="Temp Plan", price=99.0)
+        
+        # Add stock & fulfill order to attach an order record
+        await add_stock_bulk(session, var_temp.id, ["temp_acc:temp_pass"])
+        ord_temp, _ = await fulfill_order(session, test_uid, var_temp.id, 99.0)
+        assert ord_temp is not None, "Order creation failed"
+        
+        # Now delete the category - this must succeed cleanly without IntegrityError!
+        del_success = await delete_category(session, cat_temp.id)
+        assert del_success is True, "delete_category failed"
+        print(f"  -> Successfully & safely deleted Category #{cat_temp.id} with linked orders without any DB errors!")
+
     print("\n==============================================")
-    print("   ALL TESTS & VERIFICATIONS PASSED (7/7)!   ")
+    print("   ALL TESTS & VERIFICATIONS PASSED (8/8)!   ")
     print("==============================================")
 
 if __name__ == "__main__":

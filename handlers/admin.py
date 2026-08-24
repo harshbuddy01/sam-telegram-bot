@@ -799,6 +799,9 @@ async def msg_admin_catedit_name(message: types.Message, state: FSMContext, sess
     data = await state.get_data()
     cat_id = data.get("edit_cat_id")
     await state.clear()
+    if not cat_id:
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Session expired. Please select the category to edit again from /admin.")
+        return
 
     html_name = get_message_html_text(message)
     _, fallback_icon, custom_emoji_id = extract_clean_name_and_emoji(message)
@@ -840,11 +843,23 @@ async def cb_admin_cat_view(callback: types.CallbackQuery, session: AsyncSession
 async def cb_admin_cat_del(callback: types.CallbackQuery, session: AsyncSession):
     if not check_admin(callback.from_user.id):
         return
-    await callback.answer()
+    await callback.answer("Deleting category...", show_alert=False)
     cat_id = int(callback.data.split("_")[3])
-    await delete_category(session, cat_id)
+    cat = await get_category(session, cat_id)
+    cat_name = cat.name if cat else "Category"
+    success = await delete_category(session, cat_id)
     categories = await get_all_categories(session)
-    await callback.message.edit_text(f"{ce(CustomEmojis.CHECK, '✅')} Category deleted.", reply_markup=get_admin_categories_keyboard(categories))
+    if success:
+        await callback.message.edit_text(
+            f"{ce(CustomEmojis.CHECK, '✅')} <b>Category '{clean_button_text(cat_name)}' successfully deleted!</b>\n\n"
+            f"<i>The category and its products have been removed from your store.</i>",
+            reply_markup=get_admin_categories_keyboard(categories)
+        )
+    else:
+        await callback.message.edit_text(
+            f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Category not found or already deleted.</b>",
+            reply_markup=get_admin_categories_keyboard(categories)
+        )
 
 @router.callback_query(F.data == "adm_cat_add")
 async def cb_admin_cat_add(callback: types.CallbackQuery, state: FSMContext):
@@ -908,16 +923,15 @@ async def cb_admin_cat_viewprods(callback: types.CallbackQuery, session: AsyncSe
         return
     await callback.answer()
     cat_id = int(callback.data.split("_")[3])
-    category = await get_category(session, cat_id)
     products = await get_products_by_category(session, cat_id)
-
+    category = await get_category(session, cat_id)
     cat_name = category.name if category else "Category"
 
     text = (
-        f"{ce(CustomEmojis.SHOP, '📦')} <b>PRODUCTS IN: {cat_name}</b>\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>PRODUCTS IN: {clean_button_text(cat_name)}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Total Products: {len(products)}\n\n"
-        f"Click <b>'Edit'</b> or <b>'Delete'</b> to manage products:"
+        f"Click on a product to edit, or <b>'Add Product'</b> below:"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_products_keyboard(products, cat_id))
 
@@ -933,12 +947,11 @@ async def cb_admin_prod_edit(callback: types.CallbackQuery, session: AsyncSessio
         return
 
     text = (
-        f"{ce(CustomEmojis.SPARKLE, '📦')} <b>EDIT PRODUCT</b>\n"
-        f"{UI.SECTION_BAR}\n\n"
-        f"{ce(CustomEmojis.SHOP, '📦')} <b>Current Title:</b> <b>{product.title}</b>\n"
-        f"{ce(CustomEmojis.KEY, '🆔')} <b>Product ID:</b> <code>{product.id}</code>\n"
-        f"{ce(CustomEmojis.SPARKLE, '📝')} <b>Description:</b> <i>{product.description or 'No description'}</i>\n\n"
-        f"<i>What would you like to edit?</i>"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>EDIT PRODUCT: {product.title}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>Title:</b> {product.title}\n"
+        f"<b>Description:</b> {product.description or 'None'}\n\n"
+        f"Choose what you want to edit:"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_product_edit_keyboard(prod_id, product.category_id))
 
@@ -962,6 +975,9 @@ async def msg_admin_prodedit_title(message: types.Message, state: FSMContext, se
     data = await state.get_data()
     prod_id = data.get("edit_prod_id")
     await state.clear()
+    if not prod_id:
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Session expired. Please select the product to edit again from /admin.")
+        return
 
     html_title = get_message_html_text(message)
     _, fallback_icon, custom_emoji_id = extract_clean_name_and_emoji(message)
@@ -1001,6 +1017,9 @@ async def msg_admin_prodedit_desc(message: types.Message, state: FSMContext, ses
     data = await state.get_data()
     prod_id = data.get("edit_prod_id")
     await state.clear()
+    if not prod_id:
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Session expired. Please select the product to edit again from /admin.")
+        return
 
     html_desc = get_message_html_text(message)
     if message.text.strip().lower() == "skip":
@@ -1041,14 +1060,25 @@ async def cb_admin_prod_view(callback: types.CallbackQuery, session: AsyncSessio
 async def cb_admin_prod_del(callback: types.CallbackQuery, session: AsyncSession):
     if not check_admin(callback.from_user.id):
         return
-    await callback.answer()
+    await callback.answer("Deleting product...", show_alert=False)
     prod_id = int(callback.data.split("_")[3])
     product = await get_product(session, prod_id)
+    prod_title = product.title if product else "Product"
     cat_id = product.category_id if product else 1
-    await delete_product(session, prod_id)
+    success = await delete_product(session, prod_id)
 
     products = await get_products_by_category(session, cat_id)
-    await callback.message.edit_text(f"{ce(CustomEmojis.CHECK, '✅')} Product deleted.", reply_markup=get_admin_products_keyboard(products, cat_id))
+    if success:
+        await callback.message.edit_text(
+            f"{ce(CustomEmojis.CHECK, '✅')} <b>Product '{clean_button_text(prod_title)}' successfully deleted!</b>\n\n"
+            f"<i>The product and all associated plans have been removed.</i>",
+            reply_markup=get_admin_products_keyboard(products, cat_id)
+        )
+    else:
+        await callback.message.edit_text(
+            f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Product not found or already deleted.</b>",
+            reply_markup=get_admin_products_keyboard(products, cat_id)
+        )
 
 @router.callback_query(F.data.startswith("adm_prod_add_"))
 async def cb_admin_prod_add(callback: types.CallbackQuery, state: FSMContext):
@@ -1319,6 +1349,9 @@ async def msg_admin_varedit_stockqty(message: types.Message, state: FSMContext, 
     var_id = data.get("edit_var_id")
     from_stock_hub = data.get("from_stock_hub", False)
     await state.clear()
+    if not var_id:
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Session expired. Please select the plan to edit again from /admin.")
+        return
 
     variant = await update_variant_details(session, var_id, stock_quantity=new_qty)
     if variant:
@@ -1376,6 +1409,9 @@ async def msg_admin_varedit_name(message: types.Message, state: FSMContext, sess
     data = await state.get_data()
     var_id = data.get("edit_var_id")
     await state.clear()
+    if not var_id:
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Session expired. Please select the plan to edit again from /admin.")
+        return
     
     new_name = get_message_html_text(message)
     variant = await update_variant_details(session, var_id, name=new_name)
@@ -1415,6 +1451,9 @@ async def msg_admin_varedit_price(message: types.Message, state: FSMContext, ses
     data = await state.get_data()
     var_id = data.get("edit_var_id")
     await state.clear()
+    if not var_id:
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Session expired. Please select the plan to edit again from /admin.")
+        return
 
     variant = await update_variant_details(session, var_id, price=new_price)
     if variant:
@@ -1451,6 +1490,9 @@ async def msg_admin_varedit_desc(message: types.Message, state: FSMContext, sess
     data = await state.get_data()
     var_id = data.get("edit_var_id")
     await state.clear()
+    if not var_id:
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Session expired. Please select the plan to edit again from /admin.")
+        return
 
     variant = await update_variant_details(session, var_id, detailed_description=new_desc)
     if variant:
@@ -1499,14 +1541,25 @@ async def cb_admin_var_view(callback: types.CallbackQuery, session: AsyncSession
 async def cb_admin_var_del(callback: types.CallbackQuery, session: AsyncSession):
     if not check_admin(callback.from_user.id):
         return
-    await callback.answer()
+    await callback.answer("Deleting plan...", show_alert=False)
     var_id = int(callback.data.split("_")[3])
     variant = await get_variant(session, var_id)
+    var_name = variant.name if variant else "Plan"
     prod_id = variant.product_id if variant else 1
-    await delete_variant(session, var_id)
+    success = await delete_variant(session, var_id)
 
     variants = await get_variants_by_product(session, prod_id)
-    await callback.message.edit_text(f"{ce(CustomEmojis.CHECK, '✅')} Plan deleted.", reply_markup=get_admin_variants_keyboard(variants, prod_id))
+    if success:
+        await callback.message.edit_text(
+            f"{ce(CustomEmojis.CHECK, '✅')} <b>Plan '{clean_button_text(var_name)}' successfully deleted!</b>\n\n"
+            f"<i>The plan and its unsold stock have been removed.</i>",
+            reply_markup=get_admin_variants_keyboard(variants, prod_id)
+        )
+    else:
+        await callback.message.edit_text(
+            f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Plan not found or already deleted.</b>",
+            reply_markup=get_admin_variants_keyboard(variants, prod_id)
+        )
 
 @router.callback_query(F.data.startswith("adm_var_add_"))
 async def cb_admin_var_add(callback: types.CallbackQuery, state: FSMContext):

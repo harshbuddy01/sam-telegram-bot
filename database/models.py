@@ -46,7 +46,7 @@ class Product(Base):
     is_active = Column(Boolean, default=True)
 
     category = relationship("Category", back_populates="products")
-    variants = relationship("Variant", back_populates="product", cascade="all, delete-orphan")
+    variants = relationship("Variant", back_populates="product", cascade="all, delete-orphan", passive_deletes=True)
 
 class Variant(Base):
     __tablename__ = "variants"
@@ -65,8 +65,8 @@ class Variant(Base):
     is_active = Column(Boolean, default=True)
 
     product = relationship("Product", back_populates="variants")
-    stocks = relationship("Stock", back_populates="variant", cascade="all, delete-orphan")
-    orders = relationship("Order", back_populates="variant")
+    stocks = relationship("Stock", back_populates="variant", cascade="all, delete-orphan", passive_deletes=True)
+    orders = relationship("Order", back_populates="variant", passive_deletes=True)
 
 class Stock(Base):
     __tablename__ = "stocks"
@@ -89,7 +89,7 @@ class Order(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=False, index=True)
-    variant_id = Column(Integer, ForeignKey("variants.id"), nullable=False, index=True)
+    variant_id = Column(Integer, ForeignKey("variants.id", ondelete="SET NULL"), nullable=True, index=True)
     amount = Column(Float, nullable=False)
     status = Column(String(30), default="COMPLETED") # "COMPLETED", "PENDING_DISPATCH", "CANCELLED"
     customer_input = Column(Text, nullable=True) # Target email/phone/username provided by customer

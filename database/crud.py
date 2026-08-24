@@ -88,7 +88,7 @@ async def get_active_categories(session: AsyncSession) -> List[Category]:
     return list(result.scalars().all())
 
 async def get_all_categories(session: AsyncSession) -> List[Category]:
-    stmt = select(Category).order_by(Category.sort_order, Category.id)
+    stmt = select(Category).where(Category.is_active == True).order_by(Category.sort_order, Category.id)
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
@@ -111,24 +111,20 @@ async def create_category(
 
 async def delete_category(session: AsyncSession, category_id: int) -> bool:
     category = await get_category(session, category_id)
-    if category:
-        # Cascade delete all products under this category
-        prods_stmt = select(Product).where(Product.category_id == category_id)
-        prods_res = await session.execute(prods_stmt)
-        products = list(prods_res.scalars().all())
-        for prod in products:
-            # Delete all variants in this product
-            vars_stmt = select(Variant).where(Variant.product_id == prod.id)
-            vars_res = await session.execute(vars_stmt)
-            variants = list(vars_res.scalars().all())
-            for var in variants:
-                await delete_unsold_stock_by_variant(session, var.id)
-                await session.delete(var)
-            await session.delete(prod)
-        await session.delete(category)
-        await session.commit()
-        return True
-    return False
+    if not category:
+        return False
+    
+    # 1. Deactivate all products and variants under this category, and delete unsold stock
+    prods_stmt = select(Product).where(Product.category_id == category_id)
+    prods_res = await session.execute(prods_stmt)
+    products = list(prods_res.scalars().all())
+    for prod in products:
+        await delete_product(session, prod.id)
+    
+    # 2. Deactivate category
+    category.is_active = False
+    await session.commit()
+    return True
 
 # ================= PRODUCT CRUD =================
 
@@ -138,7 +134,7 @@ async def get_products_by_category(session: AsyncSession, category_id: int) -> L
     return list(result.scalars().all())
 
 async def get_all_products(session: AsyncSession) -> List[Product]:
-    stmt = select(Product).order_by(Product.id)
+    stmt = select(Product).where(Product.is_active == True).order_by(Product.id)
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
@@ -230,18 +226,18 @@ async def update_product_details(
 
 async def delete_product(session: AsyncSession, product_id: int) -> bool:
     product = await get_product(session, product_id)
-    if product:
-        # Delete all variants in this product
-        vars_stmt = select(Variant).where(Variant.product_id == product_id)
-        vars_res = await session.execute(vars_stmt)
-        variants = list(vars_res.scalars().all())
-        for var in variants:
-            await delete_unsold_stock_by_variant(session, var.id)
-            await session.delete(var)
-        await session.delete(product)
-        await session.commit()
-        return True
-    return False
+    if not product:
+        return False
+        
+    vars_stmt = select(Variant).where(Variant.product_id == product_id)
+    vars_res = await session.execute(vars_stmt)
+    variants = list(vars_res.scalars().all())
+    for var in variants:
+        await delete_variant(session, var.id)
+        
+    product.is_active = False
+    await session.commit()
+    return True
 
 # ================= VARIANT CRUD =================
 
@@ -253,7 +249,7 @@ async def get_variants_by_product(session: AsyncSession, product_id: int) -> Lis
     return list(result.scalars().all())
 
 async def get_all_variants(session: AsyncSession) -> List[Variant]:
-    stmt = select(Variant).options(selectinload(Variant.product)).order_by(Variant.id)
+    stmt = select(Variant).options(selectinload(Variant.product)).where(Variant.is_active == True).order_by(Variant.id)
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
@@ -327,12 +323,14 @@ async def update_variant_details(
 
 async def delete_variant(session: AsyncSession, variant_id: int) -> bool:
     variant = await get_variant(session, variant_id)
-    if variant:
-        await delete_unsold_stock_by_variant(session, variant_id)
-        await session.delete(variant)
-        await session.commit()
-        return True
-    return False
+    if not variant:
+        return False
+        
+    await delete_unsold_stock_by_variant(session, variant_id)
+    
+    variant.is_active = False
+    await session.commit()
+    return True
 
 # ================= STOCK CRUD =================
 
