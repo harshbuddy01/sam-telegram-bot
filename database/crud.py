@@ -488,12 +488,13 @@ async def create_manual_order(
         variant.stock_quantity -= 1
 
     # Create manual order
+    input_str = customer_input.strip() if customer_input else "Direct 1-Click Purchase (Awaiting customer activation details)"
     order = Order(
         user_id=user_id,
         variant_id=variant_id,
         amount=amount,
         status="PENDING_DISPATCH",
-        customer_input=customer_input.strip(),
+        customer_input=input_str,
         delivered_content="",
         created_at=datetime.datetime.utcnow(),
         fulfilled_at=None
