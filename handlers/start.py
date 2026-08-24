@@ -207,7 +207,7 @@ async def msg_btn_support(message: types.Message):
 
 @router.message(F.text.in_(["🌟  Refer & Earn", "🌟 Refer & Earn", "Refer & Earn", "Refer"]))
 async def msg_btn_refer(message: types.Message, session: AsyncSession):
-    bot_info = await message.bot.get_me()
+    bot_info = getattr(message.bot, '_cached_me', None) or await message.bot.get_me()
     ref_link = f"https://t.me/{bot_info.username}?start=ref_{message.from_user.id}"
     text = (
         f"{ce(CustomEmojis.REFER, '🎁')} <b>INVITE FRIENDS & EARN REWARDS</b>\n"

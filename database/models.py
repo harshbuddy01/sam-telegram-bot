@@ -1,6 +1,6 @@
 import datetime
 from sqlalchemy import (
-    Column, Integer, BigInteger, String, Float, Boolean, DateTime, ForeignKey, Text
+    Column, Integer, BigInteger, String, Float, Boolean, DateTime, ForeignKey, Text, Index
 )
 from sqlalchemy.orm import relationship
 from database.database import Base
@@ -37,7 +37,7 @@ class Product(Base):
     __tablename__ = "products"
 
     id = Column(Integer, primary_key=True, index=True)
-    category_id = Column(Integer, ForeignKey("categories.id", ondelete="CASCADE"), nullable=False)
+    category_id = Column(Integer, ForeignKey("categories.id", ondelete="CASCADE"), nullable=False, index=True)
     title = Column(String, nullable=False)
     emoji = Column(String, default="📦")
     custom_emoji_id = Column(String, nullable=True)
@@ -52,7 +52,7 @@ class Variant(Base):
     __tablename__ = "variants"
 
     id = Column(Integer, primary_key=True, index=True)
-    product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String, nullable=False) # e.g. "1 Month Private Profile"
     price = Column(Float, nullable=False)
     variant_type = Column(String, default="Private Profile") # "Private Profile", "Shared Profile", "Invite Link", "License Key"
@@ -70,9 +70,12 @@ class Variant(Base):
 
 class Stock(Base):
     __tablename__ = "stocks"
+    __table_args__ = (
+        Index("ix_stocks_variant_unused", "variant_id", "is_used"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
-    variant_id = Column(Integer, ForeignKey("variants.id", ondelete="CASCADE"), nullable=False)
+    variant_id = Column(Integer, ForeignKey("variants.id", ondelete="CASCADE"), nullable=False, index=True)
     content = Column(Text, nullable=False) # e.g. "email:password | PIN: 1234 | Profile: Screen 1"
     is_used = Column(Boolean, default=False, index=True)
     added_at = Column(DateTime, default=datetime.datetime.utcnow)
@@ -85,8 +88,8 @@ class Order(Base):
     __tablename__ = "orders"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=False)
-    variant_id = Column(Integer, ForeignKey("variants.id"), nullable=False)
+    user_id = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=False, index=True)
+    variant_id = Column(Integer, ForeignKey("variants.id"), nullable=False, index=True)
     amount = Column(Float, nullable=False)
     status = Column(String(30), default="COMPLETED") # "COMPLETED", "PENDING_DISPATCH", "CANCELLED"
     customer_input = Column(Text, nullable=True) # Target email/phone/username provided by customer
@@ -101,7 +104,7 @@ class Deposit(Base):
     __tablename__ = "deposits"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=False)
+    user_id = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=False, index=True)
     amount = Column(Float, nullable=False)
     utr_number = Column(String, nullable=True)
     proof_file_id = Column(String, nullable=True)

@@ -347,6 +347,42 @@ async def get_available_stock_count(session: AsyncSession, variant_id: int) -> i
     result = await session.execute(stmt)
     return result.scalar() or 0
 
+async def get_batch_product_stock_counts(session: AsyncSession, product_ids: list[int]) -> dict[int, int]:
+    """Get stock counts for multiple products in minimal queries instead of N+1."""
+    if not product_ids:
+        return {}
+    
+    counts = {pid: 0 for pid in product_ids}
+    
+    # Automatic stock: count unsold Stock rows per product
+    stmt_auto = (
+        select(Variant.product_id, func.count(Stock.id))
+        .join(Stock, (Stock.variant_id == Variant.id) & (Stock.is_used == False))
+        .where(
+            Variant.product_id.in_(product_ids),
+            Variant.is_active == True,
+            Variant.fulfillment_type != "MANUAL"
+        )
+        .group_by(Variant.product_id)
+    )
+    for pid, cnt in (await session.execute(stmt_auto)).all():
+        counts[pid] = counts.get(pid, 0) + (cnt or 0)
+    
+    # Manual stock: sum stock_quantity per product
+    stmt_manual = (
+        select(Variant.product_id, func.coalesce(func.sum(Variant.stock_quantity), 0))
+        .where(
+            Variant.product_id.in_(product_ids),
+            Variant.is_active == True,
+            Variant.fulfillment_type == "MANUAL"
+        )
+        .group_by(Variant.product_id)
+    )
+    for pid, qty in (await session.execute(stmt_manual)).all():
+        counts[pid] = counts.get(pid, 0) + (qty or 0)
+    
+    return counts
+
 async def get_product_total_stock_count(session: AsyncSession, product_id: int) -> int:
     variants = await get_variants_by_product(session, product_id)
     total_stock = 0

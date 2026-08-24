@@ -12,6 +12,7 @@ from database.crud import (
     get_variant,
     get_available_stock_count,
     get_product_total_stock_count,
+    get_batch_product_stock_counts,
     search_products
 )
 from keyboards.user_keyboards import (
@@ -124,9 +125,7 @@ async def cb_category_products(callback: types.CallbackQuery, session: AsyncSess
 
     products = await get_products_by_category(session, category_id)
 
-    stock_counts = {}
-    for prod in products:
-        stock_counts[prod.id] = await get_product_total_stock_count(session, prod.id)
+    stock_counts = await get_batch_product_stock_counts(session, [p.id for p in products])
 
     prod_lines = []
     for prod in products:
@@ -168,9 +167,7 @@ async def cb_products_page(callback: types.CallbackQuery, session: AsyncSession)
     category = await get_category(session, category_id)
     products = await get_products_by_category(session, category_id)
 
-    stock_counts = {}
-    for prod in products:
-        stock_counts[prod.id] = await get_product_total_stock_count(session, prod.id)
+    stock_counts = await get_batch_product_stock_counts(session, [p.id for p in products])
 
     cat_emoji = format_emoji(category.emoji, category.custom_emoji_id) if category else "📁"
     text = (

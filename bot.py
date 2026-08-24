@@ -73,6 +73,11 @@ async def main():
     # Run database initialization
     await on_startup()
 
+    # Cache bot info at startup for reuse across handlers
+    bot_me = await bot.get_me()
+    bot._cached_me = bot_me
+    logger.info(f"Bot connected as Admin IDs: {config.ADMIN_IDS}")
+
     # Drop webhook once at startup
     try:
         await asyncio.wait_for(bot.delete_webhook(drop_pending_updates=False), timeout=5.0)
@@ -91,7 +96,6 @@ async def main():
     except Exception as e:
         logger.warning(f"Could not bind webhook server on port {port}: {e}")
 
-    logger.info(f"Bot connected as Admin IDs: {config.ADMIN_IDS}")
     logger.info("Polling for updates...")
 
     # Polling loop with automatic reconnection
@@ -101,7 +105,7 @@ async def main():
                 await dp.start_polling(
                     bot,
                     allowed_updates=dp.resolve_used_update_types(),
-                    polling_timeout=2,
+                    polling_timeout=30,
                     handle_signals=False,
                     close_bot_session=False
                 )

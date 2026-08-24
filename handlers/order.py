@@ -1,3 +1,4 @@
+import asyncio
 from typing import Optional, Dict, Any, List
 from aiogram import Router, F, types, Bot
 from aiogram.fsm.context import FSMContext
@@ -20,6 +21,38 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import config
 
 router = Router()
+
+async def _background_notify(bot, order, prod_title, variant, user, remaining, amount):
+    """Fire-and-forget admin + group notifications."""
+    admin_alert = (
+        f"{ce(CustomEmojis.FIRE, '🔔')} <b>NEW AUTO-DELIVERED SALE!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {user.full_name} (@{user.username or 'NoUser'})\n"
+        f"{ce(CustomEmojis.KEY, '🆔')} <b>User ID:</b> <code>{user.id}</code>\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {variant.name}\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid:</b> {config.CURRENCY_SYMBOL}{amount:.2f}\n"
+        f"{ce(CustomEmojis.TROPHY, '📊')} <b>Remaining Stock:</b> {remaining} available"
+    )
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, admin_alert)
+        except Exception:
+            pass
+    try:
+        bot_me = getattr(bot, '_cached_me', None) or await bot.me()
+        await send_order_notification(
+            bot=bot,
+            order_id=order.id,
+            buyer_name=user.full_name,
+            product_title=prod_title,
+            variant_name=variant.name,
+            amount=amount,
+            stock_left=remaining,
+            bot_username=bot_me.username or ""
+        )
+    except Exception:
+        pass
 
 # In-memory lock to debounce multiple rapid clicks from the same user
 _generating_sessions = set()
@@ -156,35 +189,9 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
 
         await callback.message.edit_text(delivery_text, reply_markup=kb)
 
-        # Admin Alert for Instant Sale
-        admin_alert = (
-            f"{ce(CustomEmojis.FIRE, '🔔')} <b>NEW AUTO-DELIVERED SALE!</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
-            f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {callback.from_user.full_name} (@{callback.from_user.username or 'NoUser'})\n"
-            f"{ce(CustomEmojis.KEY, '🆔')} <b>User ID:</b> <code>{callback.from_user.id}</code>\n"
-            f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {variant.name}\n"
-            f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f}\n"
-            f"{ce(CustomEmojis.TROPHY, '📊')} <b>Remaining Stock:</b> {remaining_stock} available"
-        )
-        for admin_id in config.ADMIN_IDS:
-            try:
-                await bot.send_message(admin_id, admin_alert)
-            except Exception:
-                pass
-
-        # Group/Channel Notification
-        bot_me = await bot.me()
-        await send_order_notification(
-            bot=bot,
-            order_id=order.id,
-            buyer_name=callback.from_user.full_name,
-            product_title=prod_title,
-            variant_name=variant.name,
-            amount=order.amount,
-            stock_left=remaining_stock,
-            bot_username=bot_me.username or ""
-        )
+        asyncio.create_task(_background_notify(
+            bot, order, prod_title, variant, callback.from_user, remaining_stock, order.amount
+        ))
     finally:
         _generating_sessions.discard(user_id)
 
