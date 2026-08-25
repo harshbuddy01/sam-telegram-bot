@@ -47,9 +47,7 @@ class OxaPayGateway(BasePaymentGateway):
         base_inr = round(float(inr_amount), 2)
         surcharge_inr = round(base_inr * (self.surcharge_percent / 100.0), 2)
         total_inr = round(base_inr + surcharge_inr, 2)
-        total_usd = round(total_inr / self.usd_rate, 2)
-        if total_usd < 0.50:
-            total_usd = 0.50
+        total_usd = max(0.01, round(total_inr / self.usd_rate, 2))
         return base_inr, surcharge_inr, total_inr, total_usd
 
     async def create_payment_order(
