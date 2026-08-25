@@ -844,10 +844,16 @@ async def get_deposits_stats(session: AsyncSession):
 
 async def seed_initial_data(session: AsyncSession, force: bool = False):
     """
-    Synchronizes initial categories, products, and plan variants with rich specs.
-    Safely adds missing variants and cleans up orphaned/duplicate records.
+    Seeds initial default categories and products ONLY if the database is completely empty.
+    If the database already contains categories created/edited by the admin, this function
+    does NOT touch, modify, recreate, or overwrite any categories, products, or emojis.
     """
-    # 1. Standardize Categories
+    from sqlalchemy import func
+    existing_count = (await session.execute(select(func.count(Category.id)).where(Category.is_active == True))).scalar() or 0
+    if existing_count > 0 and not force:
+        return
+
+    # 1. Standardize Categories (Only executed for brand-new fresh database setups)
     cats_data = [
         ("OTT & Streaming", "🍿", 1, CustomEmojis.NETFLIX),
         ("AI Tools & Productivity", "🤖", 2, CustomEmojis.CHATGPT),
@@ -856,17 +862,6 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
         ("Gaming & Utilities", "🎮", 5, CustomEmojis.TELEGRAM),
         ("Freebies & Deals", "🎁", 6, CustomEmojis.GIFT),
     ]
-
-    # Clean and standardize all existing categories in database
-    all_existing_cats = (await session.execute(select(Category))).scalars().all()
-    for cat in all_existing_cats:
-        cat.name = clean_button_text(cat.name)
-    await session.commit()
-
-    all_existing_prods = (await session.execute(select(Product))).scalars().all()
-    for prod in all_existing_prods:
-        prod.title = clean_button_text(prod.title)
-    await session.commit()
 
     # Deduplicate existing duplicate variants across products in database
     all_active_vars = (await session.execute(select(Variant).where(Variant.is_active == True))).scalars().all()
