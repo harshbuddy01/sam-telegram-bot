@@ -122,7 +122,7 @@ def ce(custom_id: str, fallback: str = "✨") -> str:
 def extract_clean_name_and_emoji(message) -> tuple[str, str, Optional[str]]:
     """
     Extracts:
-    - clean_name: clean human-readable name without surrogate custom emoji fallbacks
+    - clean_name: clean human-readable name without surrogate custom emoji fallbacks or stray unicode emojis
     - display_emoji: clean fallback emoji (e.g. '👑' or '🍿')
     - custom_emoji_id: the 64-bit Telegram custom emoji ID string if present
     """
@@ -138,22 +138,16 @@ def extract_clean_name_and_emoji(message) -> tuple[str, str, Optional[str]]:
         if custom_entities:
             first_ent = custom_entities[0]
             custom_id = str(first_ent.custom_emoji_id)
-            fallback_char = "👑"  # Safe standard fallback emoji
-
-            # Clean text by removing surrogate pairs
-            clean_text = "".join(c for c in raw_text if not (0xD800 <= ord(c) <= 0xDFFF))
-            clean_name = clean_text.strip(" \t\n\r🤩✨💎👑🍿🤖🛡️🎮🎁✈️💬🎵🎨📁📦🔴")
+            fallback_char = "👑"
+            clean_name = clean_button_text(raw_text)
             if not clean_name:
-                clean_name = "Premium Category"
+                clean_name = "Premium Item"
             return clean_name, fallback_char, custom_id
 
-    # If no custom emoji entities, check if text starts with standard emoji
-    clean_text = "".join(c for c in raw_text if not (0xD800 <= ord(c) <= 0xDFFF))
-    clean_name = clean_text.strip()
-    for standard_emoji in ["🍿", "🤖", "🛡️", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "👑", "✨", "💎", "📦", "🔴"]:
-        if clean_name.startswith(standard_emoji):
+    clean_name = clean_button_text(raw_text)
+    for standard_emoji in ["🍿", "🤖", "🛡️", "🎓", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "👑", "✨", "💎", "📦", "🔴"]:
+        if raw_text.startswith(standard_emoji):
             fallback_char = standard_emoji
-            clean_name = clean_name[len(standard_emoji):].strip()
             break
 
     return clean_name or "New Item", fallback_char, None
@@ -209,25 +203,62 @@ def get_message_html_text(message) -> str:
     """
     return text_to_tg_html(message)
 
+EMOJI_REGEX = re.compile(
+    "["
+    "\U0001F1E0-\U0001F1FF"
+    "\U0001F300-\U0001F5FF"
+    "\U0001F600-\U0001F64F"
+    "\U0001F680-\U0001F6FF"
+    "\U0001F700-\U0001F77F"
+    "\U0001F780-\U0001F7FF"
+    "\U0001F800-\U0001F8FF"
+    "\U0001F900-\U0001F9FF"
+    "\U0001FA00-\U0001FA6F"
+    "\U0001FA70-\U0001FAFF"
+    "\U00002702-\U000027B0"
+    "\U000024C2-\U0001F251"
+    "\U00002300-\U000023FF"
+    "\U00002600-\U000026FF"
+    "\U00002B00-\U00002BFF"
+    "]+",
+    flags=re.UNICODE
+)
+
 def clean_button_text(html_text: str) -> str:
     """
     Strips HTML tags like <tg-emoji> AND leading/trailing decorative emojis
-    to ensure button labels are clean without duplicate emojis when icon_custom_emoji_id is used.
+    to ensure button labels and product titles are clean without duplicate emojis.
     """
     if not html_text:
         return ""
     clean = re.sub(r'<[^>]+>', '', html_text)
     clean = "".join(c for c in clean if not (0xD800 <= ord(c) <= 0xDFFF))
-    for char in [
-        "👑", "🍿", "🤖", "🛡️", "🎓", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "📦",
-        "🔴", "🌟", "🍏", "📺", "🍥", "✂️", "🧠", "⚡", "👨‍💻", "🔍", "🏠", "◀️", "▶️",
-        "•", "✦", "★", "◈", "✔", "➜", "🤩", "❤️", "✨", "💎", "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"
-    ]:
+    clean = clean.strip(" \t\n\r•✦★◈✔➜🤩❤️✨💎1️⃣2️⃣3️⃣4️⃣5️⃣-–—: ")
+    
+    # Strip leading emojis
+    while True:
+        m = EMOJI_REGEX.match(clean)
+        if m:
+            clean = clean[m.end():].strip(" \t\n\r•✦★◈✔➜🤩❤️✨💎-–—: ")
+        else:
+            break
+
+    # Strip trailing emojis
+    for _ in range(5):
         clean = clean.strip()
-        if clean.startswith(char):
-            clean = clean[len(char):].strip()
-        if clean.endswith(char):
-            clean = clean[:-len(char)].strip()
+        matched = False
+        for char in [
+            "👑", "🍿", "🤖", "🛡️", "🎓", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "📦",
+            "🔴", "🌟", "🍏", "📺", "🍥", "✂️", "🧠", "⚡", "👨‍💻", "🔍", "🏠", "◀️", "▶️",
+            "•", "✦", "★", "◈", "✔", "➜", "🤩", "❤️", "✨", "💎", "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣",
+            "⏳", "⏰", "⏱️", "💼", "🎬", "🎞️"
+        ]:
+            if clean.endswith(char):
+                clean = clean[:-len(char)].strip(" \t\n\r•✦★◈✔➜-–—: ")
+                matched = True
+        if not matched:
+            break
+
     return clean.strip()
 
 class UI:

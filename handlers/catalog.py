@@ -24,7 +24,7 @@ from keyboards.user_keyboards import (
     get_search_results_keyboard,
     get_back_button
 )
-from utils.emojis import Emojis, UI, format_emoji, CustomEmojis, ce
+from utils.emojis import Emojis, UI, format_emoji, CustomEmojis, ce, clean_button_text
 from utils.templates import render_template
 import config
 
@@ -132,12 +132,13 @@ async def cb_category_products(callback: types.CallbackQuery, session: AsyncSess
     for prod in products:
         stock = stock_counts.get(prod.id, 0)
         stock_str = f"🟢 {stock} In Stock" if stock > 0 else "🔴 Out of Stock"
+        clean_prod_title = clean_button_text(prod.title)
         p_icon = format_emoji(prod.emoji or "📦", prod.custom_emoji_id) if "<tg-emoji" not in prod.title else ""
         line = await render_template(
             session,
             "product_item_format",
             prod_icon=p_icon,
-            product_title=prod.title,
+            product_title=clean_prod_title,
             stock_badge=stock_str
         )
         prod_lines.append(line)
@@ -179,12 +180,13 @@ async def cb_products_page(callback: types.CallbackQuery, session: AsyncSession)
     for prod in products:
         stock = stock_counts.get(prod.id, 0)
         stock_str = f"🟢 {stock} In Stock" if stock > 0 else "🔴 Out of Stock"
+        clean_prod_title = clean_button_text(prod.title)
         p_icon = format_emoji(prod.emoji or "📦", prod.custom_emoji_id) if "<tg-emoji" not in prod.title else ""
         line = await render_template(
             session,
             "product_item_format",
             prod_icon=p_icon,
-            product_title=prod.title,
+            product_title=clean_prod_title,
             stock_badge=stock_str
         )
         prod_lines.append(line)

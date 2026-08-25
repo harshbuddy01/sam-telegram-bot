@@ -27,7 +27,7 @@ def get_main_menu_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:
     buttons = [
         [
             InlineKeyboardButton(text="Explore Store", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP),
-            InlineKeyboardButton(text="Search Product", callback_data="nav_search", icon_custom_emoji_id=CustomEmojis.SEARCH)
+            InlineKeyboardButton(text="🔍 Search Product", callback_data="nav_search")
         ],
         [
             InlineKeyboardButton(text="Deposit Wallet", callback_data="nav_deposit", icon_custom_emoji_id=CustomEmojis.WALLET),
@@ -53,7 +53,7 @@ def get_main_menu_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:
 
     if is_admin:
         buttons.append([
-            InlineKeyboardButton(text="⚡  ADMIN CONTROL PANEL  ⚡", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+            InlineKeyboardButton(text="ADMIN CONTROL PANEL", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
         ])
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -84,8 +84,8 @@ def get_search_results_keyboard(
         buttons.append([InlineKeyboardButton(**btn_kwargs)])
     
     buttons.append([
-        InlineKeyboardButton(text="Search Another Item", callback_data="nav_search", icon_custom_emoji_id=CustomEmojis.SEARCH),
-        InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+        InlineKeyboardButton(text="🔍 Search Another Item", callback_data="nav_search"),
+        InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -110,8 +110,8 @@ def get_categories_keyboard(categories: list[Category]) -> InlineKeyboardMarkup:
         buttons.append([InlineKeyboardButton(**btn_kwargs)])
     
     buttons.append([
-        InlineKeyboardButton(text="Search Products", callback_data="nav_search", icon_custom_emoji_id=CustomEmojis.SEARCH),
-        InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+        InlineKeyboardButton(text="🔍 Search Products", callback_data="nav_search"),
+        InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -158,8 +158,8 @@ def get_products_keyboard(
         buttons.append(nav_row)
 
     buttons.append([
-        InlineKeyboardButton(text="Back to Categories", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP),
-        InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+        InlineKeyboardButton(text="◀️ Back to Categories", callback_data="nav_shop"),
+        InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -181,8 +181,8 @@ def get_variants_keyboard(
         ])
 
     buttons.append([
-        InlineKeyboardButton(text="Back to Products", callback_data=f"cat_{category_id}", icon_custom_emoji_id=CustomEmojis.SHOP),
-        InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+        InlineKeyboardButton(text="◀️ Back to Products", callback_data=f"cat_{category_id}"),
+        InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
