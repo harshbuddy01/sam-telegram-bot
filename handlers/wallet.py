@@ -75,18 +75,18 @@ async def cb_deposit_gateway_chosen(callback: types.CallbackQuery, state: FSMCon
     await initiate_deposit_payment(callback.message, callback.from_user, amount, session, state, preferred_gateway=gw_name)
 
 async def prompt_payment_gateway_choice(message: types.Message, amount: float):
-    base_inr, pp_surcharge, pp_total_inr, pp_usd = payment_manager.paypal.calculate_amounts(amount)
+    _, _, _, pp_usd = payment_manager.paypal.calculate_amounts(amount)
     _, _, _, oxa_usd = payment_manager.oxapay.calculate_amounts(amount)
 
     text = (
-        f"{ce(CustomEmojis.WALLET, '💳')} <b>SELECT PAYMENT METHOD</b>\n"
+        f"{ce(CustomEmojis.DIAMOND, '💎')} <b>SELECT DEPOSIT PAYMENT METHOD</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"{ce(CustomEmojis.WALLET, '💰')} <b>Deposit Amount:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n\n"
         f"<i>Select your preferred payment method below for instant automated credit:</i>\n\n"
         f"<blockquote>"
-        f"⚡ <b>Instant UPI / Razorpay:</b> GPay, PhonePe, Paytm, Cards (0% fee)\n"
-        f"🅿️ <b>PayPal & Cards:</b> Instant checkout (${pp_usd:.2f} USD)\n"
-        f"🪙 <b>Crypto (OxaPay):</b> USDT, BTC, ETH, TRX, SOL (${oxa_usd:.2f} USDT)"
+        f"{ce(CustomEmojis.FIRE, '⚡')} <b>Instant UPI:</b> {config.CURRENCY_SYMBOL}{amount:.0f} (GPay / PhonePe / Paytm / CRED)\n"
+        f"{ce(CustomEmojis.CARD, '🅿️')} <b>PayPal & Cards:</b> ${pp_usd:.2f} USD (Visa / Mastercard / Amex)\n"
+        f"{ce(CustomEmojis.STAR, '🪙')} <b>Crypto (OxaPay):</b> ${oxa_usd:.2f} USDT (USDT / BTC / SOL / TRX)"
         f"</blockquote>"
     )
     buttons = []
@@ -172,12 +172,12 @@ async def initiate_deposit_payment(
                 )
 
                 text = (
-                    f"{ce(CustomEmojis.WALLET, '💳')} <b>AUTOMATED CRYPTO DEPOSIT #{deposit.id} (OXAPAY)</b>\n"
+                    f"{ce(CustomEmojis.DIAMOND, '🪙')} <b>AUTOMATED CRYPTO DEPOSIT #{deposit.id} (OXAPAY)</b>\n"
                     f"{UI.SECTION_BAR}\n\n"
                     f"<blockquote>"
-                    f"{ce(CustomEmojis.DIAMOND, '💰')} <b>Wallet Credit:</b> <b>+{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
-                    f"{ce(CustomEmojis.WALLET, '💎')} <b>Crypto Amount:</b> <b>${res.get('amount_usd', 0):.2f} {res.get('currency', 'USDT')}</b>\n"
-                    f"{ce(CustomEmojis.FIRE, '🪙')} <b>Supported Coins:</b> USDT (TRC20/BEP20/Polygon), BTC, ETH, SOL, TRX, LTC\n"
+                    f"{ce(CustomEmojis.WALLET, '💰')} <b>Wallet Credit:</b> <b>+{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
+                    f"{ce(CustomEmojis.STAR, '💎')} <b>Total Amount:</b> <b>${res.get('amount_usd', 0):.2f} {res.get('currency', 'USDT')}</b>\n"
+                    f"{ce(CustomEmojis.FIRE, '🪙')} <b>Supported:</b> USDT (TRC20/BEP20/Polygon), BTC, ETH, SOL, TRX\n"
                     f"{ce(CustomEmojis.CHECK, '🛡️')} <b>Processing:</b> Instant auto-credit upon blockchain confirmation"
                     f"</blockquote>\n\n"
                     f"<i>Tap 'Pay with Crypto' below. Once sent, tap 'Auto-Verify & Credit':</i>"
@@ -202,7 +202,7 @@ async def initiate_deposit_payment(
                 )
                 return
 
-        # 2. PayPal Flow (includes 5% merchant fee surcharge paid by customer)
+        # 2. PayPal Flow
         elif active_gateway == "PAYPAL" and payment_manager.paypal.is_configured:
             res = await payment_manager.paypal.create_payment_order(
                 user_id=user_id,
@@ -215,19 +215,19 @@ async def initiate_deposit_payment(
                 deposit = await create_deposit_gateway(
                     session=session,
                     user_id=user_id,
-                    amount=amount, # Credits base amount to wallet
+                    amount=amount,
                     gateway="PAYPAL",
                     gateway_order_id=gateway_order_id
                 )
 
                 text = (
-                    f"{ce(CustomEmojis.WALLET, '💳')} <b>AUTOMATED INSTANT DEPOSIT #{deposit.id} (PAYPAL)</b>\n"
+                    f"{ce(CustomEmojis.DIAMOND, '🅿️')} <b>AUTOMATED INSTANT DEPOSIT #{deposit.id} (PAYPAL)</b>\n"
                     f"{UI.SECTION_BAR}\n\n"
                     f"<blockquote>"
-                    f"{ce(CustomEmojis.DIAMOND, '💰')} <b>Wallet Top-Up:</b> <b>+{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
-                    f"{ce(CustomEmojis.CARD, '💳')} <b>PayPal Fee (5%):</b> +{config.CURRENCY_SYMBOL}{res.get('surcharge_amount', 0):.2f}\n"
-                    f"{ce(CustomEmojis.FIRE, '💵')} <b>Total Charged:</b> <b>${res.get('total_usd', 0):.2f} USD</b> ({config.CURRENCY_SYMBOL}{res.get('total_inr', 0):.2f})\n"
-                    f"{ce(CustomEmojis.CHECK, '🛡️')} <b>Gateway:</b> PayPal (Balance / Debit / Credit Cards)"
+                    f"{ce(CustomEmojis.WALLET, '💰')} <b>Wallet Top-Up:</b> <b>+{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
+                    f"{ce(CustomEmojis.CARD, '💵')} <b>Total Amount:</b> <b>${res.get('total_usd', 0):.2f} USD</b>\n"
+                    f"{ce(CustomEmojis.CHECK, '🛡️')} <b>Payment Method:</b> PayPal / Debit / Credit Cards\n"
+                    f"{ce(CustomEmojis.FIRE, '⚡')} <b>Processing:</b> Instant auto-credit upon payment"
                     f"</blockquote>\n\n"
                     f"<i>Tap 'Pay via PayPal' below to complete payment. Once done, tap 'Auto-Verify & Credit':</i>"
                 )

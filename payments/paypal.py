@@ -45,12 +45,11 @@ class PayPalGateway(BasePaymentGateway):
 
     @property
     def usd_rate(self) -> float:
-        return float(os.getenv("PAYPAL_USD_TO_INR_RATE") or getattr(config, "PAYPAL_USD_TO_INR_RATE", 85.0))
+        return float(os.getenv("PAYPAL_USD_TO_INR_RATE") or getattr(config, "PAYPAL_USD_TO_INR_RATE", 90.0))
 
     @property
     def surcharge_percent(self) -> float:
-        """5% merchant fee added so the customer covers the transaction charge."""
-        return float(os.getenv("PAYPAL_SURCHARGE_PERCENT") or getattr(config, "PAYPAL_SURCHARGE_PERCENT", 5.0))
+        return float(os.getenv("PAYPAL_SURCHARGE_PERCENT") or getattr(config, "PAYPAL_SURCHARGE_PERCENT", 0.0))
 
     @property
     def base_url(self) -> str:

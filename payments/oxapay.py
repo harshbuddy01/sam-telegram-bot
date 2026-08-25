@@ -29,7 +29,7 @@ class OxaPayGateway(BasePaymentGateway):
 
     @property
     def usd_rate(self) -> float:
-        return float(os.getenv("OXAPAY_USD_TO_INR_RATE") or getattr(config, "OXAPAY_USD_TO_INR_RATE", 85.0))
+        return float(os.getenv("OXAPAY_USD_TO_INR_RATE") or getattr(config, "OXAPAY_USD_TO_INR_RATE", 90.0))
 
     @property
     def surcharge_percent(self) -> float:

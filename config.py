@@ -38,14 +38,14 @@ PAYPAL_CLIENT_ID = os.getenv("PAYPAL_CLIENT_ID", "").strip('"\' ')
 PAYPAL_CLIENT_SECRET = os.getenv("PAYPAL_CLIENT_SECRET", "").strip('"\' ')
 PAYPAL_MODE = os.getenv("PAYPAL_MODE", "LIVE").strip('"\' ').upper()
 PAYPAL_CURRENCY = os.getenv("PAYPAL_CURRENCY", "USD").strip('"\' ').upper()
-PAYPAL_USD_TO_INR_RATE = float(os.getenv("PAYPAL_USD_TO_INR_RATE", "85.0"))
-PAYPAL_SURCHARGE_PERCENT = float(os.getenv("PAYPAL_SURCHARGE_PERCENT", "5.0"))
+PAYPAL_USD_TO_INR_RATE = float(os.getenv("PAYPAL_USD_TO_INR_RATE", "90.0"))
+PAYPAL_SURCHARGE_PERCENT = float(os.getenv("PAYPAL_SURCHARGE_PERCENT", "0.0"))
 PAYPAL_WEBHOOK_ID = os.getenv("PAYPAL_WEBHOOK_ID", "").strip('"\' ')
 
 # OxaPay Crypto Settings
 OXAPAY_MERCHANT_KEY = os.getenv("OXAPAY_MERCHANT_KEY", "").strip('"\' ')
 OXAPAY_CURRENCY = os.getenv("OXAPAY_CURRENCY", "USDT").strip('"\' ').upper()
-OXAPAY_USD_TO_INR_RATE = float(os.getenv("OXAPAY_USD_TO_INR_RATE", "85.0"))
+OXAPAY_USD_TO_INR_RATE = float(os.getenv("OXAPAY_USD_TO_INR_RATE", "90.0"))
 OXAPAY_SURCHARGE_PERCENT = float(os.getenv("OXAPAY_SURCHARGE_PERCENT", "0.0"))
 OXAPAY_CALLBACK_URL = os.getenv("OXAPAY_CALLBACK_URL", "https://sam-telegram-bot-production-11f2.up.railway.app/webhook/oxapay").strip('"\' ')
 

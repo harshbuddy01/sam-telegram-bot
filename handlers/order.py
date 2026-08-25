@@ -91,19 +91,19 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
 
             # If multiple automated gateways are configured, present a clean 3-option selector
             if len(available_gateways) > 1:
-                base_inr, pp_surcharge, pp_total_inr, pp_usd = payment_manager.paypal.calculate_amounts(variant.price)
+                _, _, _, pp_usd = payment_manager.paypal.calculate_amounts(variant.price)
                 _, _, _, oxa_usd = payment_manager.oxapay.calculate_amounts(variant.price)
 
                 text = (
-                    f"{ce(CustomEmojis.WALLET, '💳')} <b>SELECT PAYMENT METHOD FOR 1-CLICK ORDER</b>\n"
+                    f"{ce(CustomEmojis.DIAMOND, '💎')} <b>SELECT PAYMENT METHOD FOR 1-CLICK ORDER</b>\n"
                     f"{UI.SECTION_BAR}\n\n"
                     f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_icon} <b>{prod_title}</b> — <b>{variant.name}</b>\n"
                     f"{ce(CustomEmojis.WALLET, '💰')} <b>Item Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n\n"
-                    f"<i>Select your payment method below for instant automated delivery:</i>\n\n"
+                    f"<i>Choose your preferred payment method for instant automated delivery:</i>\n\n"
                     f"<blockquote>"
-                    f"⚡ <b>Instant UPI / Razorpay:</b> GPay, PhonePe, Paytm, Cards (0% fee)\n"
-                    f"🅿️ <b>PayPal & Cards:</b> Instant international checkout (${pp_usd:.2f} USD)\n"
-                    f"🪙 <b>Crypto (OxaPay):</b> USDT, BTC, ETH, TRX, SOL (${oxa_usd:.2f} USDT)"
+                    f"{ce(CustomEmojis.FIRE, '⚡')} <b>Instant UPI:</b> {config.CURRENCY_SYMBOL}{variant.price:.0f} (GPay / PhonePe / Paytm / CRED)\n"
+                    f"{ce(CustomEmojis.CARD, '🅿️')} <b>PayPal & Cards:</b> ${pp_usd:.2f} USD (Visa / Mastercard / Amex)\n"
+                    f"{ce(CustomEmojis.STAR, '🪙')} <b>Crypto (OxaPay):</b> ${oxa_usd:.2f} USDT (USDT / BTC / SOL / TRX)"
                     f"</blockquote>"
                 )
                 buttons = []
@@ -113,11 +113,11 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
                     ])
                 if payment_manager.paypal.is_configured:
                     buttons.append([
-                        InlineKeyboardButton(text=f"🅿️ PayPal / Cards (${pp_usd:.2f} USD)", callback_data=f"buygw_paypal_{variant.id}")
+                        InlineKeyboardButton(text=f"🅿️ PayPal & Cards (${pp_usd:.2f} USD)", callback_data=f"buygw_paypal_{variant.id}")
                     ])
                 if payment_manager.oxapay.is_configured:
                     buttons.append([
-                        InlineKeyboardButton(text=f"🪙 Crypto (USDT / BTC / SOL) (${oxa_usd:.2f})", callback_data=f"buygw_oxapay_{variant.id}")
+                        InlineKeyboardButton(text=f"🪙 Crypto via OxaPay (${oxa_usd:.2f} USDT)", callback_data=f"buygw_oxapay_{variant.id}")
                     ])
                 buttons.append([
                     InlineKeyboardButton(text="◀️ Back to Plans", callback_data=f"prod_{variant.product_id}")
@@ -337,15 +337,15 @@ async def initiate_1click_checkout(
             )
 
             text = (
-                f"{ce(CustomEmojis.FIRE, '⚡')} <b>DIRECT 1-CLICK CRYPTO CHECKOUT (OXAPAY)</b>\n"
+                f"{ce(CustomEmojis.DIAMOND, '🪙')} <b>DIRECT 1-CLICK CRYPTO CHECKOUT (OXAPAY)</b>\n"
                 f"{UI.SECTION_BAR}\n\n"
                 f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} <b>{prod_title}</b>\n"
                 f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n\n"
                 f"<blockquote>"
                 f"{ce(CustomEmojis.WALLET, '💰')} <b>Item Price:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
-                f"{ce(CustomEmojis.DIAMOND, '💎')} <b>Crypto Amount:</b> <b>${res.get('amount_usd', 0):.2f} {res.get('currency', 'USDT')}</b>\n"
-                f"{ce(CustomEmojis.FIRE, '🪙')} <b>Supported Coins:</b> USDT (TRC20/BEP20/Polygon), BTC, ETH, SOL, TRX, LTC\n"
-                f"{ce(CustomEmojis.CHECK, '🛡️')} <b>Delivery:</b> Instant Auto-Delivery upon blockchain confirmation"
+                f"{ce(CustomEmojis.STAR, '💎')} <b>Total Amount:</b> <b>${res.get('amount_usd', 0):.2f} {res.get('currency', 'USDT')}</b>\n"
+                f"{ce(CustomEmojis.FIRE, '🪙')} <b>Supported:</b> USDT (TRC20/BEP20/Polygon), BTC, ETH, SOL, TRX\n"
+                f"{ce(CustomEmojis.CHECK, '🛡️')} <b>Delivery:</b> Instant Automated Delivery upon payment"
                 f"</blockquote>\n\n"
                 f"<i>Tap the button below to pay securely with your preferred crypto:</i>"
             )
@@ -370,7 +370,7 @@ async def initiate_1click_checkout(
             )
             return
 
-    # 2. PayPal 1-Click Flow (5% merchant fee surcharge paid by customer)
+    # 2. PayPal 1-Click Flow
     elif active_gateway == "PAYPAL" and payment_manager.paypal.is_configured:
         res = await payment_manager.paypal.create_payment_order(
             user_id=user.telegram_id,
@@ -390,15 +390,15 @@ async def initiate_1click_checkout(
             )
 
             text = (
-                f"{ce(CustomEmojis.FIRE, '⚡')} <b>DIRECT 1-CLICK INSTANT CHECKOUT (PAYPAL)</b>\n"
+                f"{ce(CustomEmojis.DIAMOND, '🅿️')} <b>DIRECT 1-CLICK CHECKOUT (PAYPAL)</b>\n"
                 f"{UI.SECTION_BAR}\n\n"
                 f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} <b>{prod_title}</b>\n"
                 f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n\n"
                 f"<blockquote>"
                 f"{ce(CustomEmojis.WALLET, '💰')} <b>Item Price:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
-                f"{ce(CustomEmojis.CARD, '💳')} <b>PayPal Fee (5%):</b> +{config.CURRENCY_SYMBOL}{res.get('surcharge_amount', 0):.2f}\n"
-                f"{ce(CustomEmojis.FIRE, '💵')} <b>Total Charged:</b> <b>${res.get('total_usd', 0):.2f} USD</b> ({config.CURRENCY_SYMBOL}{res.get('total_inr', 0):.2f})\n"
-                f"{ce(CustomEmojis.CHECK, '🛡️')} <b>Delivery:</b> Instant Auto-Delivery upon payment"
+                f"{ce(CustomEmojis.CARD, '💵')} <b>Total Amount:</b> <b>${res.get('total_usd', 0):.2f} USD</b>\n"
+                f"{ce(CustomEmojis.CHECK, '🛡️')} <b>Payment Method:</b> PayPal / Debit / Credit Cards\n"
+                f"{ce(CustomEmojis.FIRE, '⚡')} <b>Delivery:</b> Instant Automated Delivery upon payment"
                 f"</blockquote>\n\n"
                 f"<i>Tap the button below to pay securely with PayPal / Debit / Credit Card:</i>"
             )
