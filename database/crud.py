@@ -244,9 +244,20 @@ async def delete_product(session: AsyncSession, product_id: int) -> bool:
 from sqlalchemy.orm import selectinload
 
 async def get_variants_by_product(session: AsyncSession, product_id: int) -> List[Variant]:
-    stmt = select(Variant).options(selectinload(Variant.product)).where(Variant.product_id == product_id, Variant.is_active == True).order_by(Variant.price)
+    stmt = select(Variant).options(selectinload(Variant.product)).where(Variant.product_id == product_id, Variant.is_active == True).order_by(Variant.price, Variant.id)
     result = await session.execute(stmt)
-    return list(result.scalars().all())
+    all_vars = list(result.scalars().all())
+    
+    # Deduplicate in-memory to guarantee customers only see distinct plans
+    unique_vars = []
+    seen_keys = set()
+    for v in all_vars:
+        norm_name = clean_button_text(v.name).lower() if v.name else ""
+        key = (norm_name, round(v.price, 2))
+        if key not in seen_keys:
+            seen_keys.add(key)
+            unique_vars.append(v)
+    return unique_vars
 
 async def get_all_variants(session: AsyncSession) -> List[Variant]:
     stmt = select(Variant).options(selectinload(Variant.product)).where(Variant.is_active == True).order_by(Variant.id)
@@ -270,16 +281,39 @@ async def create_variant(
     input_prompt: Optional[str] = None,
     stock_quantity: int = 50
 ) -> Variant:
+    clean_name = clean_button_text(name) or name
+    # Check if an existing active variant for this product already exists with the same name
+    stmt = select(Variant).where(
+        Variant.product_id == product_id,
+        Variant.name == clean_name,
+        Variant.is_active == True
+    )
+    res = await session.execute(stmt)
+    existing = res.scalars().first()
+    if existing:
+        existing.price = price
+        existing.variant_type = variant_type
+        if detailed_description:
+            existing.detailed_description = detailed_description
+        existing.fulfillment_type = fulfillment_type
+        existing.manual_dispatch_time = manual_dispatch_time
+        if input_prompt:
+            existing.input_prompt = input_prompt
+        await session.commit()
+        await session.refresh(existing)
+        return existing
+
     variant = Variant(
         product_id=product_id,
-        name=name,
+        name=clean_name,
         price=price,
         variant_type=variant_type,
         detailed_description=detailed_description,
         fulfillment_type=fulfillment_type,
         manual_dispatch_time=manual_dispatch_time,
         input_prompt=input_prompt,
-        stock_quantity=stock_quantity
+        stock_quantity=stock_quantity,
+        is_active=True
     )
     session.add(variant)
     await session.commit()
@@ -821,6 +855,25 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
     all_existing_prods = (await session.execute(select(Product))).scalars().all()
     for prod in all_existing_prods:
         prod.title = clean_button_text(prod.title)
+    await session.commit()
+
+    # Deduplicate existing duplicate variants across products in database
+    all_active_vars = (await session.execute(select(Variant).where(Variant.is_active == True))).scalars().all()
+    seen_var_keys = {}
+    for v in all_active_vars:
+        clean_v_name = clean_button_text(v.name) or v.name
+        v.name = clean_v_name
+        key = (v.product_id, round(v.price, 2))
+        if key in seen_var_keys:
+            primary_v = seen_var_keys[key]
+            if len(v.name) > len(primary_v.name):
+                primary_v.name = v.name
+            await session.execute(
+                update(Stock).where(Stock.variant_id == v.id).values(variant_id=primary_v.id)
+            )
+            v.is_active = False
+        else:
+            seen_var_keys[key] = v
     await session.commit()
 
     cats_dict = {}

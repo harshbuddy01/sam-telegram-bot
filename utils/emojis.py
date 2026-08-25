@@ -228,12 +228,13 @@ def clean_button_text(html_text: str) -> str:
     """
     Strips HTML tags like <tg-emoji> AND leading/trailing decorative emojis
     to ensure button labels and product titles are clean without duplicate emojis.
+    Preserves numbers and digits (e.g. '1 Month', '12 Months Coursera', '4K').
     """
     if not html_text:
         return ""
     clean = re.sub(r'<[^>]+>', '', html_text)
     clean = "".join(c for c in clean if not (0xD800 <= ord(c) <= 0xDFFF))
-    clean = clean.strip(" \t\n\r•✦★◈✔➜🤩❤️✨💎1️⃣2️⃣3️⃣4️⃣5️⃣-–—: ")
+    clean = clean.strip(" \t\n\r•✦★◈✔➜🤩❤️✨💎-–—: ")
     
     # Strip leading emojis
     while True:
@@ -250,7 +251,7 @@ def clean_button_text(html_text: str) -> str:
         for char in [
             "👑", "🍿", "🤖", "🛡️", "🎓", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "📦",
             "🔴", "🌟", "🍏", "📺", "🍥", "✂️", "🧠", "⚡", "👨‍💻", "🔍", "🏠", "◀️", "▶️",
-            "•", "✦", "★", "◈", "✔", "➜", "🤩", "❤️", "✨", "💎", "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣",
+            "•", "✦", "★", "◈", "✔", "➜", "🤩", "❤️", "✨", "💎",
             "⏳", "⏰", "⏱️", "💼", "🎬", "🎞️"
         ]:
             if clean.endswith(char):
