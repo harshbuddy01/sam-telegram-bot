@@ -296,12 +296,12 @@ def get_orders_list_keyboard(orders: list[Order]) -> InlineKeyboardMarkup:
         # Format clean product title
         prod_title = "Item"
         if order.variant and order.variant.product:
-            raw_title = order.variant.product.title
+            raw_title = clean_button_text(order.variant.product.title)
             prod_title = raw_title.replace("Premium", "").replace("Subscription", "").strip()
             if len(prod_title) > 16:
                 prod_title = prod_title[:15] + "…"
         elif order.variant:
-            prod_title = order.variant.name[:14]
+            prod_title = clean_button_text(order.variant.name)[:14]
 
         btn_text = f"{badge} #{order.id} • {prod_title} • {config.CURRENCY_SYMBOL}{order.amount:.0f} ({created_str})"
 

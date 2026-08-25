@@ -79,13 +79,29 @@ async def msg_search_query(message: types.Message, state: FSMContext, session: A
 
 async def safe_edit_or_reply(callback: types.CallbackQuery, text: str, reply_markup: Optional[InlineKeyboardMarkup] = None):
     try:
-        await callback.message.edit_text(text, reply_markup=reply_markup)
+        await callback.message.edit_text(text, reply_markup=reply_markup, parse_mode="HTML")
+        return
     except Exception:
+        pass
+    
+    try:
+        await callback.message.answer(text, reply_markup=reply_markup, parse_mode="HTML")
         try:
             await callback.message.delete()
         except Exception:
             pass
-        await callback.message.answer(text, reply_markup=reply_markup)
+        return
+    except Exception:
+        # Fallback to plain text so the message NEVER vanishes
+        plain_text = re.sub(r'<[^>]+>', '', text)
+        try:
+            await callback.message.answer(plain_text, reply_markup=reply_markup, parse_mode=None)
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
+        except Exception:
+            pass
 
 @router.callback_query(F.data == "nav_shop")
 async def cb_nav_shop(callback: types.CallbackQuery, session: AsyncSession):
@@ -317,7 +333,7 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
         fulfillment_badge=fulfillment_badge,
         stock_badge=stock_badge,
         description_block=desc_block,
-        delivery_time=dispatch_time if is_manual else "Instant (< 5 seconds)"
+        delivery_time=dispatch_time if is_manual else "Instant (Under 5s)"
     )
     text += f"\n{action_note}"
 

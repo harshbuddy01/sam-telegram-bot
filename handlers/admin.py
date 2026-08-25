@@ -392,7 +392,7 @@ async def msg_admin_man_ful_content(message: types.Message, state: FSMContext, s
         user_obj = await get_user(session, order.user_id)
         buyer_name = user_obj.full_name if user_obj else "Customer"
         remaining = await get_available_stock_count(session, variant.id) if variant else 0
-        bot_me = await bot.me()
+        bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
         await send_order_notification(
             bot=bot,
             order_id=order.id,
@@ -523,7 +523,7 @@ async def cb_admin_dep_approve(callback: types.CallbackQuery, session: AsyncSess
                 from utils.notifications import send_order_notification
                 try:
                     remaining = await get_available_stock_count(session, target_var.id)
-                    bot_me = await bot.me()
+                    bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
                     await send_order_notification(
                         bot=bot,
                         order_id=order.id,
@@ -740,7 +740,7 @@ async def msg_admin_stock_lines(message: types.Message, state: FSMContext, sessi
     # Send Restock Alert to Group/Channel
     from utils.notifications import send_restock_alert
     try:
-        bot_me = await bot.me()
+        bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
         await send_restock_alert(
             bot=bot,
             product_title=prod_title,
@@ -1432,7 +1432,7 @@ async def msg_admin_varedit_stockqty(message: types.Message, state: FSMContext, 
         if new_qty > 0:
             from utils.notifications import send_restock_alert
             try:
-                bot_me = await bot.me()
+                bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
                 await send_restock_alert(
                     bot=bot,
                     product_title=prod_title,
@@ -1840,7 +1840,7 @@ async def msg_admin_var_manual_stock_qty(message: types.Message, state: FSMConte
     if qty > 0:
         from utils.notifications import send_restock_alert
         try:
-            bot_me = await bot.me()
+            bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
             await send_restock_alert(
                 bot=bot,
                 product_title=prod_title,

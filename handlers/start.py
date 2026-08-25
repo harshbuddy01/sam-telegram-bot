@@ -100,11 +100,13 @@ async def cb_nav_support(callback: types.CallbackQuery, session: AsyncSession):
         group_link=config.GROUP_LINK
     )
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Contact Support Agent", url=f"https://t.me/{config.SUPPORT_USERNAME.replace('@', '')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
-        [InlineKeyboardButton(text="Join Official Channel", url=config.CHANNEL_LINK, icon_custom_emoji_id=CustomEmojis.TELEGRAM if hasattr(CustomEmojis, 'TELEGRAM') else None)],
-        [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
-    ])
+    buttons = [
+        [InlineKeyboardButton(text="Contact Support Agent", url=f"https://t.me/{config.SUPPORT_USERNAME.replace('@', '')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)]
+    ]
+    if config.CHANNEL_LINK:
+        buttons.append([InlineKeyboardButton(text="Join Official Channel", url=config.CHANNEL_LINK, icon_custom_emoji_id=CustomEmojis.TELEGRAM if hasattr(CustomEmojis, 'TELEGRAM') else None)])
+    buttons.append([InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)])
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
     await callback.message.edit_text(text, reply_markup=kb)
 
 @router.callback_query(F.data == "nav_guide")

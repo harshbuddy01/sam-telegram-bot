@@ -41,7 +41,7 @@ async def _background_notify(bot, order, prod_title, variant, user, remaining, a
         except Exception:
             pass
     try:
-        bot_me = getattr(bot, '_cached_me', None) or await bot.me()
+        bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
         await send_order_notification(
             bot=bot,
             order_id=order.id,
@@ -57,13 +57,29 @@ async def _background_notify(bot, order, prod_title, variant, user, remaining, a
 
 async def safe_edit_or_reply(message: types.Message, text: str, reply_markup: Optional[InlineKeyboardMarkup] = None):
     try:
-        await message.edit_text(text, reply_markup=reply_markup)
+        await message.edit_text(text, reply_markup=reply_markup, parse_mode="HTML")
+        return
     except Exception:
+        pass
+
+    try:
+        await message.answer(text, reply_markup=reply_markup, parse_mode="HTML")
         try:
             await message.delete()
         except Exception:
             pass
-        await message.answer(text, reply_markup=reply_markup)
+        return
+    except Exception:
+        import re
+        plain_text = re.sub(r'<[^>]+>', '', text)
+        try:
+            await message.answer(plain_text, reply_markup=reply_markup, parse_mode=None)
+            try:
+                await message.delete()
+            except Exception:
+                pass
+        except Exception:
+            pass
 
 # In-memory lock to debounce multiple rapid clicks from the same user
 _generating_sessions = set()

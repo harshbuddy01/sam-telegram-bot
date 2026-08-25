@@ -158,7 +158,7 @@ async def handle_razorpay_webhook(request: web.Request) -> web.Response:
 
                         # Group/Channel Notification
                         remaining = await get_available_stock_count(session, target_var.id)
-                        bot_me = await bot.me()
+                        bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
                         await send_order_notification(
                             bot=bot,
                             order_id=order.id,
@@ -216,7 +216,7 @@ async def handle_razorpay_webhook(request: web.Request) -> web.Response:
 
                         # Notify Group
                         remaining = await get_available_stock_count(session, target_var.id)
-                        bot_me = await bot.me()
+                        bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
                         await send_order_notification(
                             bot=bot,
                             order_id=manual_order.id,
@@ -407,7 +407,7 @@ async def handle_paypal_webhook(request: web.Request) -> web.Response:
 
                         # Group/Channel Notification
                         remaining = await get_available_stock_count(session, target_var.id)
-                        bot_me = await bot.me()
+                        bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
                         await send_order_notification(
                             bot=bot,
                             order_id=order.id,
@@ -465,7 +465,7 @@ async def handle_paypal_webhook(request: web.Request) -> web.Response:
 
                         # Notify Group
                         remaining = await get_available_stock_count(session, target_var.id)
-                        bot_me = await bot.me()
+                        bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
                         await send_order_notification(
                             bot=bot,
                             order_id=manual_order.id,
@@ -628,7 +628,7 @@ async def handle_oxapay_webhook(request: web.Request) -> web.Response:
 
                         # Group/Channel Notification
                         remaining = await get_available_stock_count(session, target_var.id)
-                        bot_me = await bot.me()
+                        bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
                         await send_order_notification(
                             bot=bot,
                             order_id=order.id,
@@ -686,7 +686,7 @@ async def handle_oxapay_webhook(request: web.Request) -> web.Response:
 
                         # Notify Group
                         remaining = await get_available_stock_count(session, target_var.id)
-                        bot_me = await bot.me()
+                        bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
                         await send_order_notification(
                             bot=bot,
                             order_id=manual_order.id,

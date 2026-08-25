@@ -441,7 +441,7 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
 
                     # Group/Channel Notification
                     remaining = await get_available_stock_count(session, target_var.id)
-                    bot_me = getattr(bot, '_cached_me', None) or await bot.me()
+                    bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
                     await send_order_notification(
                         bot=bot,
                         order_id=order.id,
@@ -476,7 +476,7 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
 
                     # Group/Channel Notification
                     remaining = await get_available_stock_count(session, target_var.id)
-                    bot_me = getattr(bot, '_cached_me', None) or await bot.me()
+                    bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
                     await send_order_notification(
                         bot=bot,
                         order_id=manual_order.id,
