@@ -4,7 +4,7 @@ from sqlalchemy import select, func, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from database.models import User, Category, Product, Variant, Stock, Order, Deposit
-from utils.emojis import Emojis, CustomEmojis
+from utils.emojis import Emojis, CustomEmojis, clean_button_text
 import config
 
 # ================= USER CRUD =================
@@ -815,10 +815,12 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
     # Clean and standardize all existing categories in database
     all_existing_cats = (await session.execute(select(Category))).scalars().all()
     for cat in all_existing_cats:
-        for prefix in ["🍿 🍿 ", "🍿 ", "🤖 🤖 ", "🤖 ", "🛡️ 🛡️ ", "🛡️ ", "🎓 🎓 ", "🎓 ", "🎮 🎮 ", "🎮 ", "🎁 🎁 ", "🎁 "]:
-            if cat.name.startswith(prefix):
-                cat.name = cat.name[len(prefix):].strip()
-        cat.name = cat.name.strip(" 🤩\t\n")
+        cat.name = clean_button_text(cat.name)
+    await session.commit()
+
+    all_existing_prods = (await session.execute(select(Product))).scalars().all()
+    for prod in all_existing_prods:
+        prod.title = clean_button_text(prod.title)
     await session.commit()
 
     cats_dict = {}

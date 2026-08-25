@@ -210,14 +210,23 @@ def get_message_html_text(message) -> str:
 
 def clean_button_text(html_text: str) -> str:
     """
-    Strips HTML tags like <tg-emoji> to make button text safe and clean for Telegram InlineKeyboardButtons.
+    Strips HTML tags like <tg-emoji> AND leading/trailing decorative emojis
+    to ensure button labels are clean without duplicate emojis when icon_custom_emoji_id is used.
     """
     if not html_text:
         return ""
     clean = re.sub(r'<[^>]+>', '', html_text)
-    for unwanted in ["🤩", "\ud83e\udd29", "❤️"]:
-        clean = clean.replace(unwanted, "")
     clean = "".join(c for c in clean if not (0xD800 <= ord(c) <= 0xDFFF))
+    for char in [
+        "👑", "🍿", "🤖", "🛡️", "🎓", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "📦",
+        "🔴", "🌟", "🍏", "📺", "🍥", "✂️", "🧠", "⚡", "👨‍💻", "🔍", "🏠", "◀️", "▶️",
+        "•", "✦", "★", "◈", "✔", "➜", "🤩", "❤️", "✨", "💎", "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"
+    ]:
+        clean = clean.strip()
+        if clean.startswith(char):
+            clean = clean[len(char):].strip()
+        if clean.endswith(char):
+            clean = clean[:-len(char)].strip()
     return clean.strip()
 
 class UI:
