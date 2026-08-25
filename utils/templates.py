@@ -122,6 +122,32 @@ DEFAULT_TEMPLATES: Dict[str, str] = {
         f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Warranty Terms:</b>\n"
         f"• All purchases are covered by our replacement guarantee.\n"
         f"• For help or replacements, message our support with your Order ID."
+    ),
+
+    "guide_text": (
+        f"{ce(CustomEmojis.DIAMOND, '📖')} <b>HOW TO BUY & USE {{store_name}}</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"<b>1️⃣ Browse Subscriptions</b>\n"
+        f"• Tap <b>'Explore Store'</b> or <b>'Search Product'</b> to browse Netflix, YouTube, Prime, ChatGPT, CapCut, VPNs & developer tools.\n"
+        f"• Click on any service to view available plans, durations, and wholesale pricing.\n\n"
+        f"<b>2️⃣ Choose Plan & Instant Checkout</b>\n"
+        f"• Tap <b>'PURCHASE NOW'</b> on your desired plan.\n"
+        f"• Pay instantly with <b>1-Click Checkout</b> via <b>UPI QR Code</b> (GPay / PhonePe / Paytm / CRED), <b>Cards & PayPal</b>, or <b>Crypto (OxaPay)</b>.\n"
+        f"• <i>(You can also top up your <b>Wallet</b> anytime for 1-tap balance checkouts.)</i>\n\n"
+        f"<b>3️⃣ Instant Automated & Manual Delivery</b>\n"
+        f"• {ce(CustomEmojis.FIRE, '⚡')} <b>Instant Stock Items:</b> Your login credentials, password, and screen PIN are delivered directly to this chat in seconds!\n"
+        f"• {ce(CustomEmojis.FIRE, '⏱️')} <b>Manual Activation Items:</b> (e.g. YouTube Family Invite, Hotstar, CapCut Pro) Our team activates and dispatches your subscription within 1–2 hours.\n\n"
+        f"<b>4️⃣ Order History & 1-Tap Copy</b>\n"
+        f"• Tap <b>'Order History'</b> anytime to see all your active subscriptions and receipts.\n"
+        f"• Tap the credential box to copy email/password instantly to your clipboard.\n\n"
+        f"<b>5️⃣ 100% Replacement Warranty & Support</b>\n"
+        f"• Every purchase comes with a 100% replacement warranty covering the full subscription duration.\n"
+        f"• Need help? Tap <b>'Need Help?'</b> on your order receipt or contact <b>@{{support_username}}</b>.\n\n"
+        f"<b>6️⃣ Invite Friends & Earn Cashback</b>\n"
+        f"• Tap <b>'Invite Users'</b> to get your personal referral link.\n"
+        f"• Earn <b>{{referral_percent}}% wallet credit</b> on every purchase made by your invited friends!\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>Fast, reliable, and 100% genuine digital subscriptions.</i>"
     )
 }
 
@@ -171,6 +197,11 @@ TEMPLATE_METADATA: Dict[str, Dict[str, Any]] = {
         "title": "🛟 Support & Help Desk",
         "desc": "Support contact links and warranty guidelines.",
         "tags": ["{support_username}", "{channel_link}", "{group_link}"]
+    },
+    "guide_text": {
+        "title": "📖 How to Use & Purchase Guide",
+        "desc": "The comprehensive buying guide explaining 1-click checkout, delivery, and warranty.",
+        "tags": ["{store_name}", "{support_username}", "{referral_percent}"]
     }
 }
 

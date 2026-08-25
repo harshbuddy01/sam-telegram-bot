@@ -57,7 +57,8 @@ def get_admin_customizer_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="👤 Customer Profile", callback_data="adm_tmpl_view_profile_text", icon_custom_emoji_id=CustomEmojis.VERIFIED)
         ],
         [
-            InlineKeyboardButton(text="🛟 Support & Help Desk", callback_data="adm_tmpl_view_support_text", icon_custom_emoji_id=CustomEmojis.SUPPORT)
+            InlineKeyboardButton(text="🛟 Support & Help Desk", callback_data="adm_tmpl_view_support_text", icon_custom_emoji_id=CustomEmojis.SUPPORT),
+            InlineKeyboardButton(text="📖 How to Use & Guide", callback_data="adm_tmpl_view_guide_text", icon_custom_emoji_id=CustomEmojis.DIAMOND)
         ],
         [
             InlineKeyboardButton(text="◀️ Back to Admin Panel", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)

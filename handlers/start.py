@@ -130,26 +130,25 @@ async def cb_nav_support(callback: types.CallbackQuery, session: AsyncSession):
     await callback.message.edit_text(text, reply_markup=kb)
 
 @router.callback_query(F.data == "nav_guide")
-async def cb_nav_guide(callback: types.CallbackQuery):
+async def cb_nav_guide(callback: types.CallbackQuery, session: AsyncSession):
     await callback.answer()
-    text = (
-        f"{ce(CustomEmojis.DIAMOND, '📖')} <b>HOW TO BUY ON {config.STORE_NAME.upper()}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"<b>Step 1: Top-Up Wallet</b>\n"
-        f"Tap <b>'Deposit Wallet'</b> on the main menu, choose an amount, and pay via any UPI app (GPay / PhonePe / Paytm).\n\n"
-        f"<b>Step 2: Choose Subscription</b>\n"
-        f"Tap <b>'Explore Store'</b> or <b>'Search Item'</b> to select your service (Netflix, Prime, YouTube, ChatGPT).\n\n"
-        f"<b>Step 3: Instant Delivery</b>\n"
-        f"Click <b>'Purchase Now'</b>. Your login email, password, and screen PIN will be delivered to your Telegram chat instantly!\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>All orders are permanently saved in 'Order History' with replacement warranty!</i>"
+    text = await render_template(
+        session,
+        "guide_text",
+        store_name=config.STORE_NAME,
+        support_username=config.SUPPORT_USERNAME.replace('@', ''),
+        referral_percent=config.REFERRAL_BONUS_PERCENT
     )
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Explore Store Now", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
+        [InlineKeyboardButton(text="Contact Support Agent", url=f"https://t.me/{config.SUPPORT_USERNAME.replace('@', '')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
         [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
     ])
-    await callback.message.edit_text(text, reply_markup=kb)
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
 
 # Persistent Bottom Menu Shortcuts
 @router.message(F.text.in_(["🛍️  Shop", "🛍️ Shop", "Shop", "🏪 Shop"]))
