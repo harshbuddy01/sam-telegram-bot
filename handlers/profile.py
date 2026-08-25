@@ -49,8 +49,8 @@ async def cb_view_orders(callback: types.CallbackQuery, session: AsyncSession):
         )
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🛍️  Explore Store Now", callback_data="nav_shop")],
-            [InlineKeyboardButton(text="◀️  Back to Main Menu", callback_data="nav_home")]
+            [InlineKeyboardButton(text="Explore Store Now", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
+            [InlineKeyboardButton(text="Back to Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
         ])
         await callback.message.edit_text(text, reply_markup=kb)
         return
@@ -89,14 +89,14 @@ async def cb_order_detail(callback: types.CallbackQuery, session: AsyncSession):
     warranty_icon = ce(CustomEmojis.WARRANTY, "🛡️")
     
     if status == "COMPLETED":
-        status_line = "🟢 <b>Status:</b> Completed & Delivered"
+        status_line = f"{ce(CustomEmojis.CHECK, '🟢')} <b>Status:</b> Completed & Delivered"
         middle_block = (
             f"{key_icon} <b>DELIVERED CREDENTIALS / KEY:</b>\n"
             f"<pre><code>{order.delivered_content}</code></pre>\n"
         )
         footer_line = f"{warranty_icon} <i>Under 100% Replacement Warranty! Contact support ({config.SUPPORT_USERNAME}) for help.</i>"
     elif status == "PENDING_DISPATCH":
-        status_line = "⏳ <b>Status:</b> In Progress (Manual Activation within 1–2h)"
+        status_line = f"{ce(CustomEmojis.FIRE, '⏳')} <b>Status:</b> In Progress (Manual Activation within 1–2h)"
         middle_block = (
             f"{ce(CustomEmojis.VERIFIED, '📧')} <b>Provided Target Details:</b>\n"
             f"<code>{order.customer_input or 'None'}</code>\n\n"
@@ -104,7 +104,7 @@ async def cb_order_detail(callback: types.CallbackQuery, session: AsyncSession):
         )
         footer_line = f"{ce(CustomEmojis.SUPPORT, '💬')} <i>Need expedited delivery? Contact support: {config.SUPPORT_USERNAME}</i>"
     else:
-        status_line = "❌ <b>Status:</b> Cancelled & Refunded to Wallet"
+        status_line = f"{ce(CustomEmojis.LOCK, '❌')} <b>Status:</b> Cancelled & Refunded to Wallet"
         middle_block = (
             f"{ce(CustomEmojis.WALLET, '💰')} <i>Amount <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b> has been credited back to your wallet balance.</i>\n"
         )
@@ -130,7 +130,7 @@ async def cb_order_detail(callback: types.CallbackQuery, session: AsyncSession):
 @router.callback_query(F.data == "nav_refer")
 async def cb_nav_refer(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):
     await callback.answer()
-    bot_info = await bot.get_me()
+    bot_info = getattr(bot, '_cached_me', None) or await bot.get_me()
     ref_link = f"https://t.me/{bot_info.username}?start=ref_{callback.from_user.id}"
     referrals_count = await get_user_referrals_count(session, callback.from_user.id)
 
@@ -154,7 +154,7 @@ async def cb_nav_refer(callback: types.CallbackQuery, session: AsyncSession, bot
 
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢  Share With Friends", url=f"https://t.me/share/url?url={ref_link}&text=Get%20discounted%20OTT%20and%20AI%20subscriptions%20instantly%20on%20{config.STORE_NAME}!")],
-        [InlineKeyboardButton(text="◀️  Back to Main Menu", callback_data="nav_home")]
+        [InlineKeyboardButton(text="Share With Friends", url=f"https://t.me/share/url?url={ref_link}&text=Get%20discounted%20OTT%20and%20AI%20subscriptions%20instantly%20on%20{config.STORE_NAME}!", icon_custom_emoji_id=CustomEmojis.REFER)],
+        [InlineKeyboardButton(text="Back to Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
     ])
     await callback.message.edit_text(text, reply_markup=kb)

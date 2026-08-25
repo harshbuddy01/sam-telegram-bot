@@ -210,9 +210,9 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
                     f"Our team has received your order and is preparing your credentials right now! You will receive your details directly in this chat shortly."
                 )
                 kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🛟 Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}")],
-                    [InlineKeyboardButton(text="📦 Order History", callback_data="view_orders")],
-                    [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                    [InlineKeyboardButton(text="Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+                    [InlineKeyboardButton(text="Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)],
+                    [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
                 ])
                 await callback.message.edit_text(text, reply_markup=kb)
 
@@ -244,7 +244,7 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
                 f"<i>(Reply to this message with your details to complete your order)</i>"
             )
             kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="◀️  Cancel & Go Back", callback_data=f"var_{variant.id}")]
+                [InlineKeyboardButton(text="Cancel & Go Back", callback_data=f"var_{variant.id}", icon_custom_emoji_id=CustomEmojis.CROWN)]
             ])
             await callback.message.edit_text(text, reply_markup=kb)
             return
@@ -331,9 +331,9 @@ async def msg_order_manual_input(message: types.Message, state: FSMContext, sess
         f"Our support team has received your order! Your invitation/credentials will be delivered directly here once dispatched."
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛟 Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}")],
-        [InlineKeyboardButton(text="🛍️ Continue Shopping", callback_data="nav_shop")],
-        [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+        [InlineKeyboardButton(text="Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+        [InlineKeyboardButton(text="Continue Shopping", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
+        [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
     ])
     await message.answer(text, reply_markup=kb)
 

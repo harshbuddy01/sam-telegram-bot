@@ -221,8 +221,8 @@ async def msg_btn_support(message: types.Message):
     )
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💬  Contact Support Agent", url=f"https://t.me/{config.SUPPORT_USERNAME.replace('@', '')}")],
-        [InlineKeyboardButton(text="◀️  Back to Main Menu", callback_data="nav_home")]
+        [InlineKeyboardButton(text="Contact Support Agent", url=f"https://t.me/{config.SUPPORT_USERNAME.replace('@', '')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+        [InlineKeyboardButton(text="Back to Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
     ])
     await message.answer(text, reply_markup=kb)
 
@@ -239,8 +239,8 @@ async def msg_btn_refer(message: types.Message, session: AsyncSession):
     )
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 Share Referral Link", url=f"https://t.me/share/url?url={ref_link}&text=Join%20SAM%20Store%20for%20genuine%20OTT%20and%20AI%20subscriptions!")],
-        [InlineKeyboardButton(text="◀️ Back to Main Menu", callback_data="nav_home")]
+        [InlineKeyboardButton(text="Share Referral Link", url=f"https://t.me/share/url?url={ref_link}&text=Join%20SAM%20Store%20for%20genuine%20OTT%20and%20AI%20subscriptions!", icon_custom_emoji_id=CustomEmojis.REFER)],
+        [InlineKeyboardButton(text="Back to Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
     ])
     await message.answer(text, reply_markup=kb)
 
@@ -323,11 +323,11 @@ async def msg_btn_admin_stats(message: types.Message, session: AsyncSession):
         f"{ce(CustomEmojis.TROPHY, '📊')} <b>LIVE STORE METRICS & ANALYTICS</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"<blockquote>"
-        f"👥 <b>Total Registered Customers:</b> <b>{total_users:,}</b>\n"
-        f"📦 <b>Lifetime Orders Fulfilled:</b> <b>{total_orders:,}</b>\n"
-        f"⚡ <b>Orders Fulfilled Today:</b> <b>{today_orders:,}</b>\n"
-        f"💰 <b>Total Gross Sales:</b> <b>{config.CURRENCY_SYMBOL}{total_rev:,.2f}</b>\n"
-        f"🔑 <b>Total Available Stock Slots:</b> <b>{total_stock:,}</b>"
+        f"{ce(CustomEmojis.VERIFIED, '👥')} <b>Total Registered Customers:</b> <b>{total_users:,}</b>\n"
+        f"{ce(CustomEmojis.ORDERS, '📦')} <b>Lifetime Orders Fulfilled:</b> <b>{total_orders:,}</b>\n"
+        f"{ce(CustomEmojis.FIRE, '⚡')} <b>Orders Fulfilled Today:</b> <b>{today_orders:,}</b>\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Total Gross Sales:</b> <b>{config.CURRENCY_SYMBOL}{total_rev:,.2f}</b>\n"
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>Total Available Stock Slots:</b> <b>{total_stock:,}</b>"
         f"</blockquote>"
     )
     await message.answer(text, reply_markup=get_admin_cancel_keyboard("admin_home"))

@@ -92,18 +92,18 @@ async def prompt_payment_gateway_choice(message: types.Message, amount: float):
     buttons = []
     if payment_manager.razorpay.is_configured:
         buttons.append([
-            InlineKeyboardButton(text=f"⚡ Instant UPI / Razorpay ({config.CURRENCY_SYMBOL}{amount:.0f})", callback_data=f"deppay_razorpay_{int(amount)}")
+            InlineKeyboardButton(text=f"Instant UPI / Razorpay ({config.CURRENCY_SYMBOL}{amount:.0f})", callback_data=f"deppay_razorpay_{int(amount)}", icon_custom_emoji_id=CustomEmojis.FIRE)
         ])
     if payment_manager.paypal.is_configured:
         buttons.append([
-            InlineKeyboardButton(text=f"🅿️ PayPal & Cards (${pp_usd:.2f} USD)", callback_data=f"deppay_paypal_{int(amount)}")
+            InlineKeyboardButton(text=f"PayPal & Cards (${pp_usd:.2f} USD)", callback_data=f"deppay_paypal_{int(amount)}", icon_custom_emoji_id=CustomEmojis.CARD)
         ])
     if payment_manager.oxapay.is_configured:
         buttons.append([
-            InlineKeyboardButton(text=f"🪙 Crypto via OxaPay (${oxa_usd:.2f} USDT)", callback_data=f"deppay_oxapay_{int(amount)}")
+            InlineKeyboardButton(text=f"Crypto via OxaPay (${oxa_usd:.2f} USDT)", callback_data=f"deppay_oxapay_{int(amount)}", icon_custom_emoji_id=CustomEmojis.DIAMOND)
         ])
     buttons.append([
-        InlineKeyboardButton(text="◀️ Back to Presets", callback_data="nav_deposit")
+        InlineKeyboardButton(text="Back to Presets", callback_data="nav_deposit", icon_custom_emoji_id=CustomEmojis.WALLET)
     ])
     await message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
@@ -299,9 +299,9 @@ async def initiate_deposit_payment(
                 )
                 pay_btn_url = res.get("payment_url") or "https://rzp.io"
                 kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text=f"💳 PAY {config.CURRENCY_SYMBOL}{amount:.0f} VIA RAZORPAY / UPI", url=pay_btn_url)],
-                    [InlineKeyboardButton(text="✅ I Have Paid (Auto-Verify & Credit)", callback_data=f"chkdep_{deposit.id}")],
-                    [InlineKeyboardButton(text="Cancel & Return", callback_data="nav_home")]
+                    [InlineKeyboardButton(text=f"PAY {config.CURRENCY_SYMBOL}{amount:.0f} VIA RAZORPAY / UPI", url=pay_btn_url, icon_custom_emoji_id=CustomEmojis.FIRE)],
+                    [InlineKeyboardButton(text="I Have Paid (Auto-Verify & Credit)", callback_data=f"chkdep_{deposit.id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
+                    [InlineKeyboardButton(text="Cancel & Return", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.LOCK)]
                 ])
                 await message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
                 return
@@ -310,7 +310,7 @@ async def initiate_deposit_payment(
                 await message.answer(
                     f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Payment Gateway Error:</b>\n{err_msg}\n\nPlease try again shortly or contact support.",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                        [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
                     ])
                 )
                 return
@@ -319,7 +319,7 @@ async def initiate_deposit_payment(
         await message.answer(
             f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Payment Gateway Offline:</b>\nNo automated payment gateway is currently available. Please contact support @{config.SUPPORT_USERNAME.lstrip('@')}.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
             ])
         )
         return

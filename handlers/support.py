@@ -60,9 +60,9 @@ async def cb_confirm_got(callback: types.CallbackQuery):
         f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>Your warranty is active. Credentials remain permanently saved in Order History.</i>"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📦 View in Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)],
-        [InlineKeyboardButton(text="🛍️ Continue Shopping", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
-        [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+        [InlineKeyboardButton(text="View in Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)],
+        [InlineKeyboardButton(text="Continue Shopping", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
+        [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
     ])
 
     try:
@@ -93,27 +93,27 @@ async def cb_need_help(callback: types.CallbackQuery, session: AsyncSession):
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text="🔑 Login / Password Problem",
+            text="Login / Password Problem",
             callback_data=f"help_access_{order_id}",
             icon_custom_emoji_id=CustomEmojis.KEY
         )],
         [InlineKeyboardButton(
-            text="🔄 Warranty Replacement",
+            text="Warranty Replacement",
             callback_data=f"help_replace_{order_id}",
             icon_custom_emoji_id=CustomEmojis.WARRANTY
         )],
         [InlineKeyboardButton(
-            text="💳 Payment / Billing Issue",
+            text="Payment / Billing Issue",
             callback_data=f"help_payment_{order_id}",
             icon_custom_emoji_id=CustomEmojis.WALLET
         )],
         [InlineKeyboardButton(
-            text="💬 Chat with Support Agent",
+            text="Chat with Support Agent",
             url=default_url,
             icon_custom_emoji_id=CustomEmojis.SUPPORT
         )],
         [InlineKeyboardButton(
-            text="◀️ Back to Order Receipt",
+            text="Back to Order Receipt",
             callback_data=f"orderdetail_{order_id}",
             icon_custom_emoji_id=CustomEmojis.CROWN
         )]
@@ -152,11 +152,11 @@ async def cb_help_replace(callback: types.CallbackQuery, session: AsyncSession):
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text="💬 Connect with Admin (Pre-filled)",
+            text="Connect with Admin (Pre-filled)",
             url=direct_url,
             icon_custom_emoji_id=CustomEmojis.SUPPORT
         )],
-        [InlineKeyboardButton(text="◀️ Back to Issue Menu", callback_data=f"need_help_{order_id}")]
+        [InlineKeyboardButton(text="Back to Issue Menu", callback_data=f"need_help_{order_id}", icon_custom_emoji_id=CustomEmojis.CROWN)]
     ])
     try:
         await callback.message.edit_text(text, reply_markup=kb)
@@ -190,11 +190,11 @@ async def cb_help_payment(callback: types.CallbackQuery, session: AsyncSession):
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text="💬 Connect with Admin (Pre-filled)",
+            text="Connect with Admin (Pre-filled)",
             url=direct_url,
             icon_custom_emoji_id=CustomEmojis.WALLET
         )],
-        [InlineKeyboardButton(text="◀️ Back to Issue Menu", callback_data=f"need_help_{order_id}")]
+        [InlineKeyboardButton(text="Back to Issue Menu", callback_data=f"need_help_{order_id}", icon_custom_emoji_id=CustomEmojis.CROWN)]
     ])
     try:
         await callback.message.edit_text(text, reply_markup=kb)
@@ -229,12 +229,12 @@ async def cb_help_access(callback: types.CallbackQuery, session: AsyncSession):
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text="💬 Connect with Admin (Pre-filled)",
+            text="Connect with Admin (Pre-filled)",
             url=direct_url,
             icon_custom_emoji_id=CustomEmojis.KEY
         )],
-        [InlineKeyboardButton(text="📦 View Order Receipt", callback_data=f"orderdetail_{order_id}")],
-        [InlineKeyboardButton(text="◀️ Back to Issue Menu", callback_data=f"need_help_{order_id}")]
+        [InlineKeyboardButton(text="View Order Receipt", callback_data=f"orderdetail_{order_id}", icon_custom_emoji_id=CustomEmojis.ORDERS)],
+        [InlineKeyboardButton(text="Back to Issue Menu", callback_data=f"need_help_{order_id}", icon_custom_emoji_id=CustomEmojis.CROWN)]
     ])
     try:
         await callback.message.edit_text(text, reply_markup=kb)

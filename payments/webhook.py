@@ -207,8 +207,8 @@ async def handle_razorpay_webhook(request: web.Request) -> web.Response:
                         try:
                             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
                             kb = InlineKeyboardMarkup(inline_keyboard=[
-                                [InlineKeyboardButton(text="🛟 Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}")],
-                                [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                                [InlineKeyboardButton(text="Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+                                [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
                             ])
                             await bot.send_message(user.telegram_id, manual_confirm_text, reply_markup=kb)
                         except Exception as e:
@@ -260,8 +260,8 @@ async def handle_razorpay_webhook(request: web.Request) -> web.Response:
             try:
                 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
                 kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🛍️ Explore Store", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
-                    [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                    [InlineKeyboardButton(text="Explore Store", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
+                    [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
                 ])
                 await bot.send_message(user.telegram_id, deposit_msg, reply_markup=kb)
             except Exception as e:
@@ -456,8 +456,8 @@ async def handle_paypal_webhook(request: web.Request) -> web.Response:
                         try:
                             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
                             kb = InlineKeyboardMarkup(inline_keyboard=[
-                                [InlineKeyboardButton(text="🛟 Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}")],
-                                [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                                [InlineKeyboardButton(text="Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+                                [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
                             ])
                             await bot.send_message(user.telegram_id, manual_confirm_text, reply_markup=kb)
                         except Exception as e:
@@ -509,8 +509,8 @@ async def handle_paypal_webhook(request: web.Request) -> web.Response:
             try:
                 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
                 kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🛍️ Explore Store", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
-                    [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                    [InlineKeyboardButton(text="Explore Store", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
+                    [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
                 ])
                 await bot.send_message(user.telegram_id, deposit_msg, reply_markup=kb)
             except Exception as e:
@@ -677,8 +677,8 @@ async def handle_oxapay_webhook(request: web.Request) -> web.Response:
                         try:
                             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
                             kb = InlineKeyboardMarkup(inline_keyboard=[
-                                [InlineKeyboardButton(text="🛟 Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}")],
-                                [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                                [InlineKeyboardButton(text="Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+                                [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
                             ])
                             await bot.send_message(user.telegram_id, manual_confirm_text, reply_markup=kb)
                         except Exception as e:
@@ -730,8 +730,8 @@ async def handle_oxapay_webhook(request: web.Request) -> web.Response:
             try:
                 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
                 kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🛍️ Explore Store", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
-                    [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                    [InlineKeyboardButton(text="Explore Store", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
+                    [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
                 ])
                 await bot.send_message(user.telegram_id, deposit_msg, reply_markup=kb)
             except Exception as e:

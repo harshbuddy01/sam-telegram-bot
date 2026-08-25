@@ -29,10 +29,10 @@ def get_admin_main_keyboard(pending_deposits: int = 0, pending_orders: int = 0) 
             InlineKeyboardButton(text="Broadcast Announcement", callback_data="adm_broadcast", icon_custom_emoji_id=CustomEmojis.FIRE)
         ],
         [
-            InlineKeyboardButton(text="🎨 Store Design & Page Customizer", callback_data="adm_customizer", icon_custom_emoji_id=CustomEmojis.SPARKLE)
+            InlineKeyboardButton(text="Store Design & Page Customizer", callback_data="adm_customizer", icon_custom_emoji_id=CustomEmojis.SPARKLE)
         ],
         [
-            InlineKeyboardButton(text="⚙️ Payment & UPI Settings", callback_data="adm_settings", icon_custom_emoji_id=CustomEmojis.CARD),
+            InlineKeyboardButton(text="Payment & UPI Settings", callback_data="adm_settings", icon_custom_emoji_id=CustomEmojis.CARD),
             InlineKeyboardButton(text="Exit to Store", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
         ]
     ]
@@ -41,27 +41,27 @@ def get_admin_main_keyboard(pending_deposits: int = 0, pending_orders: int = 0) 
 def get_admin_customizer_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [
-            InlineKeyboardButton(text="🏠 Welcome Screen (/start)", callback_data="adm_tmpl_view_welcome_text", icon_custom_emoji_id=CustomEmojis.CROWN),
-            InlineKeyboardButton(text="📁 Categories Header", callback_data="adm_tmpl_view_categories_header", icon_custom_emoji_id=CustomEmojis.SHOP)
+            InlineKeyboardButton(text="Welcome Screen (/start)", callback_data="adm_tmpl_view_welcome_text", icon_custom_emoji_id=CustomEmojis.CROWN),
+            InlineKeyboardButton(text="Categories Header", callback_data="adm_tmpl_view_categories_header", icon_custom_emoji_id=CustomEmojis.SHOP)
         ],
         [
-            InlineKeyboardButton(text="📦 Products List Screen", callback_data="adm_tmpl_view_category_products_header", icon_custom_emoji_id=CustomEmojis.SHOP),
-            InlineKeyboardButton(text="✨ Product Line Style", callback_data="adm_tmpl_view_product_item_format", icon_custom_emoji_id=CustomEmojis.SPARKLE)
+            InlineKeyboardButton(text="Products List Screen", callback_data="adm_tmpl_view_category_products_header", icon_custom_emoji_id=CustomEmojis.SHOP),
+            InlineKeyboardButton(text="Product Line Style", callback_data="adm_tmpl_view_product_item_format", icon_custom_emoji_id=CustomEmojis.SPARKLE)
         ],
         [
-            InlineKeyboardButton(text="🏷️ Plan Detail Specs Card", callback_data="adm_tmpl_view_variant_detail", icon_custom_emoji_id=CustomEmojis.DIAMOND),
-            InlineKeyboardButton(text="⚡ 1-Click Checkout Screen", callback_data="adm_tmpl_view_checkout_text", icon_custom_emoji_id=CustomEmojis.FIRE)
+            InlineKeyboardButton(text="Plan Detail Specs Card", callback_data="adm_tmpl_view_variant_detail", icon_custom_emoji_id=CustomEmojis.DIAMOND),
+            InlineKeyboardButton(text="1-Click Checkout Screen", callback_data="adm_tmpl_view_checkout_text", icon_custom_emoji_id=CustomEmojis.FIRE)
         ],
         [
-            InlineKeyboardButton(text="🎉 Order Delivery Receipt", callback_data="adm_tmpl_view_delivery_text", icon_custom_emoji_id=CustomEmojis.ORDERS),
-            InlineKeyboardButton(text="👤 Customer Profile", callback_data="adm_tmpl_view_profile_text", icon_custom_emoji_id=CustomEmojis.VERIFIED)
+            InlineKeyboardButton(text="Order Delivery Receipt", callback_data="adm_tmpl_view_delivery_text", icon_custom_emoji_id=CustomEmojis.ORDERS),
+            InlineKeyboardButton(text="Customer Profile", callback_data="adm_tmpl_view_profile_text", icon_custom_emoji_id=CustomEmojis.VERIFIED)
         ],
         [
-            InlineKeyboardButton(text="🛟 Support & Help Desk", callback_data="adm_tmpl_view_support_text", icon_custom_emoji_id=CustomEmojis.SUPPORT),
-            InlineKeyboardButton(text="📖 How to Use & Guide", callback_data="adm_tmpl_view_guide_text", icon_custom_emoji_id=CustomEmojis.DIAMOND)
+            InlineKeyboardButton(text="Support & Help Desk", callback_data="adm_tmpl_view_support_text", icon_custom_emoji_id=CustomEmojis.SUPPORT),
+            InlineKeyboardButton(text="How to Use & Guide", callback_data="adm_tmpl_view_guide_text", icon_custom_emoji_id=CustomEmojis.DIAMOND)
         ],
         [
-            InlineKeyboardButton(text="◀️ Back to Admin Panel", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+            InlineKeyboardButton(text="Back to Admin Panel", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -69,13 +69,13 @@ def get_admin_customizer_keyboard() -> InlineKeyboardMarkup:
 def get_admin_template_edit_keyboard(key: str) -> InlineKeyboardMarkup:
     buttons = [
         [
-            InlineKeyboardButton(text="✏️ Edit This Message Template", callback_data=f"adm_tmpl_edit_{key}", icon_custom_emoji_id=CustomEmojis.SPARKLE)
+            InlineKeyboardButton(text="Edit This Message Template", callback_data=f"adm_tmpl_edit_{key}", icon_custom_emoji_id=CustomEmojis.SPARKLE)
         ],
         [
-            InlineKeyboardButton(text="🔄 Reset to Default Template", callback_data=f"adm_tmpl_reset_{key}", icon_custom_emoji_id=CustomEmojis.LOCK)
+            InlineKeyboardButton(text="Reset to Default Template", callback_data=f"adm_tmpl_reset_{key}", icon_custom_emoji_id=CustomEmojis.LOCK)
         ],
         [
-            InlineKeyboardButton(text="◀️ Back to Customizer", callback_data="adm_customizer", icon_custom_emoji_id=CustomEmojis.CROWN)
+            InlineKeyboardButton(text="Back to Customizer", callback_data="adm_customizer", icon_custom_emoji_id=CustomEmojis.CROWN)
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -83,36 +83,36 @@ def get_admin_template_edit_keyboard(key: str) -> InlineKeyboardMarkup:
 def get_admin_settings_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [
-            InlineKeyboardButton(text="📱 Change UPI ID", callback_data="adm_set_upi_id", icon_custom_emoji_id=CustomEmojis.CARD),
-            InlineKeyboardButton(text="👤 Change Payee Name", callback_data="adm_set_upi_name", icon_custom_emoji_id=CustomEmojis.VERIFIED)
+            InlineKeyboardButton(text="Change UPI ID", callback_data="adm_set_upi_id", icon_custom_emoji_id=CustomEmojis.CARD),
+            InlineKeyboardButton(text="Change Payee Name", callback_data="adm_set_upi_name", icon_custom_emoji_id=CustomEmojis.VERIFIED)
         ],
         [
-            InlineKeyboardButton(text="⚡ Automated Gateway (Razorpay/Cashfree)", callback_data="adm_gateways", icon_custom_emoji_id=CustomEmojis.FIRE)
+            InlineKeyboardButton(text="Automated Gateway (Razorpay/Cashfree)", callback_data="adm_gateways", icon_custom_emoji_id=CustomEmojis.FIRE)
         ],
         [
-            InlineKeyboardButton(text="🛟 Change Support Handle", callback_data="adm_set_support", icon_custom_emoji_id=CustomEmojis.SUPPORT),
-            InlineKeyboardButton(text="◀️ Back to Admin Panel", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+            InlineKeyboardButton(text="Change Support Handle", callback_data="adm_set_support", icon_custom_emoji_id=CustomEmojis.SUPPORT),
+            InlineKeyboardButton(text="Back to Admin Panel", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_admin_gateway_settings_keyboard(is_rzp_active: bool, is_paypal_active: bool, is_oxapay_active: bool) -> InlineKeyboardMarkup:
-    rzp_status = "🟢 Active" if is_rzp_active else "⚪ Not Set"
-    pp_status = "🟢 Active" if is_paypal_active else "⚪ Not Set"
-    oxa_status = "🟢 Active" if is_oxapay_active else "⚪ Not Set"
+    rzp_status = "Active" if is_rzp_active else "Not Set"
+    pp_status = "Active" if is_paypal_active else "Not Set"
+    oxa_status = "Active" if is_oxapay_active else "Not Set"
 
     buttons = [
         [
-            InlineKeyboardButton(text=f"⚡ Razorpay / UPI ({rzp_status})", callback_data="adm_set_rzp", icon_custom_emoji_id=CustomEmojis.FIRE)
+            InlineKeyboardButton(text=f"Razorpay / UPI ({rzp_status})", callback_data="adm_set_rzp", icon_custom_emoji_id=CustomEmojis.FIRE)
         ],
         [
-            InlineKeyboardButton(text=f"🅿️ PayPal & Cards ({pp_status})", callback_data="adm_set_paypal", icon_custom_emoji_id=CustomEmojis.CARD)
+            InlineKeyboardButton(text=f"PayPal & Cards ({pp_status})", callback_data="adm_set_paypal", icon_custom_emoji_id=CustomEmojis.CARD)
         ],
         [
-            InlineKeyboardButton(text=f"🪙 OxaPay Crypto ({oxa_status})", callback_data="adm_set_oxapay", icon_custom_emoji_id=CustomEmojis.DIAMOND)
+            InlineKeyboardButton(text=f"OxaPay Crypto ({oxa_status})", callback_data="adm_set_oxapay", icon_custom_emoji_id=CustomEmojis.DIAMOND)
         ],
         [
-            InlineKeyboardButton(text="◀️ Back to Settings", callback_data="adm_settings", icon_custom_emoji_id=CustomEmojis.CROWN)
+            InlineKeyboardButton(text="Back to Settings", callback_data="adm_settings", icon_custom_emoji_id=CustomEmojis.CROWN)
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -198,7 +198,7 @@ def get_admin_variant_stock_actions_keyboard(variant_id: int, is_manual: bool = 
             ])
     else:
         buttons.append([
-            InlineKeyboardButton(text=f"✏️ Set Available Slots / Stock ({stock_count})", callback_data=f"adm_stock_setslots_{variant_id}", icon_custom_emoji_id=CustomEmojis.KEY)
+            InlineKeyboardButton(text=f"Set Available Slots / Stock ({stock_count})", callback_data=f"adm_stock_setslots_{variant_id}", icon_custom_emoji_id=CustomEmojis.KEY)
         ])
     buttons.append([
         InlineKeyboardButton(text="Back to Stock List", callback_data="adm_stock", icon_custom_emoji_id=CustomEmojis.KEY),
@@ -253,12 +253,12 @@ def get_admin_categories_keyboard(categories: list[Category]) -> InlineKeyboardM
 
         buttons.append([
             InlineKeyboardButton(**btn_kwargs),
-            InlineKeyboardButton(text="✏️ Edit", callback_data=f"adm_cat_edit_{cat.id}"),
-            InlineKeyboardButton(text="🗑️ Delete", callback_data=f"adm_cat_del_{cat.id}")
+            InlineKeyboardButton(text="Edit", callback_data=f"adm_cat_edit_{cat.id}", icon_custom_emoji_id=CustomEmojis.SPARKLE),
+            InlineKeyboardButton(text="Delete", callback_data=f"adm_cat_del_{cat.id}", icon_custom_emoji_id=CustomEmojis.LOCK)
         ])
     
     buttons.append([
-        InlineKeyboardButton(text="➕ Add New Category", callback_data="adm_cat_add", icon_custom_emoji_id=CustomEmojis.SPARKLE)
+        InlineKeyboardButton(text="Add New Category", callback_data="adm_cat_add", icon_custom_emoji_id=CustomEmojis.SPARKLE)
     ])
     buttons.append([
         InlineKeyboardButton(text="Back to Admin Panel", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
@@ -268,12 +268,12 @@ def get_admin_categories_keyboard(categories: list[Category]) -> InlineKeyboardM
 def get_admin_category_edit_keyboard(category_id: int) -> InlineKeyboardMarkup:
     buttons = [
         [
-            InlineKeyboardButton(text="🏷️ Edit Name & Emojis", callback_data=f"adm_catedit_name_{category_id}", icon_custom_emoji_id=CustomEmojis.SPARKLE),
-            InlineKeyboardButton(text="📦 View Products", callback_data=f"adm_selcat_viewprods_{category_id}", icon_custom_emoji_id=CustomEmojis.SHOP)
+            InlineKeyboardButton(text="Edit Name & Emojis", callback_data=f"adm_catedit_name_{category_id}", icon_custom_emoji_id=CustomEmojis.SPARKLE),
+            InlineKeyboardButton(text="View Products", callback_data=f"adm_selcat_viewprods_{category_id}", icon_custom_emoji_id=CustomEmojis.SHOP)
         ],
         [
-            InlineKeyboardButton(text="🗑️ Delete Category", callback_data=f"adm_cat_del_{category_id}", icon_custom_emoji_id=CustomEmojis.LOCK),
-            InlineKeyboardButton(text="◀️ Back to Categories", callback_data="adm_cats", icon_custom_emoji_id=CustomEmojis.CROWN)
+            InlineKeyboardButton(text="Delete Category", callback_data=f"adm_cat_del_{category_id}", icon_custom_emoji_id=CustomEmojis.LOCK),
+            InlineKeyboardButton(text="Back to Categories", callback_data="adm_cats", icon_custom_emoji_id=CustomEmojis.CROWN)
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -314,12 +314,12 @@ def get_admin_products_keyboard(products: list[Product], category_id: int) -> In
 
         buttons.append([
             InlineKeyboardButton(**btn_kwargs),
-            InlineKeyboardButton(text="✏️ Edit", callback_data=f"adm_prod_edit_{prod.id}"),
-            InlineKeyboardButton(text="🗑️ Delete", callback_data=f"adm_prod_del_{prod.id}")
+            InlineKeyboardButton(text="Edit", callback_data=f"adm_prod_edit_{prod.id}", icon_custom_emoji_id=CustomEmojis.SPARKLE),
+            InlineKeyboardButton(text="Delete", callback_data=f"adm_prod_del_{prod.id}", icon_custom_emoji_id=CustomEmojis.LOCK)
         ])
     
     buttons.append([
-        InlineKeyboardButton(text="➕ Add Product to this Category", callback_data=f"adm_prod_add_{category_id}", icon_custom_emoji_id=CustomEmojis.SPARKLE)
+        InlineKeyboardButton(text="Add Product to this Category", callback_data=f"adm_prod_add_{category_id}", icon_custom_emoji_id=CustomEmojis.SPARKLE)
     ])
     buttons.append([
         InlineKeyboardButton(text="Back to Categories", callback_data="adm_prods", icon_custom_emoji_id=CustomEmojis.SHOP)
@@ -329,16 +329,16 @@ def get_admin_products_keyboard(products: list[Product], category_id: int) -> In
 def get_admin_product_edit_keyboard(product_id: int, category_id: int) -> InlineKeyboardMarkup:
     buttons = [
         [
-            InlineKeyboardButton(text="🏷️ Edit Title & Emojis", callback_data=f"adm_prodedit_title_{product_id}", icon_custom_emoji_id=CustomEmojis.SPARKLE),
-            InlineKeyboardButton(text="📝 Edit Description", callback_data=f"adm_prodedit_desc_{product_id}", icon_custom_emoji_id=CustomEmojis.DIAMOND)
+            InlineKeyboardButton(text="Edit Title & Emojis", callback_data=f"adm_prodedit_title_{product_id}", icon_custom_emoji_id=CustomEmojis.SPARKLE),
+            InlineKeyboardButton(text="Edit Description", callback_data=f"adm_prodedit_desc_{product_id}", icon_custom_emoji_id=CustomEmojis.DIAMOND)
         ],
         [
-            InlineKeyboardButton(text="✨ Manage Plans & Pricing", callback_data=f"adm_selprod_viewvars_{product_id}", icon_custom_emoji_id=CustomEmojis.KEY),
-            InlineKeyboardButton(text="🗑️ Delete Product", callback_data=f"adm_prod_del_{product_id}", icon_custom_emoji_id=CustomEmojis.LOCK)
+            InlineKeyboardButton(text="Manage Plans & Pricing", callback_data=f"adm_selprod_viewvars_{product_id}", icon_custom_emoji_id=CustomEmojis.KEY),
+            InlineKeyboardButton(text="Delete Product", callback_data=f"adm_prod_del_{product_id}", icon_custom_emoji_id=CustomEmojis.LOCK)
         ],
         [
-            InlineKeyboardButton(text="◀️ Back to Products", callback_data=f"adm_selcat_viewprods_{category_id}", icon_custom_emoji_id=CustomEmojis.SHOP),
-            InlineKeyboardButton(text="🏠 Admin Home", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+            InlineKeyboardButton(text="Back to Products", callback_data=f"adm_selcat_viewprods_{category_id}", icon_custom_emoji_id=CustomEmojis.SHOP),
+            InlineKeyboardButton(text="Admin Home", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -360,16 +360,16 @@ def get_admin_variants_keyboard(variants: list[Variant], product_id: int) -> Inl
     for var in variants:
         clean_name = clean_button_text(var.name)
         buttons.append([
-            InlineKeyboardButton(text=f"✨ {clean_name} ({config.CURRENCY_SYMBOL}{var.price:.0f})", callback_data=f"adm_var_edit_{var.id}"),
-            InlineKeyboardButton(text="✏️ Edit", callback_data=f"adm_var_edit_{var.id}"),
-            InlineKeyboardButton(text="🗑️ Delete", callback_data=f"adm_var_del_{var.id}")
+            InlineKeyboardButton(text=f"{clean_name} ({config.CURRENCY_SYMBOL}{var.price:.0f})", callback_data=f"adm_var_edit_{var.id}", icon_custom_emoji_id=CustomEmojis.DIAMOND),
+            InlineKeyboardButton(text="Edit", callback_data=f"adm_var_edit_{var.id}", icon_custom_emoji_id=CustomEmojis.SPARKLE),
+            InlineKeyboardButton(text="Delete", callback_data=f"adm_var_del_{var.id}", icon_custom_emoji_id=CustomEmojis.LOCK)
         ])
     
     buttons.append([
-        InlineKeyboardButton(text="➕ Add New Plan/Variant", callback_data=f"adm_var_add_{product_id}")
+        InlineKeyboardButton(text="Add New Plan/Variant", callback_data=f"adm_var_add_{product_id}", icon_custom_emoji_id=CustomEmojis.DIAMOND)
     ])
     buttons.append([
-        InlineKeyboardButton(text=f"{Emojis.BACK} Back to Products", callback_data="adm_variants")
+        InlineKeyboardButton(text="Back to Products", callback_data="adm_variants", icon_custom_emoji_id=CustomEmojis.SHOP)
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -388,65 +388,65 @@ def get_admin_persistent_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, is_persistent=True)
 
 def get_admin_variant_edit_keyboard(variant_id: int, product_id: int, is_manual: bool = False, requires_customer_input: bool = True) -> InlineKeyboardMarkup:
-    mode_btn_text = "⚡ Switch to MANUAL Mode" if not is_manual else "⚡ Switch to AUTOMATIC Mode"
+    mode_btn_text = "Switch to MANUAL Mode" if not is_manual else "Switch to AUTOMATIC Mode"
     
     buttons = [
         [
-            InlineKeyboardButton(text="🏷️ Edit Plan Name", callback_data=f"adm_varedit_name_{variant_id}"),
-            InlineKeyboardButton(text="💰 Edit Price", callback_data=f"adm_varedit_price_{variant_id}")
+            InlineKeyboardButton(text="Edit Plan Name", callback_data=f"adm_varedit_name_{variant_id}", icon_custom_emoji_id=CustomEmojis.DIAMOND),
+            InlineKeyboardButton(text="Edit Price", callback_data=f"adm_varedit_price_{variant_id}", icon_custom_emoji_id=CustomEmojis.WALLET)
         ],
         [
-            InlineKeyboardButton(text="📝 Edit Description", callback_data=f"adm_varedit_desc_{variant_id}"),
-            InlineKeyboardButton(text=mode_btn_text, callback_data=f"adm_varedit_togglemode_{variant_id}")
+            InlineKeyboardButton(text="Edit Description", callback_data=f"adm_varedit_desc_{variant_id}", icon_custom_emoji_id=CustomEmojis.SPARKLE),
+            InlineKeyboardButton(text=mode_btn_text, callback_data=f"adm_varedit_togglemode_{variant_id}", icon_custom_emoji_id=CustomEmojis.FIRE)
         ]
     ]
 
     if is_manual:
-        input_btn_text = "📨 Input: REQUIRED (Ask User)" if requires_customer_input else "⚡ Input: NONE (Direct Admin Delivery)"
+        input_btn_text = "Input: REQUIRED (Ask User)" if requires_customer_input else "Input: NONE (Direct Admin Delivery)"
         buttons.append([
-            InlineKeyboardButton(text=input_btn_text, callback_data=f"adm_varedit_toggleinput_{variant_id}")
+            InlineKeyboardButton(text=input_btn_text, callback_data=f"adm_varedit_toggleinput_{variant_id}", icon_custom_emoji_id=CustomEmojis.VERIFIED)
         ])
         if requires_customer_input:
             buttons.append([
-                InlineKeyboardButton(text="⏱️ Edit Dispatch Time", callback_data=f"adm_varedit_dispatch_{variant_id}"),
-                InlineKeyboardButton(text="✍️ Edit Customer Prompt", callback_data=f"adm_varedit_prompt_{variant_id}")
+                InlineKeyboardButton(text="Edit Dispatch Time", callback_data=f"adm_varedit_dispatch_{variant_id}", icon_custom_emoji_id=CustomEmojis.FIRE),
+                InlineKeyboardButton(text="Edit Customer Prompt", callback_data=f"adm_varedit_prompt_{variant_id}", icon_custom_emoji_id=CustomEmojis.SPARKLE)
             ])
         else:
             buttons.append([
-                InlineKeyboardButton(text="⏱️ Edit Dispatch Time", callback_data=f"adm_varedit_dispatch_{variant_id}")
+                InlineKeyboardButton(text="Edit Dispatch Time", callback_data=f"adm_varedit_dispatch_{variant_id}", icon_custom_emoji_id=CustomEmojis.FIRE)
             ])
         buttons.append([
-            InlineKeyboardButton(text="📊 Edit Available Stock / Slots", callback_data=f"adm_varedit_stockqty_{variant_id}")
+            InlineKeyboardButton(text="Edit Available Stock / Slots", callback_data=f"adm_varedit_stockqty_{variant_id}", icon_custom_emoji_id=CustomEmojis.TROPHY)
         ])
     else:
         buttons.append([
-            InlineKeyboardButton(text="🔑 Manage Live Stock", callback_data=f"adm_stock_manage_{variant_id}")
+            InlineKeyboardButton(text="Manage Live Stock", callback_data=f"adm_stock_manage_{variant_id}", icon_custom_emoji_id=CustomEmojis.KEY)
         ])
 
     buttons.append([
-        InlineKeyboardButton(text="◀️ Back to Plans", callback_data=f"adm_selprod_viewvars_{product_id}"),
-        InlineKeyboardButton(text="🏠 Admin Home", callback_data="admin_home")
+        InlineKeyboardButton(text="Back to Plans", callback_data=f"adm_selprod_viewvars_{product_id}", icon_custom_emoji_id=CustomEmojis.DIAMOND),
+        InlineKeyboardButton(text="Admin Home", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_admin_fulfillment_type_keyboard(cancel_cb: str = "admin_home") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⚡ 100% Automated Instant Stock (Auto-Deliver)", callback_data="adm_var_ff_AUTOMATIC")],
-        [InlineKeyboardButton(text="📨 Manual: Ask Customer Details (e.g. YouTube / Hotstar)", callback_data="adm_var_ff_MANUAL_INPUT")],
-        [InlineKeyboardButton(text="⚡ Manual: Direct Delivery by Admin (e.g. CapCut / Private Accs)", callback_data="adm_var_ff_MANUAL_DIRECT")],
-        [InlineKeyboardButton(text=f"{Emojis.CANCEL} Cancel", callback_data=cancel_cb)]
+        [InlineKeyboardButton(text="100% Automated Instant Stock (Auto-Deliver)", callback_data="adm_var_ff_AUTOMATIC", icon_custom_emoji_id=CustomEmojis.FIRE)],
+        [InlineKeyboardButton(text="Manual: Ask Customer Details (e.g. YouTube / Hotstar)", callback_data="adm_var_ff_MANUAL_INPUT", icon_custom_emoji_id=CustomEmojis.VERIFIED)],
+        [InlineKeyboardButton(text="Manual: Direct Delivery by Admin (e.g. CapCut / Private Accs)", callback_data="adm_var_ff_MANUAL_DIRECT", icon_custom_emoji_id=CustomEmojis.FIRE)],
+        [InlineKeyboardButton(text="Cancel", callback_data=cancel_cb, icon_custom_emoji_id=CustomEmojis.CROWN)]
     ])
 
 def get_deposit_approval_keyboard(deposit_id: int) -> InlineKeyboardMarkup:
     buttons = [
         [
-            InlineKeyboardButton(text="✅ Approve Deposit", callback_data=f"adm_dep_appr_{deposit_id}"),
-            InlineKeyboardButton(text="❌ Reject Deposit", callback_data=f"adm_dep_rej_{deposit_id}")
+            InlineKeyboardButton(text="Approve Deposit", callback_data=f"adm_dep_appr_{deposit_id}", icon_custom_emoji_id=CustomEmojis.CHECK),
+            InlineKeyboardButton(text="Reject Deposit", callback_data=f"adm_dep_rej_{deposit_id}", icon_custom_emoji_id=CustomEmojis.LOCK)
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_admin_cancel_keyboard(callback_data: str = "admin_home") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"{Emojis.CANCEL} Cancel & Return", callback_data=callback_data)]
+        [InlineKeyboardButton(text="Cancel & Return", callback_data=callback_data, icon_custom_emoji_id=CustomEmojis.CROWN)]
     ])

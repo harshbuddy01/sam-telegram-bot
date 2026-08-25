@@ -61,9 +61,9 @@ async def msg_search_query(message: types.Message, state: FSMContext, session: A
         )
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Search Another Item", callback_data="nav_search", icon_custom_emoji_id=CustomEmojis.SEARCH)],
-            [InlineKeyboardButton(text="🛍️ Explore Categories", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
-            [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+            [InlineKeyboardButton(text="Search Another Item", callback_data="nav_search", icon_custom_emoji_id=CustomEmojis.SEARCH)],
+            [InlineKeyboardButton(text="Explore Categories", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
+            [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
         ])
         await message.answer(text, reply_markup=kb)
         return
@@ -147,7 +147,7 @@ async def cb_category_products(callback: types.CallbackQuery, session: AsyncSess
     prod_lines = []
     for prod in products:
         stock = stock_counts.get(prod.id, 0)
-        stock_str = f"🟢 {stock} In Stock" if stock > 0 else "🔴 Out of Stock"
+        stock_str = f"{ce(CustomEmojis.CHECK, '🟢')} {stock} In Stock" if stock > 0 else f"{ce(CustomEmojis.LOCK, '🔴')} Out of Stock"
         clean_prod_title = clean_button_text(prod.title)
         p_icon = format_emoji(prod.emoji or "📦", prod.custom_emoji_id) if "<tg-emoji" not in prod.title else ""
         line = await render_template(
@@ -195,7 +195,7 @@ async def cb_products_page(callback: types.CallbackQuery, session: AsyncSession)
     prod_lines = []
     for prod in products:
         stock = stock_counts.get(prod.id, 0)
-        stock_str = f"🟢 {stock} In Stock" if stock > 0 else "🔴 Out of Stock"
+        stock_str = f"{ce(CustomEmojis.CHECK, '🟢')} {stock} In Stock" if stock > 0 else f"{ce(CustomEmojis.LOCK, '🔴')} Out of Stock"
         clean_prod_title = clean_button_text(prod.title)
         p_icon = format_emoji(prod.emoji or "📦", prod.custom_emoji_id) if "<tg-emoji" not in prod.title else ""
         line = await render_template(
@@ -297,7 +297,7 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
         prod_icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id)
         prod_display = f"{prod_icon} {product.title}"
     else:
-        prod_display = "📦 Digital Item"
+        prod_display = f"{ce(CustomEmojis.SHOP, '📦')} Digital Item"
 
     stock_count = await get_available_stock_count(session, variant.id)
     has_stock = (stock_count > 0) or is_manual

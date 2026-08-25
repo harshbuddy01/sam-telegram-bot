@@ -69,7 +69,7 @@ async def send_order_notification(
     kb = None
     if bot_username:
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🛍️ Buy Now", url=f"https://t.me/{bot_username}?start=shop")]
+            [InlineKeyboardButton(text="Buy Now", url=f"https://t.me/{bot_username}?start=shop", icon_custom_emoji_id=CustomEmojis.SHOP)]
         ])
 
     try:
@@ -106,8 +106,9 @@ async def send_restock_alert(
     if bot_username:
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
-                text=f"🎁 {product_title} • {total_stock} Available",
-                url=f"https://t.me/{bot_username}?start=shop"
+                text=f"{product_title} • {total_stock} Available",
+                url=f"https://t.me/{bot_username}?start=shop",
+                icon_custom_emoji_id=CustomEmojis.GIFT
             )]
         ])
 
