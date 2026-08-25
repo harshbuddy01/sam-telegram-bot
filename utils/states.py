@@ -71,6 +71,9 @@ class AdminSettingsStates(StatesGroup):
     waiting_for_razorpay_key_secret = State()
     waiting_for_cashfree_app_id = State()
     waiting_for_cashfree_secret_key = State()
+    waiting_for_paypal_client_id = State()
+    waiting_for_paypal_client_secret = State()
+    waiting_for_oxapay_merchant_key = State()
 
 class AdminTemplateStates(StatesGroup):
     waiting_for_template_content = State()

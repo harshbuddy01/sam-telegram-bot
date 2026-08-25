@@ -61,7 +61,7 @@ async def cb_deposit_amount_selected(callback: types.CallbackQuery, state: FSMCo
     amount = float(amt_str)
     # Check if multiple gateways are available to give user a choice
     available_gateways = payment_manager.get_available_gateways()
-    if len(available_gateways) > 1 and "PAYPAL" in available_gateways:
+    if len(available_gateways) > 1:
         await prompt_payment_gateway_choice(callback.message, amount)
     else:
         await initiate_deposit_payment(callback.message, callback.from_user, amount, session, state)
@@ -75,16 +75,18 @@ async def cb_deposit_gateway_chosen(callback: types.CallbackQuery, state: FSMCon
     await initiate_deposit_payment(callback.message, callback.from_user, amount, session, state, preferred_gateway=gw_name)
 
 async def prompt_payment_gateway_choice(message: types.Message, amount: float):
-    base_inr, surcharge_inr, total_inr, total_usd = payment_manager.paypal.calculate_amounts(amount)
+    base_inr, pp_surcharge, pp_total_inr, pp_usd = payment_manager.paypal.calculate_amounts(amount)
+    _, _, _, oxa_usd = payment_manager.oxapay.calculate_amounts(amount)
 
     text = (
         f"{ce(CustomEmojis.WALLET, '💳')} <b>SELECT PAYMENT METHOD</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"<b>Deposit Amount:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n\n"
-        f"Choose how you would like to complete your payment:\n\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Deposit Amount:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n\n"
+        f"<i>Select your preferred payment method below for instant automated credit:</i>\n\n"
         f"<blockquote>"
-        f"⚡ <b>Instant UPI / Razorpay:</b> Zero fees (0% fee)\n"
-        f"🅿️ <b>PayPal & International Cards:</b> +5% merchant fee ({config.CURRENCY_SYMBOL}{total_inr:.2f} / ${total_usd:.2f} USD)"
+        f"⚡ <b>Instant UPI / Razorpay:</b> GPay, PhonePe, Paytm, Cards (0% fee)\n"
+        f"🅿️ <b>PayPal & Cards:</b> Instant checkout (${pp_usd:.2f} USD)\n"
+        f"🪙 <b>Crypto (OxaPay):</b> USDT, BTC, ETH, TRX, SOL (${oxa_usd:.2f} USDT)"
         f"</blockquote>"
     )
     buttons = []
@@ -94,11 +96,12 @@ async def prompt_payment_gateway_choice(message: types.Message, amount: float):
         ])
     if payment_manager.paypal.is_configured:
         buttons.append([
-            InlineKeyboardButton(text=f"🅿️ PayPal / Cards (${total_usd:.2f} USD)", callback_data=f"deppay_paypal_{int(amount)}")
+            InlineKeyboardButton(text=f"🅿️ PayPal & Cards (${pp_usd:.2f} USD)", callback_data=f"deppay_paypal_{int(amount)}")
         ])
-    buttons.append([
-        InlineKeyboardButton(text=f"📱 Manual UPI QR ({config.CURRENCY_SYMBOL}{amount:.0f})", callback_data=f"deppay_manual_{int(amount)}")
-    ])
+    if payment_manager.oxapay.is_configured:
+        buttons.append([
+            InlineKeyboardButton(text=f"🪙 Crypto via OxaPay (${oxa_usd:.2f} USDT)", callback_data=f"deppay_oxapay_{int(amount)}")
+        ])
     buttons.append([
         InlineKeyboardButton(text="◀️ Back to Presets", callback_data="nav_deposit")
     ])
@@ -121,7 +124,7 @@ async def msg_custom_deposit_amount(message: types.Message, state: FSMContext, s
 
     await state.clear()
     available_gateways = payment_manager.get_available_gateways()
-    if len(available_gateways) > 1 and "PAYPAL" in available_gateways:
+    if len(available_gateways) > 1:
         sent_msg = await message.answer("Preparing payment options...")
         await prompt_payment_gateway_choice(sent_msg, amount)
     else:
@@ -150,8 +153,57 @@ async def initiate_deposit_payment(
 
         active_gateway = (preferred_gateway or payment_manager.default_gateway).upper()
 
-        # 1. PayPal Flow (includes 5% merchant fee surcharge paid by customer)
-        if active_gateway == "PAYPAL" and payment_manager.paypal.is_configured:
+        # 1. OxaPay Crypto Flow
+        if active_gateway == "OXAPAY" and payment_manager.oxapay.is_configured:
+            res = await payment_manager.oxapay.create_payment_order(
+                user_id=user_id,
+                amount=amount,
+                order_id=order_ref,
+                customer_name=customer_name
+            )
+            if res.get("success"):
+                gateway_order_id = res.get("gateway_order_id")
+                deposit = await create_deposit_gateway(
+                    session=session,
+                    user_id=user_id,
+                    amount=amount,
+                    gateway="OXAPAY",
+                    gateway_order_id=gateway_order_id
+                )
+
+                text = (
+                    f"{ce(CustomEmojis.WALLET, '💳')} <b>AUTOMATED CRYPTO DEPOSIT #{deposit.id} (OXAPAY)</b>\n"
+                    f"{UI.SECTION_BAR}\n\n"
+                    f"<blockquote>"
+                    f"{ce(CustomEmojis.DIAMOND, '💰')} <b>Wallet Credit:</b> <b>+{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
+                    f"{ce(CustomEmojis.WALLET, '💎')} <b>Crypto Amount:</b> <b>${res.get('amount_usd', 0):.2f} {res.get('currency', 'USDT')}</b>\n"
+                    f"{ce(CustomEmojis.FIRE, '🪙')} <b>Supported Coins:</b> USDT (TRC20/BEP20/Polygon), BTC, ETH, SOL, TRX, LTC\n"
+                    f"{ce(CustomEmojis.CHECK, '🛡️')} <b>Processing:</b> Instant auto-credit upon blockchain confirmation"
+                    f"</blockquote>\n\n"
+                    f"<i>Tap 'Pay with Crypto' below. Once sent, tap 'Auto-Verify & Credit':</i>"
+                )
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=f"🪙 PAY ${res.get('amount_usd', 0):.2f} {res.get('currency', 'USDT')} (OXAPAY)", url=res["payment_url"])],
+                    [InlineKeyboardButton(text="✅ I Have Paid (Auto-Verify & Credit)", callback_data=f"chkdep_{deposit.id}")],
+                    [InlineKeyboardButton(text="◀️ Cancel & Return", callback_data="nav_home")]
+                ])
+                try:
+                    await message.edit_text(text, reply_markup=kb)
+                except Exception:
+                    await message.answer(text, reply_markup=kb)
+                return
+            else:
+                err_msg = res.get("error", "OxaPay session failed.")
+                await message.answer(
+                    f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Crypto Gateway Error:</b>\n{err_msg}\n\nPlease try again or select another payment method.",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                    ])
+                )
+                return
+
+        # 2. PayPal Flow (includes 5% merchant fee surcharge paid by customer)
+        elif active_gateway == "PAYPAL" and payment_manager.paypal.is_configured:
             res = await payment_manager.paypal.create_payment_order(
                 user_id=user_id,
                 amount=amount,
@@ -199,8 +251,8 @@ async def initiate_deposit_payment(
                 )
                 return
 
-        # 2. Razorpay / Cashfree Automated Flow
-        elif active_gateway in ("RAZORPAY", "CASHFREE"):
+        # 3. Razorpay / Cashfree Automated Flow
+        elif active_gateway in ("RAZORPAY", "CASHFREE") or payment_manager.razorpay.is_configured:
             res = await payment_manager.razorpay.create_qr_code(
                 user_id=user_id,
                 amount=amount,
@@ -209,7 +261,7 @@ async def initiate_deposit_payment(
             )
             if not res.get("success"):
                 res = await payment_manager.create_deposit_session(
-                    gateway_name=active_gateway,
+                    gateway_name="RAZORPAY",
                     user_id=user_id,
                     amount=amount,
                     order_id=order_ref,
@@ -222,7 +274,7 @@ async def initiate_deposit_payment(
                     session=session,
                     user_id=user_id,
                     amount=amount,
-                    gateway=active_gateway,
+                    gateway="RAZORPAY",
                     gateway_order_id=gateway_order_id
                 )
 
@@ -262,34 +314,17 @@ async def initiate_deposit_payment(
                     ])
                 )
                 return
+
+        # 4. Fallback if offline
+        await message.answer(
+            f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Payment Gateway Offline:</b>\nNo automated payment gateway is currently available. Please contact support @{config.SUPPORT_USERNAME.lstrip('@')}.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+            ])
+        )
+        return
     finally:
         _generating_deposits.discard(user_id)
-
-    # 3. Fallback to Direct UPI QR Code Flow
-    deposit = await create_deposit(session, user_id=user_id, amount=amount)
-    qr_buffer = generate_upi_qr(amount=amount, note=f"Deposit_{deposit.id}")
-    input_file = BufferedInputFile(qr_buffer.read(), filename=f"upi_qr_{deposit.id}.png")
-
-    caption = (
-        f"{ce(CustomEmojis.WALLET, '💳')} <b>UPI PAYMENT INVOICE #{deposit.id}</b>\n"
-        f"{UI.SECTION_BAR}\n\n"
-        f"<blockquote>"
-        f"{ce(CustomEmojis.DIAMOND, '💰')} <b>Amount to Pay:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
-        f"{ce(CustomEmojis.CARD, '📱')} <b>UPI ID:</b> <code>{config.UPI_ID}</code>\n"
-        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Payee Name:</b> <code>{config.UPI_NAME}</code>"
-        f"</blockquote>\n\n"
-        f"<b>Payment Steps:</b>\n"
-        f"1. Scan the QR code above on any UPI app (GPay/PhonePe/Paytm).\n"
-        f"2. Pay exactly <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>.\n"
-        f"3. Click <b>'Submit UTR / Screenshot'</b> below and upload your proof.\n\n"
-        f"{ce(CustomEmojis.SPARKLE, '⚡')} <i>Your wallet balance will be credited instantly once confirmed!</i>"
-    )
-
-    await message.answer_photo(
-        photo=input_file,
-        caption=caption,
-        reply_markup=get_deposit_verification_keyboard(deposit.id)
-    )
 
 @router.callback_query(F.data.startswith("chkdep_"))
 async def cb_check_automated_deposit(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):
@@ -358,9 +393,11 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
         await callback.message.answer(f"{ce(CustomEmojis.CHECK, '✅')} This deposit is already verified and credited to your wallet balance!")
         return
 
-    # Check status via Gateways (PayPal, Razorpay, Cashfree)
+    # Check status via Gateways (OxaPay, PayPal, Razorpay, Cashfree)
     status_res = {"is_paid": False}
-    if deposit.gateway == "PAYPAL" and deposit.gateway_order_id:
+    if deposit.gateway == "OXAPAY" and deposit.gateway_order_id:
+        status_res = await payment_manager.oxapay.verify_payment_status(deposit.gateway_order_id)
+    elif deposit.gateway == "PAYPAL" and deposit.gateway_order_id:
         status_res = await payment_manager.paypal.verify_payment_status(deposit.gateway_order_id)
     elif deposit.gateway == "RAZORPAY" and deposit.gateway_order_id:
         status_res = await payment_manager.razorpay.verify_payment_status(deposit.gateway_order_id)

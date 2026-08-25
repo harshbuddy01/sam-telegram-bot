@@ -2055,28 +2055,24 @@ async def cb_admin_gateways(callback: types.CallbackQuery):
     await callback.answer()
     from payments.manager import payment_manager
     is_rzp = payment_manager.razorpay.is_configured
-    is_cf = payment_manager.cashfree.is_configured
-
-    active_gw = payment_manager.default_gateway
-    gw_title = f"{ce(CustomEmojis.FIRE, '⚡')} AUTOMATED (Razorpay)" if active_gw == "RAZORPAY" else (f"{ce(CustomEmojis.FIRE, '⚡')} AUTOMATED (Cashfree)" if active_gw == "CASHFREE" else f"{ce(CustomEmojis.CARD, '📱')} MANUAL UPI QR (0% Fees)")
+    is_pp = payment_manager.paypal.is_configured
+    is_oxa = payment_manager.oxapay.is_configured
 
     text = (
         f"{ce(CustomEmojis.FIRE, '⚡')} <b>AUTOMATED PAYMENT GATEWAY HUB</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"<b>Current Active Mode:</b> <b>{gw_title}</b>\n\n"
         f"<blockquote>"
-        f"✦ <b>Razorpay Status:</b> {'🟢 Configured & Active' if is_rzp else '⚪ Not Configured'}\n"
-        f"✦ <b>Cashfree Status:</b> {'🟢 Configured & Active' if is_cf else '⚪ Not Configured'}\n"
-        f"✦ <b>Manual UPI QR:</b> 🟢 Always Available (0% Gateway Fee)"
+        f"✦ <b>Razorpay (UPI / INR):</b> {'🟢 Configured & Active' if is_rzp else '⚪ Not Configured'}\n"
+        f"✦ <b>PayPal (USD / Cards):</b> {'🟢 Configured & Active' if is_pp else '⚪ Not Configured'}\n"
+        f"✦ <b>OxaPay (Crypto / USDT):</b> {'🟢 Configured & Active' if is_oxa else '⚪ Not Configured'}"
         f"</blockquote>\n\n"
-        f"<b>How Automated Gateway Works:</b>\n"
+        f"<b>How Automated Gateways Work:</b>\n"
         f"1. Customer taps 'PURCHASE NOW'.\n"
-        f"2. Bot opens instant payment link (UPI / GPay / PhonePe / Cards / NetBanking).\n"
-        f"3. Customer pays on the secure gateway.\n"
-        f"4. <b>Bot auto-verifies via API and delivers product to chat in 1 second with ZERO manual clicks!</b>\n\n"
-        f"<i>Select a gateway below to configure your API keys:</i>"
+        f"2. Chooses UPI (Razorpay), PayPal, or Crypto (OxaPay).\n"
+        f"3. <b>Bot auto-verifies payment via Webhook/API and delivers product to chat in 1 second with ZERO manual clicks!</b>\n\n"
+        f"<i>Select a gateway below to configure or update your credentials:</i>"
     )
-    await callback.message.edit_text(text, reply_markup=get_admin_gateway_settings_keyboard(is_rzp, is_cf))
+    await callback.message.edit_text(text, reply_markup=get_admin_gateway_settings_keyboard(is_rzp, is_pp, is_oxa))
 
 @router.callback_query(F.data == "adm_set_rzp")
 async def cb_admin_set_rzp(callback: types.CallbackQuery, state: FSMContext):
@@ -2120,87 +2116,113 @@ async def msg_admin_rzp_key_secret(message: types.Message, state: FSMContext):
     from payments.manager import payment_manager
     payment_manager.razorpay.is_configured = True
 
+    is_rzp = payment_manager.razorpay.is_configured
+    is_pp = payment_manager.paypal.is_configured
+    is_oxa = payment_manager.oxapay.is_configured
+
     await message.answer(
         f"{ce(CustomEmojis.CHECK, '✅')} <b>RAZORPAY GATEWAY CONFIGURED & ACTIVATED!</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"{ce(CustomEmojis.FIRE, '⚡')} <b>Mode:</b> 100% Automated Instant Auto-Delivery\n"
         f"{ce(CustomEmojis.KEY, '🔑')} <b>Key ID:</b> <code>{key_id}</code>\n\n"
         f"<i>Customers paying in the bot will now receive dynamic instant checkout links with automated delivery!</i>",
-        reply_markup=get_admin_gateway_settings_keyboard(True, payment_manager.cashfree.is_configured)
+        reply_markup=get_admin_gateway_settings_keyboard(is_rzp, is_pp, is_oxa)
     )
 
-@router.callback_query(F.data == "adm_set_cf")
-async def cb_admin_set_cf(callback: types.CallbackQuery, state: FSMContext):
+@router.callback_query(F.data == "adm_set_paypal")
+async def cb_admin_set_paypal(callback: types.CallbackQuery, state: FSMContext):
     if not check_admin(callback.from_user.id):
         return
     await callback.answer()
-    await state.set_state(AdminSettingsStates.waiting_for_cashfree_app_id)
+    await state.set_state(AdminSettingsStates.waiting_for_paypal_client_id)
     await callback.message.edit_text(
-        f"{ce(CustomEmojis.KEY, '🔑')} <b>CONFIGURE CASHFREE GATEWAY</b>\n"
+        f"{ce(CustomEmojis.CARD, '🅿️')} <b>CONFIGURE PAYPAL GATEWAY</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"Step 1 of 2:\n"
-        f"Please send your <b>Cashfree App ID / Client ID</b>:",
+        f"Please send your <b>PayPal Client ID</b>:\n\n"
+        f"<i>(From developer.paypal.com ➜ Apps & Credentials ➜ Live App)</i>",
         reply_markup=get_admin_cancel_keyboard("adm_gateways")
     )
 
-@router.message(AdminSettingsStates.waiting_for_cashfree_app_id, F.text)
-async def msg_admin_cf_app_id(message: types.Message, state: FSMContext):
-    app_id = message.text.strip()
-    await state.update_data(cf_app_id=app_id)
-    await state.set_state(AdminSettingsStates.waiting_for_cashfree_secret_key)
+@router.message(AdminSettingsStates.waiting_for_paypal_client_id, F.text)
+async def msg_admin_paypal_client_id(message: types.Message, state: FSMContext):
+    client_id = message.text.strip().strip('"\' ')
+    await state.update_data(paypal_client_id=client_id)
+    await state.set_state(AdminSettingsStates.waiting_for_paypal_client_secret)
     await message.answer(
-        f"{ce(CustomEmojis.KEY, '🔑')} <b>Cashfree App ID Saved:</b> <code>{app_id}</code>\n\n"
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>PayPal Client ID Saved!</b>\n\n"
         f"Step 2 of 2:\n"
-        f"Now send your <b>Cashfree Secret Key</b>:"
+        f"Now send your <b>PayPal Secret Key / Client Secret</b>:"
     )
 
-@router.message(AdminSettingsStates.waiting_for_cashfree_secret_key, F.text)
-async def msg_admin_cf_secret_key(message: types.Message, state: FSMContext):
+@router.message(AdminSettingsStates.waiting_for_paypal_client_secret, F.text)
+async def msg_admin_paypal_client_secret(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    app_id = data.get("cf_app_id")
-    secret_key = message.text.strip()
+    client_id = data.get("paypal_client_id")
+    client_secret = message.text.strip().strip('"\' ')
     await state.clear()
 
-    config.CASHFREE_APP_ID = app_id
-    config.CASHFREE_SECRET_KEY = secret_key
+    config.PAYPAL_CLIENT_ID = client_id
+    config.PAYPAL_CLIENT_SECRET = client_secret
     import os
-    os.environ["CASHFREE_APP_ID"] = app_id
-    os.environ["CASHFREE_SECRET_KEY"] = secret_key
+    os.environ["PAYPAL_CLIENT_ID"] = client_id
+    os.environ["PAYPAL_CLIENT_SECRET"] = client_secret
 
     from payments.manager import payment_manager
-    payment_manager.cashfree.app_id = app_id
-    payment_manager.cashfree.secret_key = secret_key
+    payment_manager.paypal._cached_token = None
+
+    is_rzp = payment_manager.razorpay.is_configured
+    is_pp = payment_manager.paypal.is_configured
+    is_oxa = payment_manager.oxapay.is_configured
 
     await message.answer(
-        f"{ce(CustomEmojis.CHECK, '✅')} <b>CASHFREE GATEWAY CONFIGURED & ACTIVATED!</b>\n"
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>PAYPAL GATEWAY CONFIGURED & ACTIVATED!</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"{ce(CustomEmojis.FIRE, '⚡')} <b>Mode:</b> 100% Automated Instant Auto-Delivery\n"
-        f"{ce(CustomEmojis.KEY, '🔑')} <b>App ID:</b> <code>{app_id}</code>\n\n"
-        f"<i>Customers will now be routed through Cashfree with automated verification!</i>",
-        reply_markup=get_admin_gateway_settings_keyboard(payment_manager.razorpay.is_configured, True)
+        f"{ce(CustomEmojis.FIRE, '⚡')} <b>Mode:</b> 100% Automated International Checkout\n"
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>Client ID:</b> <code>{client_id[:10]}...</code>\n\n"
+        f"<i>Customers can now pay with PayPal, Visa, Mastercard, Amex, and Discover!</i>",
+        reply_markup=get_admin_gateway_settings_keyboard(is_rzp, is_pp, is_oxa)
     )
 
-@router.callback_query(F.data == "adm_set_manual_upi")
-async def cb_admin_set_manual_upi(callback: types.CallbackQuery):
+@router.callback_query(F.data == "adm_set_oxapay")
+async def cb_admin_set_oxapay(callback: types.CallbackQuery, state: FSMContext):
     if not check_admin(callback.from_user.id):
         return
     await callback.answer()
-    config.RAZORPAY_KEY_ID = ""
-    config.RAZORPAY_KEY_SECRET = ""
-    config.CASHFREE_APP_ID = ""
-    config.CASHFREE_SECRET_KEY = ""
-    import os
-    os.environ.pop("RAZORPAY_KEY_ID", None)
-    os.environ.pop("RAZORPAY_KEY_SECRET", None)
-    os.environ.pop("CASHFREE_APP_ID", None)
-    os.environ.pop("CASHFREE_SECRET_KEY", None)
-
+    await state.set_state(AdminSettingsStates.waiting_for_oxapay_merchant_key)
     await callback.message.edit_text(
-        f"{ce(CustomEmojis.CHECK, '✅')} <b>RESET TO DIRECT UPI QR MODE (0% GATEWAY FEES)</b>\n"
+        f"{ce(CustomEmojis.DIAMOND, '🪙')} <b>CONFIGURE OXAPAY CRYPTO GATEWAY</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"{ce(CustomEmojis.CARD, '📱')} Payments will now be made directly to your UPI ID (<code>{config.UPI_ID}</code>).\n"
-        f"{ce(CustomEmojis.WARRANTY, '🛡️')} Admin gets instant approve/reject notifications with 1-tap delivery!",
-        reply_markup=get_admin_gateway_settings_keyboard(False, False)
+        f"Accept payments in <b>USDT (TRC20, BEP20, Polygon), Bitcoin, Ethereum, Solana, TRX</b>, and more with instant auto-delivery!\n\n"
+        f"Please send your <b>OxaPay Merchant API Key</b>:\n\n"
+        f"<i>(Get this from OxaPay.com ➜ Dashboard ➜ Merchant ➜ API Keys)</i>",
+        reply_markup=get_admin_cancel_keyboard("adm_gateways")
+    )
+
+@router.message(AdminSettingsStates.waiting_for_oxapay_merchant_key, F.text)
+async def msg_admin_oxapay_key(message: types.Message, state: FSMContext):
+    merchant_key = message.text.strip().strip('"\' ')
+    await state.clear()
+
+    from payments.manager import payment_manager
+    is_valid, test_msg = await payment_manager.oxapay.test_credentials(merchant_key)
+
+    config.OXAPAY_MERCHANT_KEY = merchant_key
+    import os
+    os.environ["OXAPAY_MERCHANT_KEY"] = merchant_key
+
+    is_rzp = payment_manager.razorpay.is_configured
+    is_pp = payment_manager.paypal.is_configured
+    is_oxa = payment_manager.oxapay.is_configured
+
+    await message.answer(
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>OXAPAY CRYPTO GATEWAY CONFIGURED!</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"{ce(CustomEmojis.FIRE, '⚡')} <b>Status:</b> 100% Automated Instant Crypto Delivery\n"
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>Merchant Key:</b> <code>{merchant_key[:8]}...{merchant_key[-4:] if len(merchant_key) > 12 else ''}</code>\n"
+        f"{ce(CustomEmojis.DIAMOND, '💎')} <b>Connection:</b> {test_msg}\n\n"
+        f"<i>Customers can now select Crypto (USDT, BTC, SOL, TRX) for instant 1-click checkout and wallet deposits!</i>",
+        reply_markup=get_admin_gateway_settings_keyboard(is_rzp, is_pp, is_oxa)
     )
 
 # ================= 10. STORE DESIGN & PAGE CUSTOMIZER =================

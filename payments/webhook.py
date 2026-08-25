@@ -535,6 +535,228 @@ async def handle_paypal_webhook(request: web.Request) -> web.Response:
 
     return web.json_response({"status": f"ignored_event_{event_type}"})
 
+async def handle_oxapay_webhook_get(request: web.Request) -> web.Response:
+    return web.json_response({
+        "status": "ok",
+        "message": "OxaPay Webhook endpoint is active and listening for POST payment events."
+    })
+
+async def handle_oxapay_webhook(request: web.Request) -> web.Response:
+    bot: Bot = request.app["bot"]
+    body_bytes = await request.read()
+
+    try:
+        payload = json.loads(body_bytes.decode("utf-8"))
+    except Exception as e:
+        logger.error(f"Failed to parse OxaPay webhook JSON: {e}")
+        return web.Response(status=400, text="Bad JSON")
+
+    logger.info(f"Received OxaPay Webhook Event: {payload}")
+
+    status = str(payload.get("status") or "").lower()
+    track_id = str(payload.get("trackId") or payload.get("track_id") or "")
+    order_id = str(payload.get("orderId") or payload.get("order_id") or "")
+    pay_amount = payload.get("payAmount") or payload.get("amount")
+    pay_currency = payload.get("payCurrency") or payload.get("currency") or "USDT"
+    tx_id = payload.get("txID") or payload.get("tx_id") or ""
+
+    if status in ("paid", "completed", "success"):
+        async with AsyncSessionLocal() as session:
+            deposit = None
+            if track_id:
+                stmt = select(Deposit).where(Deposit.gateway_order_id == track_id)
+                res = await session.execute(stmt)
+                deposit = res.scalar_one_or_none()
+
+            if not deposit and order_id:
+                try:
+                    dep_id = int(str(order_id).replace("DEP_", "").replace("BUY_", "").split("_")[0])
+                    stmt = select(Deposit).where(Deposit.id == dep_id, Deposit.status == "PENDING")
+                    res = await session.execute(stmt)
+                    deposit = res.scalar_one_or_none()
+                except Exception:
+                    pass
+
+            if not deposit:
+                logger.info(f"OxaPay webhook: No matching pending deposit found for track_id={track_id}, order_id={order_id}")
+                return web.Response(text="ok")
+
+            if deposit.status in ("APPROVED", "SUCCESS"):
+                logger.info(f"Deposit #{deposit.id} already approved. Skipping duplicate OxaPay webhook.")
+                return web.Response(text="ok")
+
+            # Credit deposit
+            deposit, user = await credit_user_deposit_automated(session, deposit.gateway_order_id or track_id, tx_id or f"OXA_{track_id}")
+            if not deposit or not user:
+                return web.Response(text="ok")
+
+            logger.info(f"Deposit #{deposit.id} successfully credited via OxaPay webhook for User {user.telegram_id} (Amount: ₹{deposit.amount})")
+
+            # Check if this was a Direct 1-Click Purchase
+            if deposit.target_variant_id:
+                target_var = await get_variant(session, deposit.target_variant_id)
+                if target_var:
+                    is_manual = (getattr(target_var, "fulfillment_type", "AUTOMATIC") == "MANUAL")
+                    prod = await get_product(session, target_var.product_id)
+                    prod_title = prod.title if prod else "Digital Item"
+
+                    order = None
+                    if not is_manual:
+                        order, err = await fulfill_order(session, user.telegram_id, target_var.id, target_var.price)
+
+                    if order and getattr(order, "delivered_content", None):
+                        delivery_text = (
+                            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>CRYPTO PAYMENT CONFIRMED & ORDER DELIVERED!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
+                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
+                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b> (via Crypto / OxaPay)\n\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"{ce(CustomEmojis.KEY, '🔑')} <b>YOUR DELIVERED ACCOUNT / CODE:</b>\n"
+                            f"<i>(Tap the box below to copy automatically)</i>\n\n"
+                            f"<pre><code>{order.delivered_content}</code></pre>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Full Warranty:</b> Covered throughout validity!\n"
+                            f"{ce(CustomEmojis.HEART, '❤️')} <i>Thank you for shopping with {config.STORE_NAME}!</i>"
+                        )
+                        kb = get_post_delivery_keyboard(order.id)
+                        try:
+                            await bot.send_message(user.telegram_id, delivery_text, reply_markup=kb)
+                        except Exception as e:
+                            logger.error(f"Failed to send delivery to user {user.telegram_id}: {e}")
+
+                        # Group/Channel Notification
+                        remaining = await get_available_stock_count(session, target_var.id)
+                        bot_me = await bot.me()
+                        await send_order_notification(
+                            bot=bot,
+                            order_id=order.id,
+                            buyer_name=user.full_name or "Customer",
+                            product_title=prod_title,
+                            variant_name=target_var.name,
+                            amount=order.amount,
+                            stock_left=remaining,
+                            bot_username=bot_me.username or ""
+                        )
+
+                        # Alert Admins
+                        admin_alert = (
+                            f"{ce(CustomEmojis.FIRE, '🔔')} <b>CRYPTO AUTO-DELIVERED SALE (OXAPAY)!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
+                            f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {user.full_name} (@{user.username or 'NoUser'})\n"
+                            f"{ce(CustomEmojis.KEY, '🆔')} <b>User ID:</b> <code>{user.telegram_id}</code>\n"
+                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {target_var.name}\n"
+                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f} ({pay_amount} {pay_currency})\n"
+                            f"{ce(CustomEmojis.TROPHY, '📊')} <b>Remaining Stock:</b> {remaining} available"
+                        )
+                        for admin_id in config.ADMIN_IDS:
+                            try:
+                                await bot.send_message(admin_id, admin_alert)
+                            except Exception:
+                                pass
+
+                        return web.Response(text="ok")
+
+                    else:
+                        # MANUAL FULFILLMENT -> Create manual order
+                        manual_order, m_err = await create_manual_order(session, user.telegram_id, target_var.id, target_var.price, customer_input=None)
+
+                        manual_confirm_text = (
+                            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>CRYPTO PAYMENT CONFIRMED & ORDER PLACED!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
+                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
+                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
+                            f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Delivery:</b> 1–2 Hours\n\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"Our team has received your order and is processing your activation right now! You will receive details directly in this chat shortly."
+                        )
+                        try:
+                            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                            kb = InlineKeyboardMarkup(inline_keyboard=[
+                                [InlineKeyboardButton(text="🛟 Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}")],
+                                [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                            ])
+                            await bot.send_message(user.telegram_id, manual_confirm_text, reply_markup=kb)
+                        except Exception as e:
+                            logger.error(f"Failed to send manual confirm to user {user.telegram_id}: {e}")
+
+                        # Notify Group
+                        remaining = await get_available_stock_count(session, target_var.id)
+                        bot_me = await bot.me()
+                        await send_order_notification(
+                            bot=bot,
+                            order_id=manual_order.id,
+                            buyer_name=user.full_name or "Customer",
+                            product_title=prod_title,
+                            variant_name=target_var.name,
+                            amount=manual_order.amount,
+                            stock_left=remaining,
+                            bot_username=bot_me.username or ""
+                        )
+
+                        # Alert Admins with Fulfill Button
+                        from keyboards.admin_keyboards import get_admin_order_actions_keyboard
+                        admin_manual_alert = (
+                            f"{ce(CustomEmojis.FIRE, '🚨')} <b>NEW 1-CLICK CRYPTO ORDER TO FULFILL!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
+                            f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {user.full_name} (@{user.username or 'NoUser'})\n"
+                            f"{ce(CustomEmojis.KEY, '🆔')} <b>User ID:</b> <code>{user.telegram_id}</code>\n"
+                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {target_var.name}\n"
+                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid:</b> {config.CURRENCY_SYMBOL}{manual_order.amount:.2f} (Crypto / OxaPay)\n\n"
+                            f"{ce(CustomEmojis.SPARKLE, '👉')} <i>Click 'Fulfill Order' below to send invite/credentials:</i>"
+                        )
+                        for admin_id in config.ADMIN_IDS:
+                            try:
+                                await bot.send_message(admin_id, admin_manual_alert, reply_markup=get_admin_order_actions_keyboard(manual_order.id))
+                            except Exception:
+                                pass
+
+                        return web.Response(text="ok")
+
+            # Normal Top-Up Deposit notification to user
+            deposit_msg = (
+                f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>CRYPTO PAYMENT CONFIRMED & CREDITED!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Deposit ID:</b> #{deposit.id}\n"
+                f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Added:</b> <b>+{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b>\n"
+                f"{ce(CustomEmojis.CARD, '💳')} <b>New Wallet Balance:</b> <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n\n"
+                f"You can now purchase any subscription instantly from the store!"
+            )
+            try:
+                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🛍️ Explore Store", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
+                    [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                ])
+                await bot.send_message(user.telegram_id, deposit_msg, reply_markup=kb)
+            except Exception as e:
+                logger.error(f"Failed to notify user of deposit: {e}")
+
+            # Notify Admin of Deposit
+            admin_dep_alert = (
+                f"{ce(CustomEmojis.FIRE, '🔔')} <b>AUTO-DEPOSIT CAPTURED VIA OXAPAY (CRYPTO)!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Deposit ID:</b> #{deposit.id}\n"
+                f"{ce(CustomEmojis.VERIFIED, '👤')} <b>User:</b> {user.full_name} (@{user.username or 'NoUser'})\n"
+                f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount:</b> <b>+{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b>\n"
+                f"{ce(CustomEmojis.KEY, '🔢')} <b>Track ID:</b> <code>{track_id}</code>\n"
+                f"{ce(CustomEmojis.DIAMOND, '💎')} <b>Crypto Tx:</b> <code>{tx_id or 'Confirmed'}</code>"
+            )
+            for admin_id in config.ADMIN_IDS:
+                try:
+                    await bot.send_message(admin_id, admin_dep_alert)
+                except Exception:
+                    pass
+
+            return web.Response(text="ok")
+
+    return web.Response(text="ok")
+
 def create_webhook_app(bot: Bot) -> web.Application:
     app = web.Application()
     app["bot"] = bot
@@ -544,4 +766,6 @@ def create_webhook_app(bot: Bot) -> web.Application:
     app.router.add_post("/webhook/razorpay", handle_razorpay_webhook)
     app.router.add_get("/webhook/paypal", handle_paypal_webhook_get)
     app.router.add_post("/webhook/paypal", handle_paypal_webhook)
+    app.router.add_get("/webhook/oxapay", handle_oxapay_webhook_get)
+    app.router.add_post("/webhook/oxapay", handle_oxapay_webhook)
     return app

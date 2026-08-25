@@ -190,8 +190,18 @@ async def run_tests():
         assert del_success is True, "delete_category failed"
         print(f"  -> Successfully & safely deleted Category #{cat_temp.id} with linked orders without any DB errors!")
 
+    # 9. Test OxaPay Crypto Gateway & Multi-Gateway Integration
+    print("\n[9/9] Testing OxaPay Crypto Gateway Calculations & Multi-Gateway Manager...")
+    from payments.manager import payment_manager
+    base, sur, tot_inr, tot_usd = payment_manager.oxapay.calculate_amounts(299.0)
+    print(f"  -> OxaPay Conversion for ₹299: Base=₹{base}, Total=${tot_usd:.2f} USDT (at rate {payment_manager.oxapay.usd_rate})")
+    assert tot_usd > 0, "USD calculation failed"
+    gateways = payment_manager.get_available_gateways()
+    print(f"  -> Available Payment Gateways: {gateways}")
+    assert "RAZORPAY" in gateways or "PAYPAL" in gateways or "OXAPAY" in gateways or "MANUAL_UPI" in gateways
+
     print("\n==============================================")
-    print("   ALL TESTS & VERIFICATIONS PASSED (8/8)!   ")
+    print("   ALL TESTS & VERIFICATIONS PASSED (9/9)!   ")
     print("==============================================")
 
 if __name__ == "__main__":
