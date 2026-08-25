@@ -20,7 +20,7 @@ def get_persistent_menu_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
         ]
     ]
     if is_admin:
-        buttons.append([KeyboardButton(text="Admin Control Panel", icon_custom_emoji_id=CustomEmojis.FIRE)])
+        buttons.append([KeyboardButton(text="⚡ Switch to Admin View")])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, is_persistent=True)
 
 def get_main_menu_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:

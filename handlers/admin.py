@@ -1270,7 +1270,64 @@ async def cb_admin_var_edit(callback: types.CallbackQuery, session: AsyncSession
     lines.append("What would you like to edit?")
 
     text = "\n".join(lines)
-    await callback.message.edit_text(text, reply_markup=get_admin_variant_edit_keyboard(var_id, variant.product_id, is_manual=is_manual))
+    await callback.message.edit_text(
+        text,
+        reply_markup=get_admin_variant_edit_keyboard(
+            var_id,
+            variant.product_id,
+            is_manual=is_manual,
+            requires_customer_input=getattr(variant, "requires_customer_input", True)
+        )
+    )
+
+@router.callback_query(F.data.startswith("adm_varedit_toggleinput_"))
+async def cb_admin_varedit_toggleinput(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    var_id = int(callback.data.split("_")[3])
+    variant = await get_variant(session, var_id)
+    if not variant:
+        return
+    new_input_val = not getattr(variant, "requires_customer_input", True)
+    variant = await update_variant_details(session, var_id, requires_customer_input=new_input_val)
+    
+    is_manual = (variant.fulfillment_type == "MANUAL")
+    mode_str = "⏱️ MANUAL (Dispatch by Admin)" if is_manual else "⚡ AUTOMATIC (Instant Auto-Stock)"
+    dispatch_str = variant.manual_dispatch_time or "1–2 Hours"
+    prompt_str = variant.input_prompt or "Default (Asks Email / Phone)"
+    input_req_str = "YES (Bot asks customer for details)" if variant.requires_customer_input else "NO (Direct Admin Delivery — instant receipt to customer)"
+
+    lines = [
+        f"{ce(CustomEmojis.SPARKLE, '✏️')} <b>EDIT SUBSCRIPTION PLAN</b>",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{variant.product.title if variant.product else 'Digital Item'}</b>",
+        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan Name:</b> <b>{variant.name}</b>",
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Current Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>",
+        f"{ce(CustomEmojis.DIAMOND, '🏷️')} <b>Plan Type:</b> <code>{variant.variant_type}</code>",
+        f"{ce(CustomEmojis.FIRE, '🚀')} <b>Fulfillment Mode:</b> <b>{mode_str}</b>"
+    ]
+    if is_manual:
+        stock_qty = variant.stock_quantity if getattr(variant, "stock_quantity", None) is not None else 50
+        lines.append(f"⚙️ <b>Customer Input:</b> <b>{input_req_str}</b>")
+        lines.append(f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Dispatch Time:</b> <code>{dispatch_str}</code>")
+        if variant.requires_customer_input:
+            lines.append(f"👉 <b>Customer Prompt:</b> <i>{prompt_str}</i>")
+        lines.append(f"{ce(CustomEmojis.TROPHY, '📊')} <b>Available Slots / Stock:</b> <b>{stock_qty} slots</b>")
+
+    lines.append(f"{ce(CustomEmojis.SPARKLE, '📝')} <b>Description:</b> <i>{variant.detailed_description or 'Default template'}</i>\n")
+    lines.append("What would you like to edit?")
+
+    text = "\n".join(lines)
+    await callback.message.edit_text(
+        text,
+        reply_markup=get_admin_variant_edit_keyboard(
+            var_id,
+            variant.product_id,
+            is_manual=is_manual,
+            requires_customer_input=getattr(variant, "requires_customer_input", True)
+        )
+    )
 
 @router.callback_query(F.data.startswith("adm_varedit_togglemode_"))
 async def cb_admin_varedit_togglemode(callback: types.CallbackQuery, session: AsyncSession):
@@ -1288,6 +1345,7 @@ async def cb_admin_varedit_togglemode(callback: types.CallbackQuery, session: As
     mode_str = "⏱️ MANUAL (Dispatch by Admin)" if is_manual else "⚡ AUTOMATIC (Instant Auto-Stock)"
     dispatch_str = variant.manual_dispatch_time or "1–2 Hours"
     prompt_str = variant.input_prompt or "Default (Asks Email / Phone)"
+    input_req_str = "YES (Bot asks customer for details)" if getattr(variant, "requires_customer_input", True) else "NO (Direct Admin Delivery — instant receipt)"
 
     lines = [
         f"{ce(CustomEmojis.SPARKLE, '✏️')} <b>EDIT SUBSCRIPTION PLAN</b>",
@@ -1300,15 +1358,25 @@ async def cb_admin_varedit_togglemode(callback: types.CallbackQuery, session: As
     ]
     if is_manual:
         stock_qty = variant.stock_quantity if getattr(variant, "stock_quantity", None) is not None else 50
+        lines.append(f"⚙️ <b>Customer Input:</b> <b>{input_req_str}</b>")
         lines.append(f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Dispatch Time:</b> <code>{dispatch_str}</code>")
-        lines.append(f"👉 <b>Customer Prompt:</b> <i>{prompt_str}</i>")
+        if getattr(variant, "requires_customer_input", True):
+            lines.append(f"👉 <b>Customer Prompt:</b> <i>{prompt_str}</i>")
         lines.append(f"{ce(CustomEmojis.TROPHY, '📊')} <b>Available Slots / Stock:</b> <b>{stock_qty} slots</b>")
 
     lines.append(f"{ce(CustomEmojis.SPARKLE, '📝')} <b>Description:</b> <i>{variant.detailed_description or 'Default template'}</i>\n")
     lines.append("What would you like to edit?")
 
     text = "\n".join(lines)
-    await callback.message.edit_text(text, reply_markup=get_admin_variant_edit_keyboard(var_id, variant.product_id, is_manual=is_manual))
+    await callback.message.edit_text(
+        text,
+        reply_markup=get_admin_variant_edit_keyboard(
+            var_id,
+            variant.product_id,
+            is_manual=is_manual,
+            requires_customer_input=getattr(variant, "requires_customer_input", True)
+        )
+    )
 
 @router.callback_query(F.data.startswith("adm_varedit_dispatch_"))
 async def cb_admin_varedit_dispatch(callback: types.CallbackQuery, state: FSMContext):
@@ -1724,11 +1792,13 @@ async def cb_admin_var_ff_auto(callback: types.CallbackQuery, state: FSMContext,
         reply_markup=kb
     )
 
-@router.callback_query(AdminVariantStates.waiting_for_fulfillment_type, F.data == "adm_var_ff_MANUAL")
+@router.callback_query(AdminVariantStates.waiting_for_fulfillment_type, F.data.in_(["adm_var_ff_MANUAL", "adm_var_ff_MANUAL_INPUT", "adm_var_ff_MANUAL_DIRECT"]))
 async def cb_admin_var_ff_manual(callback: types.CallbackQuery, state: FSMContext):
     if not check_admin(callback.from_user.id):
         return
     await callback.answer()
+    requires_input = (callback.data != "adm_var_ff_MANUAL_DIRECT")
+    await state.update_data(requires_customer_input=requires_input)
     await state.set_state(AdminVariantStates.waiting_for_dispatch_time)
     await callback.message.edit_text(
         f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Expected Dispatch Timeframe</b>\n\n"
@@ -1737,21 +1807,61 @@ async def cb_admin_var_ff_manual(callback: types.CallbackQuery, state: FSMContex
     )
 
 @router.message(AdminVariantStates.waiting_for_dispatch_time, F.text)
-async def msg_admin_var_dispatch(message: types.Message, state: FSMContext):
+async def msg_admin_var_dispatch(message: types.Message, state: FSMContext, session: AsyncSession):
     dispatch_time = message.text.strip()
     if dispatch_time.lower() == "skip":
         dispatch_time = "1–2 Hours"
     await state.update_data(manual_dispatch_time=dispatch_time)
-    await state.set_state(AdminVariantStates.waiting_for_input_prompt)
-    await message.answer(
-        f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>Customer Details Prompt</b>\n\n"
-        f"What should the bot ask the customer before they purchase?\n\n"
-        f"<b>Examples:</b>\n"
-        f"• <code>Please send your Gmail address for YouTube invite activation:</code>\n"
-        f"• <code>Please send your registered Jio mobile number:</code>\n"
-        f"• <code>Please send your SonyLIV mobile number for OTP login:</code>\n\n"
-        f"<i>(Send your prompt below or send <code>skip</code> for standard prompt):</i>"
-    )
+    
+    data = await state.get_data()
+    requires_input = data.get("requires_customer_input", True)
+
+    if requires_input:
+        await state.set_state(AdminVariantStates.waiting_for_input_prompt)
+        await message.answer(
+            f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>Customer Details Prompt</b>\n\n"
+            f"What should the bot ask the customer before they purchase?\n\n"
+            f"<b>Examples:</b>\n"
+            f"• <code>Please send your Gmail address for YouTube invite activation:</code>\n"
+            f"• <code>Please send your registered Jio mobile number:</code>\n"
+            f"• <code>Please send your SonyLIV mobile number for OTP login:</code>\n\n"
+            f"<i>(Send your prompt below or send <code>skip</code> for standard prompt):</i>"
+        )
+    else:
+        # Direct Admin Provisioning (e.g. CapCut Pro, Private Accs)
+        prod_id = data.get("prod_id")
+        name = data.get("name")
+        price = data.get("price")
+        variant_type = data.get("variant_type")
+        detailed_desc = data.get("detailed_description")
+
+        variant = await create_variant(
+            session,
+            product_id=prod_id,
+            name=name,
+            price=price,
+            variant_type=variant_type,
+            detailed_description=detailed_desc,
+            fulfillment_type="MANUAL",
+            manual_dispatch_time=dispatch_time,
+            input_prompt=None,
+            requires_customer_input=False
+        )
+
+        await state.set_data({"variant_id": variant.id, "prod_id": prod_id, "variant_name": variant.name, "prod_title": variant.product.title if variant.product else name})
+        await state.set_state(AdminVariantStates.waiting_for_stock_qty)
+
+        await message.answer(
+            f"{ce(CustomEmojis.CHECK, '✅')} <b>Direct Provisioning Plan Created!</b>\n\n"
+            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
+            f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Dispatch:</b> {dispatch_time}\n"
+            f"⚡ <b>Customer Input:</b> None (Direct receipt issued upon payment)\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{ce(CustomEmojis.TROPHY, '📊')} <b>How many slots (capacity) do you have available right now?</b>\n\n"
+            f"This number will be shown to customers so they know stock is available.\n"
+            f"<i>(e.g. send <code>20</code> or send <code>0</code> if none yet.)</i>",
+            reply_markup=get_admin_cancel_keyboard("adm_stock")
+        )
 
 @router.message(AdminVariantStates.waiting_for_input_prompt, F.text)
 async def msg_admin_var_input_prompt(message: types.Message, state: FSMContext, session: AsyncSession):
@@ -1776,7 +1886,8 @@ async def msg_admin_var_input_prompt(message: types.Message, state: FSMContext, 
         detailed_description=detailed_desc,
         fulfillment_type="MANUAL",
         manual_dispatch_time=dispatch_time,
-        input_prompt=prompt_text
+        input_prompt=prompt_text,
+        requires_customer_input=True
     )
 
     # Save variant_id and prod_id, then ask for initial stock slot count

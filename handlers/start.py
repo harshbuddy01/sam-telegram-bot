@@ -52,6 +52,26 @@ async def cmd_start(message: types.Message, bot: Bot, session: AsyncSession, com
     )
 
     is_user_admin = config.is_admin(message.from_user.id)
+    
+    # Primary Admin Dedicated Experience (ID 6971497666 and authorized admins)
+    if is_user_admin:
+        from database.crud import get_pending_deposits, get_pending_manual_orders
+        from keyboards.admin_keyboards import get_admin_main_keyboard, get_admin_persistent_keyboard
+        pending_deps = len(await get_pending_deposits(session))
+        pending_ords = len(await get_pending_manual_orders(session))
+        admin_text = (
+            f"{ce(CustomEmojis.CROWN, '👑')} <b>ADMINISTRATOR CONTROL PANEL</b>\n"
+            f"{UI.SECTION_BAR}\n\n"
+            f"Welcome, Master Admin <b>{message.from_user.first_name}</b> (<code>{message.from_user.id}</code>).\n"
+            f"Your store management hub is active. Use the buttons below to control stock, pending orders, and settings:"
+        )
+        await message.answer(
+            f"{ce(CustomEmojis.FIRE, '⚡')} <i>Admin Mode Active. Quick controls are available in the menu below:</i>",
+            reply_markup=get_admin_persistent_keyboard()
+        )
+        await message.answer(admin_text, reply_markup=get_admin_main_keyboard(pending_deps, pending_ords))
+        return
+
     text = await get_welcome_text(message.from_user.first_name, session)
 
     # Attach persistent bottom reply keyboard
@@ -225,13 +245,119 @@ async def msg_btn_refer(message: types.Message, session: AsyncSession):
     ])
     await message.answer(text, reply_markup=kb)
 
-@router.message(F.text.in_(["⚡  Admin Control Panel", "⚡ Admin Control Panel", "Admin"]))
-async def msg_btn_admin(message: types.Message):
+@router.message(F.text.in_(["⚡ Admin Hub", "⚡  Admin Hub", "Admin", "Admin Control Panel", "⚡ Admin Control Panel", "⚡ Switch to Admin View", "⚡  Switch to Admin View"]))
+async def msg_btn_admin_hub(message: types.Message, session: AsyncSession):
     if not config.is_admin(message.from_user.id):
         return
-    from handlers.admin import cmd_admin
-    # invoke admin command directly
-    await message.answer("Redirecting to Admin Panel... Send /admin to view.")
+    from database.crud import get_pending_deposits, get_pending_manual_orders
+    from keyboards.admin_keyboards import get_admin_main_keyboard, get_admin_persistent_keyboard
+    pending_deps = len(await get_pending_deposits(session))
+    pending_ords = len(await get_pending_manual_orders(session))
+    admin_text = (
+        f"{ce(CustomEmojis.CROWN, '👑')} <b>ADMINISTRATOR CONTROL PANEL</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"<i>Select a management hub below to manage your store:</i>"
+    )
+    await message.answer(
+        f"{ce(CustomEmojis.FIRE, '⚡')} <i>Admin Mode Active.</i>",
+        reply_markup=get_admin_persistent_keyboard()
+    )
+    await message.answer(admin_text, reply_markup=get_admin_main_keyboard(pending_deps, pending_ords))
+
+@router.message(F.text.in_(["⏳ Pending Orders", "⏳  Pending Orders", "Pending Orders"]))
+async def msg_btn_admin_pending(message: types.Message, session: AsyncSession):
+    if not config.is_admin(message.from_user.id):
+        return
+    from database.crud import get_pending_manual_orders
+    from keyboards.admin_keyboards import get_admin_pending_orders_keyboard
+    pending = await get_pending_manual_orders(session)
+    if not pending:
+        await message.answer(
+            f"{ce(CustomEmojis.CHECK, '✅')} <b>No pending manual orders right now!</b>\n\n"
+            f"All orders are up to date."
+        )
+        return
+    text = (
+        f"{ce(CustomEmojis.FIRE, '🚨')} <b>PENDING MANUAL ORDERS ({len(pending)})</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Select an order below to fulfill:"
+    )
+    await message.answer(text, reply_markup=get_admin_pending_orders_keyboard(pending))
+
+@router.message(F.text.in_(["📦 Inventory & Stock", "📦  Inventory & Stock", "Inventory & Stock", "Stock"]))
+async def msg_btn_admin_stock(message: types.Message, session: AsyncSession):
+    if not config.is_admin(message.from_user.id):
+        return
+    from database.crud import get_all_variants, get_available_stock_count
+    from keyboards.admin_keyboards import get_admin_stock_inventory_keyboard
+    variants = await get_all_variants(session)
+    if not variants:
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} No subscription plans found.")
+        return
+    stock_counts = {}
+    for var in variants:
+        stock_counts[var.id] = await get_available_stock_count(session, var.id)
+    text = (
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>INVENTORY & STOCK MANAGEMENT</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"Select a plan below to view or add stock:"
+    )
+    await message.answer(text, reply_markup=get_admin_stock_inventory_keyboard(variants, stock_counts))
+
+@router.message(F.text.in_(["📊 Store Statistics", "📊  Store Statistics", "Store Statistics", "Stats"]))
+async def msg_btn_admin_stats(message: types.Message, session: AsyncSession):
+    if not config.is_admin(message.from_user.id):
+        return
+    from database.crud import get_all_users_count, get_total_orders_and_revenue, get_orders_today_count, get_all_variants, get_available_stock_count
+    from keyboards.admin_keyboards import get_admin_cancel_keyboard
+    total_users = await get_all_users_count(session)
+    total_orders, total_rev = await get_total_orders_and_revenue(session)
+    today_orders = await get_orders_today_count(session)
+    variants = await get_all_variants(session)
+    total_stock = 0
+    for v in variants:
+        if v.fulfillment_type != "MANUAL":
+            total_stock += await get_available_stock_count(session, v.id)
+        else:
+            total_stock += (v.stock_quantity or 0)
+    text = (
+        f"{ce(CustomEmojis.TROPHY, '📊')} <b>LIVE STORE METRICS & ANALYTICS</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"<blockquote>"
+        f"👥 <b>Total Registered Customers:</b> <b>{total_users:,}</b>\n"
+        f"📦 <b>Lifetime Orders Fulfilled:</b> <b>{total_orders:,}</b>\n"
+        f"⚡ <b>Orders Fulfilled Today:</b> <b>{today_orders:,}</b>\n"
+        f"💰 <b>Total Gross Sales:</b> <b>{config.CURRENCY_SYMBOL}{total_rev:,.2f}</b>\n"
+        f"🔑 <b>Total Available Stock Slots:</b> <b>{total_stock:,}</b>"
+        f"</blockquote>"
+    )
+    await message.answer(text, reply_markup=get_admin_cancel_keyboard("admin_home"))
+
+@router.message(F.text.in_(["📢 Broadcast", "📢  Broadcast", "Broadcast"]))
+async def msg_btn_admin_broadcast(message: types.Message, state: FSMContext):
+    if not config.is_admin(message.from_user.id):
+        return
+    from utils.states import AdminBroadcastStates
+    from keyboards.admin_keyboards import get_admin_cancel_keyboard
+    await state.set_state(AdminBroadcastStates.waiting_for_message)
+    text = (
+        f"{ce(CustomEmojis.FIRE, '📢')} <b>BROADCAST ANNOUNCEMENT</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"Send the announcement message you want to broadcast to all registered bot users:"
+    )
+    await message.answer(text, reply_markup=get_admin_cancel_keyboard("admin_home"))
+
+@router.message(F.text.in_(["🛍️ Switch to Customer View", "🛍️  Switch to Customer View", "Customer View"]))
+async def msg_btn_customer_view(message: types.Message, session: AsyncSession):
+    if not config.is_admin(message.from_user.id):
+        return
+    text = await get_welcome_text(message.from_user.first_name, session)
+    await message.answer(
+        f"{ce(CustomEmojis.SPARKLE, '🛍️')} <i>Customer View Active. Tap buttons below to test browsing:</i>",
+        reply_markup=get_persistent_menu_keyboard(is_admin=True)
+    )
+    from keyboards.user_keyboards import get_main_menu_keyboard
+    await message.answer(text, reply_markup=get_main_menu_keyboard(is_admin=True))
 
 def extract_custom_emoji_ids(message: types.Message) -> list[str]:
     """Extracts custom_emoji_id from entities, stickers, and replied messages."""

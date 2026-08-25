@@ -182,7 +182,46 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
         is_manual = (getattr(variant, "fulfillment_type", "AUTOMATIC") == "MANUAL")
 
         if is_manual:
-            # Prompt customer for email/details
+            requires_input = getattr(variant, "requires_customer_input", True)
+            if not requires_input:
+                # Direct Admin Provisioning (e.g. CapCut Pro, Netflix Private on-demand)
+                # Deduct balance & create manual order directly
+                order, err_msg = await create_manual_order(
+                    session=session,
+                    user_id=user.telegram_id,
+                    variant_id=variant.id,
+                    amount=variant.price,
+                    customer_input=None
+                )
+                if err_msg or not order:
+                    await callback.message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Failed to place order: {err_msg}")
+                    return
+
+                dispatch_time = getattr(variant, "manual_dispatch_time", "1–2 Hours") or "1–2 Hours"
+                text = (
+                    f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>ORDER PLACED & PAYMENT CONFIRMED!</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
+                    f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                    f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
+                    f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
+                    f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Delivery:</b> within {dispatch_time}\n\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"Our team has received your order and is preparing your credentials right now! You will receive your details directly in this chat shortly."
+                )
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🛟 Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}")],
+                    [InlineKeyboardButton(text="📦 Order History", callback_data="view_orders")],
+                    [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                ])
+                await callback.message.edit_text(text, reply_markup=kb)
+
+                asyncio.create_task(_background_notify_manual(
+                    bot, order, prod_title, variant.name, callback.from_user, None, variant.price
+                ))
+                return
+
+            # Prompt customer for email/details (e.g. YouTube Family Invite, Hotstar)
             await state.set_state(OrderManualStates.waiting_for_input)
             await state.update_data(
                 variant_id=variant.id,
@@ -303,19 +342,20 @@ async def msg_order_manual_input(message: types.Message, state: FSMContext, sess
         bot, order, prod_title, var_name, message.from_user, cust_input, price
     ))
 
-async def _background_notify_manual(bot: Bot, order, prod_title: str, var_name: str, user_obj, cust_input: str, price: float):
+async def _background_notify_manual(bot: Bot, order, prod_title: str, var_name: str, user_obj, cust_input: Optional[str], price: float):
     from keyboards.admin_keyboards import get_admin_order_actions_keyboard
+    input_display = f"<code>{cust_input}</code>" if cust_input else "<i>None (Direct Provisioning from Admin)</i>"
     admin_alert = (
         f"{ce(CustomEmojis.FIRE, '🚨')} <b>NEW MANUAL ORDER REQUIRES DISPATCH!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
-        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {user_obj.full_name} (@{user_obj.username or 'NoUser'})\n"
-        f"{ce(CustomEmojis.KEY, '🆔')} <b>Telegram ID:</b> <code>{user_obj.id}</code>\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {getattr(user_obj, 'full_name', 'Customer')} (@{getattr(user_obj, 'username', 'NoUser') or 'NoUser'})\n"
+        f"{ce(CustomEmojis.KEY, '🆔')} <b>Telegram ID:</b> <code>{getattr(user_obj, 'id', getattr(user_obj, 'telegram_id', 0))}</code>\n"
         f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_title}\n"
         f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> {var_name}\n"
         f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount:</b> {config.CURRENCY_SYMBOL}{price:.2f}\n"
-        f"{ce(CustomEmojis.VERIFIED, '📧')} <b>Customer Details:</b> <code>{cust_input}</code>\n\n"
-        f"{ce(CustomEmojis.SPARKLE, '👉')} <i>Click 'Fulfill Order' below to send the link/details directly to customer:</i>"
+        f"{ce(CustomEmojis.VERIFIED, '📧')} <b>Customer Details:</b> {input_display}\n\n"
+        f"{ce(CustomEmojis.SPARKLE, '👉')} <i>Click 'Fulfill Order' below to send credentials/access directly to customer:</i>"
     )
     for admin_id in config.ADMIN_IDS:
         try:

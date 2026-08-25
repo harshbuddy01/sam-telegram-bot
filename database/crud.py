@@ -279,6 +279,7 @@ async def create_variant(
     fulfillment_type: str = "AUTOMATIC",
     manual_dispatch_time: str = "1–2 Hours",
     input_prompt: Optional[str] = None,
+    requires_customer_input: bool = True,
     stock_quantity: int = 50
 ) -> Variant:
     clean_name = clean_button_text(name) or name
@@ -299,6 +300,7 @@ async def create_variant(
         existing.manual_dispatch_time = manual_dispatch_time
         if input_prompt:
             existing.input_prompt = input_prompt
+        existing.requires_customer_input = requires_customer_input
         await session.commit()
         await session.refresh(existing)
         return existing
@@ -312,6 +314,7 @@ async def create_variant(
         fulfillment_type=fulfillment_type,
         manual_dispatch_time=manual_dispatch_time,
         input_prompt=input_prompt,
+        requires_customer_input=requires_customer_input,
         stock_quantity=stock_quantity,
         is_active=True
     )
@@ -330,6 +333,7 @@ async def update_variant_details(
     fulfillment_type: Optional[str] = None,
     manual_dispatch_time: Optional[str] = None,
     input_prompt: Optional[str] = None,
+    requires_customer_input: Optional[bool] = None,
     stock_quantity: Optional[int] = None
 ) -> Optional[Variant]:
     variant = await get_variant(session, variant_id)
@@ -348,6 +352,8 @@ async def update_variant_details(
             variant.manual_dispatch_time = manual_dispatch_time
         if input_prompt is not None:
             variant.input_prompt = input_prompt
+        if requires_customer_input is not None:
+            variant.requires_customer_input = requires_customer_input
         if stock_quantity is not None:
             variant.stock_quantity = stock_quantity
         await session.commit()
@@ -556,7 +562,12 @@ async def create_manual_order(
         variant.stock_quantity -= 1
 
     # Create manual order
-    input_str = customer_input.strip() if customer_input else "Direct 1-Click Purchase (Awaiting customer activation details)"
+    if customer_input:
+        input_str = customer_input.strip()
+    elif not getattr(variant, "requires_customer_input", True):
+        input_str = "None (Direct Admin Delivery)"
+    else:
+        input_str = "Direct 1-Click Purchase (Awaiting details)"
     order = Order(
         user_id=user_id,
         variant_id=variant_id,
@@ -920,6 +931,7 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
             v_fulf = var_tuple[4] if len(var_tuple) > 4 else "AUTOMATIC"
             v_time = var_tuple[5] if len(var_tuple) > 5 else "1–2 Hours"
             v_prompt = var_tuple[6] if len(var_tuple) > 6 else None
+            v_req_input = var_tuple[7] if len(var_tuple) > 7 else (True if v_prompt else (v_fulf == "MANUAL" and ("Invite" in v_name or "Family" in v_name)))
             
             v_stmt = select(Variant).where(Variant.product_id == prod.id, Variant.name == v_name)
             v_res = await session.execute(v_stmt)
@@ -934,6 +946,7 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
                     fulfillment_type=v_fulf,
                     manual_dispatch_time=v_time,
                     input_prompt=v_prompt,
+                    requires_customer_input=v_req_input,
                     is_active=True
                 ))
             else:
@@ -943,6 +956,7 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
                 existing_v.fulfillment_type = v_fulf
                 existing_v.manual_dispatch_time = v_time
                 existing_v.input_prompt = v_prompt
+                existing_v.requires_customer_input = v_req_input
                 existing_v.is_active = True
 
     # --- 1. OTT & Streaming ---

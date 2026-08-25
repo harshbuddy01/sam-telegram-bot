@@ -61,6 +61,7 @@ class Variant(Base):
     input_type = Column(String(50), default="ANY") # "PHONE_NUMBER", "EMAIL", "EMAIL_OR_PHONE", "USERNAME", "ANY"
     input_prompt = Column(Text, nullable=True) # Custom prompt e.g. "Please send your mobile number or email:"
     detailed_description = Column(Text, nullable=True) # Full description displayed before payment
+    requires_customer_input = Column(Boolean, default=True) # If True, prompts customer for email/phone; if False, delivers immediate receipt and notifies admin to dispatch
     stock_quantity = Column(Integer, default=50) # Manual fulfillment slots available
     is_active = Column(Boolean, default=True)
 
