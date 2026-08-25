@@ -124,13 +124,8 @@ async def cb_order_detail(callback: types.CallbackQuery, session: AsyncSession):
         f"{footer_line}"
     )
 
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️  Back to Order History", callback_data="view_orders")],
-        [InlineKeyboardButton(text="🏠  Main Menu", callback_data="nav_home")]
-    ])
-
-    await callback.message.edit_text(text, reply_markup=kb)
+    from keyboards.user_keyboards import get_order_detail_keyboard
+    await callback.message.edit_text(text, reply_markup=get_order_detail_keyboard(order.id))
 
 @router.callback_query(F.data == "nav_refer")
 async def cb_nav_refer(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):

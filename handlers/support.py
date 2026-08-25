@@ -1,14 +1,49 @@
 """
-Post-Delivery Support & Confirmation Handler
-Handles 'I Got It' confirmations and 'I Need Help' support flows.
+Post-Delivery Support & Issue Resolution Handler
+Provides interactive order issue selection and generates 1-tap pre-filled Telegram deep links
+so the admin receives the exact Order ID, product name, date, and issue without confusion.
 """
+import urllib.parse
+from typing import Optional
 from aiogram import Router, F, types, Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from utils.emojis import CustomEmojis, ce
+from sqlalchemy.orm import selectinload
+
+from database.models import Order, Variant, Product
+from database.crud import get_variant, get_product
+from utils.emojis import CustomEmojis, UI, ce, format_emoji
 import config
 
 router = Router()
+
+async def _get_order_context(session: AsyncSession, order_id: int):
+    """Helper to fetch full order, variant, and product context."""
+    stmt = (
+        select(Order)
+        .options(
+            selectinload(Order.variant).selectinload(Variant.product)
+        )
+        .where(Order.id == order_id)
+    )
+    res = await session.execute(stmt)
+    order = res.scalar_one_or_none()
+
+    prod_title = "Digital Subscription"
+    var_name = "Standard Plan"
+    date_str = "Recent"
+    amount_str = f"{config.CURRENCY_SYMBOL}0"
+
+    if order:
+        date_str = order.created_at.strftime("%d %b %Y, %H:%M UTC") if order.created_at else "Recent"
+        amount_str = f"{config.CURRENCY_SYMBOL}{order.amount:.0f}"
+        if order.variant:
+            var_name = order.variant.name
+            if order.variant.product:
+                prod_title = order.variant.product.title
+
+    return order, prod_title, var_name, date_str, amount_str
 
 
 @router.callback_query(F.data.startswith("confirm_got_"))
@@ -19,10 +54,10 @@ async def cb_confirm_got(callback: types.CallbackQuery):
 
     confirmed_text = (
         f"{ce(CustomEmojis.CHECK, '✅')} <b>ORDER #{order_id} — DELIVERY CONFIRMED</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>Glad you received your product!</b>\n"
-        f"Enjoy your subscription and thank you for shopping with <b>{config.STORE_NAME}</b>!\n\n"
-        f"{ce(CustomEmojis.SPARKLE, '💡')} <i>Your credentials are saved permanently in Order History.</i>"
+        f"{UI.SECTION_BAR}\n\n"
+        f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>Glad you received your subscription!</b>\n"
+        f"Thank you for shopping with <b>{config.STORE_NAME}</b>!\n\n"
+        f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>Your warranty is active. Credentials remain permanently saved in Order History.</i>"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📦 View in Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)],
@@ -37,22 +72,35 @@ async def cb_confirm_got(callback: types.CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("need_help_"))
-async def cb_need_help(callback: types.CallbackQuery):
-    """Customer needs help with their order."""
+async def cb_need_help(callback: types.CallbackQuery, session: AsyncSession):
+    """Customer selects an issue for a specific order."""
     await callback.answer()
     order_id = int(callback.data.split("_")[2])
+    order, prod_title, var_name, date_str, amount_str = await _get_order_context(session, order_id)
 
     help_text = (
-        f"{ce(CustomEmojis.SUPPORT, '❓')} <b>SUPPORT CENTER — ORDER #{order_id}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"What issue are you facing? Select an option below:\n"
+        f"{ce(CustomEmojis.SUPPORT, '🛟')} <b>CUSTOMER SUPPORT HELPDESK</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order Reference:</b> <code>#{order_id}</code>\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b> ({var_name})\n"
+        f"{ce(CustomEmojis.STAR, '📅')} <b>Ordered On:</b> {date_str}\n\n"
+        f"<i>Please select the specific issue you are experiencing:</i>"
     )
+
+    clean_sup = config.SUPPORT_USERNAME.lstrip('@')
+    default_msg = f"Hello Support,\nI need help with Order #{order_id} ({prod_title} - {var_name}).\n\nDetails: "
+    default_url = f"https://t.me/{clean_sup}?text={urllib.parse.quote(default_msg)}"
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text="🔄 Replacement Request",
+            text="🔑 Login / Password Problem",
+            callback_data=f"help_access_{order_id}",
+            icon_custom_emoji_id=CustomEmojis.KEY
+        )],
+        [InlineKeyboardButton(
+            text="🔄 Warranty Replacement",
             callback_data=f"help_replace_{order_id}",
-            icon_custom_emoji_id=CustomEmojis.SPARKLE
+            icon_custom_emoji_id=CustomEmojis.WARRANTY
         )],
         [InlineKeyboardButton(
             text="💳 Payment / Billing Issue",
@@ -60,17 +108,12 @@ async def cb_need_help(callback: types.CallbackQuery):
             icon_custom_emoji_id=CustomEmojis.WALLET
         )],
         [InlineKeyboardButton(
-            text="🔑 Login / Access Problem",
-            callback_data=f"help_access_{order_id}",
-            icon_custom_emoji_id=CustomEmojis.KEY
-        )],
-        [InlineKeyboardButton(
             text="💬 Chat with Support Agent",
-            url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}",
+            url=default_url,
             icon_custom_emoji_id=CustomEmojis.SUPPORT
         )],
         [InlineKeyboardButton(
-            text="◀️ Back to Order",
+            text="◀️ Back to Order Receipt",
             callback_data=f"orderdetail_{order_id}",
             icon_custom_emoji_id=CustomEmojis.CROWN
         )]
@@ -83,26 +126,37 @@ async def cb_need_help(callback: types.CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("help_replace_"))
-async def cb_help_replace(callback: types.CallbackQuery):
+async def cb_help_replace(callback: types.CallbackQuery, session: AsyncSession):
     await callback.answer()
     order_id = int(callback.data.split("_")[2])
+    order, prod_title, var_name, date_str, amount_str = await _get_order_context(session, order_id)
+
+    clean_sup = config.SUPPORT_USERNAME.lstrip('@')
+    prefilled_msg = (
+        f"Hello Support,\n"
+        f"I would like to request a replacement for:\n\n"
+        f"• Order ID: #{order_id}\n"
+        f"• Product: {prod_title} ({var_name})\n"
+        f"• Ordered On: {date_str}\n\n"
+        f"Issue: Account credentials expired / not working under warranty."
+    )
+    direct_url = f"https://t.me/{clean_sup}?text={urllib.parse.quote(prefilled_msg)}"
+
     text = (
         f"{ce(CustomEmojis.WARRANTY, '🔄')} <b>REPLACEMENT REQUEST — ORDER #{order_id}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"To request a replacement, please contact our support team:\n\n"
-        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Support:</b> {config.SUPPORT_USERNAME}\n\n"
-        f"{ce(CustomEmojis.ORDERS, '📋')} <b>Include this info in your message:</b>\n"
-        f"• Order ID: <code>#{order_id}</code>\n"
-        f"• Issue: Account not working / expired\n"
-        f"• Screenshot of the error (if any)\n\n"
-        f"<i>Our team typically responds within 30 minutes!</i>"
+        f"{UI.SECTION_BAR}\n\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {var_name}\n"
+        f"{ce(CustomEmojis.STAR, '📅')} <b>Ordered:</b> {date_str}\n\n"
+        f"Tap <b>'Connect with Admin'</b> below. Your Order ID and replacement details are <b>pre-written in your chat box</b> so support can send replacement credentials immediately!\n\n"
+        f"{ce(CustomEmojis.FIRE, '⚡')} <i>Typical agent response time: 5–15 minutes.</i>"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text="💬 Message Support Now",
-            url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}?text=Replacement%20Request%20for%20Order%20%23{order_id}"
+            text="💬 Connect with Admin (Pre-filled)",
+            url=direct_url,
+            icon_custom_emoji_id=CustomEmojis.SUPPORT
         )],
-        [InlineKeyboardButton(text="◀️ Back", callback_data=f"need_help_{order_id}")]
+        [InlineKeyboardButton(text="◀️ Back to Issue Menu", callback_data=f"need_help_{order_id}")]
     ])
     try:
         await callback.message.edit_text(text, reply_markup=kb)
@@ -111,26 +165,36 @@ async def cb_help_replace(callback: types.CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("help_payment_"))
-async def cb_help_payment(callback: types.CallbackQuery):
+async def cb_help_payment(callback: types.CallbackQuery, session: AsyncSession):
     await callback.answer()
     order_id = int(callback.data.split("_")[2])
+    order, prod_title, var_name, date_str, amount_str = await _get_order_context(session, order_id)
+
+    clean_sup = config.SUPPORT_USERNAME.lstrip('@')
+    prefilled_msg = (
+        f"Hello Support,\n"
+        f"I have a payment/billing query for:\n\n"
+        f"• Order ID: #{order_id}\n"
+        f"• Product: {prod_title} ({var_name})\n"
+        f"• Amount: {amount_str}\n\n"
+        f"Issue: Payment verification / refund query."
+    )
+    direct_url = f"https://t.me/{clean_sup}?text={urllib.parse.quote(prefilled_msg)}"
+
     text = (
-        f"{ce(CustomEmojis.WALLET, '💳')} <b>PAYMENT ISSUE — ORDER #{order_id}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"For payment or billing issues, please contact support:\n\n"
-        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Support:</b> {config.SUPPORT_USERNAME}\n\n"
-        f"{ce(CustomEmojis.ORDERS, '📋')} <b>Include this info:</b>\n"
-        f"• Order ID: <code>#{order_id}</code>\n"
-        f"• Payment screenshot / UTR number\n"
-        f"• Description of the issue\n\n"
-        f"<i>Refunds are processed within 24 hours.</i>"
+        f"{ce(CustomEmojis.WALLET, '💳')} <b>PAYMENT / BILLING QUERY — ORDER #{order_id}</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {var_name}\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount:</b> {amount_str}\n\n"
+        f"Tap <b>'Connect with Admin'</b> below. Your payment reference and Order ID will be <b>automatically attached</b> to your message."
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text="💬 Message Support Now",
-            url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}?text=Payment%20Issue%20for%20Order%20%23{order_id}"
+            text="💬 Connect with Admin (Pre-filled)",
+            url=direct_url,
+            icon_custom_emoji_id=CustomEmojis.WALLET
         )],
-        [InlineKeyboardButton(text="◀️ Back", callback_data=f"need_help_{order_id}")]
+        [InlineKeyboardButton(text="◀️ Back to Issue Menu", callback_data=f"need_help_{order_id}")]
     ])
     try:
         await callback.message.edit_text(text, reply_markup=kb)
@@ -139,28 +203,41 @@ async def cb_help_payment(callback: types.CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("help_access_"))
-async def cb_help_access(callback: types.CallbackQuery):
+async def cb_help_access(callback: types.CallbackQuery, session: AsyncSession):
     await callback.answer()
     order_id = int(callback.data.split("_")[2])
+    order, prod_title, var_name, date_str, amount_str = await _get_order_context(session, order_id)
+
+    clean_sup = config.SUPPORT_USERNAME.lstrip('@')
+    prefilled_msg = (
+        f"Hello Support,\n"
+        f"I am having a login/access issue with:\n\n"
+        f"• Order ID: #{order_id}\n"
+        f"• Product: {prod_title} ({var_name})\n\n"
+        f"Issue: Unable to sign in with delivered credentials / PIN."
+    )
+    direct_url = f"https://t.me/{clean_sup}?text={urllib.parse.quote(prefilled_msg)}"
+
     text = (
         f"{ce(CustomEmojis.KEY, '🔑')} <b>LOGIN / ACCESS ISSUE — ORDER #{order_id}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"<b>Quick troubleshooting steps:</b>\n\n"
-        f"1️⃣ Copy credentials from Order History (tap the code box)\n"
-        f"2️⃣ Try logging in on a fresh browser / incognito window\n"
-        f"3️⃣ Clear app cache if using mobile app\n"
-        f"4️⃣ Do NOT change password or email\n\n"
-        f"<b>Still not working?</b> Contact support with your Order ID:"
+        f"{UI.SECTION_BAR}\n\n"
+        f"<b>Quick Troubleshooting Tips:</b>\n"
+        f"1️⃣ Tap the code box in Order History to copy credentials.\n"
+        f"2️⃣ Try signing in in an Incognito / Private browser window.\n"
+        f"3️⃣ Ensure no VPN is altering your region settings.\n\n"
+        f"<b>Still unable to log in?</b> Tap below to connect with an agent with your order details pre-filled:"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text="💬 Message Support Now",
-            url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}?text=Access%20Issue%20for%20Order%20%23{order_id}"
+            text="💬 Connect with Admin (Pre-filled)",
+            url=direct_url,
+            icon_custom_emoji_id=CustomEmojis.KEY
         )],
-        [InlineKeyboardButton(text="📦 View Order History", callback_data="view_orders")],
-        [InlineKeyboardButton(text="◀️ Back", callback_data=f"need_help_{order_id}")]
+        [InlineKeyboardButton(text="📦 View Order Receipt", callback_data=f"orderdetail_{order_id}")],
+        [InlineKeyboardButton(text="◀️ Back to Issue Menu", callback_data=f"need_help_{order_id}")]
     ])
     try:
         await callback.message.edit_text(text, reply_markup=kb)
     except Exception:
         await callback.message.answer(text, reply_markup=kb)
+

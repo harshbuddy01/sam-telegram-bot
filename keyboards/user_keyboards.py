@@ -65,23 +65,27 @@ def get_search_results_keyboard(
     buttons = []
     for prod in products:
         stock = stock_counts.get(prod.id, 0)
-        stock_badge = f"🟢 {stock} In Stock" if stock > 0 else "🔴 Out of Stock"
+        stock_badge = f"({stock})" if stock > 0 else "(Out)"
         clean_title = clean_button_text(prod.title)
+        display_emoji = prod.emoji or "📦"
         
+        if not any(clean_title.startswith(c) for c in ["🍿", "🤖", "🛡️", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "👑", "✨", "💎", "📦"]):
+            btn_text = f"{display_emoji} {clean_title} {stock_badge}"
+        else:
+            btn_text = f"{clean_title} {stock_badge}"
+
         btn_kwargs = {
-            "text": f"{clean_title}  •  {stock_badge}",
+            "text": btn_text,
             "callback_data": f"prod_{prod.id}"
         }
         if prod.custom_emoji_id and str(prod.custom_emoji_id).isdigit():
             btn_kwargs["icon_custom_emoji_id"] = str(prod.custom_emoji_id)
-        elif prod.emoji:
-            btn_kwargs["text"] = f"{prod.emoji} {clean_title}  •  {stock_badge}"
 
         buttons.append([InlineKeyboardButton(**btn_kwargs)])
     
     buttons.append([
-        InlineKeyboardButton(text="Search Another Item", callback_data="nav_search", icon_custom_emoji_id=CustomEmojis.SEARCH),
-        InlineKeyboardButton(text="Main Menu", callback_data="nav_home")
+        InlineKeyboardButton(text="🔍 Search Another Item", callback_data="nav_search", icon_custom_emoji_id=CustomEmojis.SEARCH),
+        InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -284,22 +288,43 @@ def get_profile_keyboard() -> InlineKeyboardMarkup:
 def get_orders_list_keyboard(orders: list[Order]) -> InlineKeyboardMarkup:
     buttons = []
     for order in orders:
-        created_str = order.created_at.strftime("%d/%m %H:%M")
+        created_str = order.created_at.strftime("%d/%m")
         status = getattr(order, "status", "COMPLETED")
         badge = "🟢" if status == "COMPLETED" else ("⏳" if status == "PENDING_DISPATCH" else "❌")
+        
+        # Format clean product title
+        prod_title = "Item"
+        if order.variant and order.variant.product:
+            raw_title = order.variant.product.title
+            prod_title = raw_title.replace("Premium", "").replace("Subscription", "").strip()
+            if len(prod_title) > 16:
+                prod_title = prod_title[:15] + "…"
+        elif order.variant:
+            prod_title = order.variant.name[:14]
+
+        btn_text = f"{badge} #{order.id} • {prod_title} • {config.CURRENCY_SYMBOL}{order.amount:.0f} ({created_str})"
+
         buttons.append([
             InlineKeyboardButton(
-                text=f"{badge} #{order.id} • {config.CURRENCY_SYMBOL}{order.amount:.0f} ({created_str})",
+                text=btn_text,
                 callback_data=f"orderdetail_{order.id}",
                 icon_custom_emoji_id=CustomEmojis.ORDERS
             )
         ])
     
     buttons.append([
-        InlineKeyboardButton(text="Back to Profile", callback_data="nav_profile", icon_custom_emoji_id=CustomEmojis.VERIFIED),
-        InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+        InlineKeyboardButton(text="◀️ Back to Profile", callback_data="nav_profile", icon_custom_emoji_id=CustomEmojis.VERIFIED),
+        InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_order_detail_keyboard(order_id: int) -> InlineKeyboardMarkup:
+    """Buttons displayed on the order detail receipt screen."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛟 Need Help / Report Issue", callback_data=f"need_help_{order_id}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+        [InlineKeyboardButton(text="◀️ Back to Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)],
+        [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+    ])
 
 def get_back_button(callback_data: str = "nav_home") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -310,6 +335,6 @@ def get_post_delivery_keyboard(order_id: int) -> InlineKeyboardMarkup:
     """Buttons shown after successful product delivery — I Got It / Need Help."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ I Got It!", callback_data=f"confirm_got_{order_id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
-        [InlineKeyboardButton(text="❓ I Need Help", callback_data=f"need_help_{order_id}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+        [InlineKeyboardButton(text="🛟 I Need Help", callback_data=f"need_help_{order_id}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
         [InlineKeyboardButton(text="📦 View in Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)]
     ])

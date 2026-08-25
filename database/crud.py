@@ -663,7 +663,9 @@ async def credit_user_deposit_automated(
 async def get_user_orders(session: AsyncSession, user_id: int, limit: int = 10) -> List[Order]:
     stmt = (
         select(Order)
-        .options(selectinload(Order.variant))
+        .options(
+            selectinload(Order.variant).selectinload(Variant.product)
+        )
         .where(Order.user_id == user_id)
         .order_by(Order.created_at.desc())
         .limit(limit)

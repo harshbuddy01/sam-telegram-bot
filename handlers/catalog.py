@@ -37,12 +37,13 @@ async def cb_nav_search(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(SearchStates.waiting_for_query)
     text = (
-        f"{ce(CustomEmojis.SEARCH, '🔍')} <b>PRODUCT SEARCH</b>\n"
+        f"{ce(CustomEmojis.SEARCH, '🔍')} <b>SEARCH SUBSCRIPTION STORE</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"Please enter the product name or keyword to search (e.g. <code>Netflix</code>, <code>Prime</code>, <code>YouTube</code>, <code>VPN</code>):\n\n"
-        f"{ce(CustomEmojis.SPARKLE, '💡')} <i>Or tap below to return to the main menu:</i>"
+        f"Enter any subscription, tool, or keyword to search\n"
+        f"<i>(e.g. <code>Netflix</code>, <code>Prime</code>, <code>YouTube</code>, <code>ChatGPT</code>, <code>Canva</code>, <code>VPN</code>)</i>:\n\n"
+        f"{ce(CustomEmojis.SPARKLE, '💡')} <i>Or tap below to return to the catalog:</i>"
     )
-    await callback.message.edit_text(text, reply_markup=get_back_button("nav_home"))
+    await safe_edit_or_reply(callback, text, reply_markup=get_back_button("nav_home"))
 
 @router.message(SearchStates.waiting_for_query)
 async def msg_search_query(message: types.Message, state: FSMContext, session: AsyncSession):
@@ -55,26 +56,24 @@ async def msg_search_query(message: types.Message, state: FSMContext, session: A
         text = (
             f"{ce(CustomEmojis.SEARCH, '🔍')} <b>SEARCH RESULTS FOR:</b> <code>{query}</code>\n"
             f"{UI.SECTION_BAR}\n\n"
-            f"{ce(CustomEmojis.LOCK, '❌')} No matching products found for '<b>{query}</b>'.\n\n"
-            f"<i>Try searching with a different keyword or browse our full catalog!</i>"
+            f"{ce(CustomEmojis.LOCK, '❌')} <b>No matching subscriptions found for '<code>{query}</code>'</b>\n\n"
+            f"<i>Check your spelling or explore all categories from our store catalog!</i>"
         )
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Search Again", callback_data="nav_search")],
-            [InlineKeyboardButton(text="🛍️ Explore Categories", callback_data="nav_shop")],
-            [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+            [InlineKeyboardButton(text="🔍 Search Another Item", callback_data="nav_search", icon_custom_emoji_id=CustomEmojis.SEARCH)],
+            [InlineKeyboardButton(text="🛍️ Explore Categories", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
+            [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
         ])
         await message.answer(text, reply_markup=kb)
         return
 
-    stock_counts = {}
-    for prod in products:
-        stock_counts[prod.id] = await get_product_total_stock_count(session, prod.id)
+    stock_counts = await get_batch_product_stock_counts(session, [p.id for p in products])
 
     text = (
-        f"{ce(CustomEmojis.SEARCH, '🔍')} <b>SEARCH RESULTS ({len(products)} found)</b>\n"
+        f"{ce(CustomEmojis.SEARCH, '🔍')} <b>SEARCH RESULTS ({len(products)} FOUND)</b>\n"
         f"{UI.SECTION_BAR}\n\n"
-        f"Matching subscriptions for '<b>{query}</b>':\n"
+        f"Matching digital subscriptions for '<b>{query}</b>':\n"
     )
     await message.answer(text, reply_markup=get_search_results_keyboard(products, stock_counts))
 
