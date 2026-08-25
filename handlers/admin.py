@@ -579,6 +579,61 @@ async def cb_admin_dep_reject(callback: types.CallbackQuery, session: AsyncSessi
     except Exception:
         pass
 
+@router.callback_query(F.data.startswith("adm_dep_detail_"))
+async def cb_admin_dep_detail(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    deposit_id = int(callback.data.split("_")[3])
+    deposit = await get_deposit(session, deposit_id)
+    if not deposit:
+        await callback.message.answer("Deposit record not found.")
+        return
+
+    user = await get_user(session, deposit.user_id)
+    user_name = user.full_name if user else f"User {deposit.user_id}"
+    user_handle = f"@{user.username}" if user and user.username else "NoUsername"
+
+    text = (
+        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>DEPOSIT DETAILS #{deposit.id}</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"✦ <b>User:</b> {user_name} ({user_handle})\n"
+        f"✦ <b>Telegram ID:</b> <code>{deposit.user_id}</code>\n"
+        f"✦ <b>Amount:</b> <b>{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b>\n"
+        f"✦ <b>Gateway:</b> <code>{deposit.gateway}</code>\n"
+        f"✦ <b>Status:</b> <code>{deposit.status}</code>\n"
+        f"✦ <b>UTR / Note:</b> <code>{deposit.utr_number or 'None'}</code>\n"
+        f"✦ <b>Date:</b> {deposit.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') if deposit.created_at else 'N/A'}\n"
+    )
+    if deposit.proof_file_id:
+        try:
+            await callback.message.answer_photo(
+                photo=deposit.proof_file_id,
+                caption=text,
+                reply_markup=get_deposit_approval_keyboard(deposit.id) if deposit.status == "PENDING" else get_admin_cancel_keyboard("adm_deposits")
+            )
+            return
+        except Exception:
+            pass
+
+    await callback.message.answer(
+        text,
+        reply_markup=get_deposit_approval_keyboard(deposit.id) if deposit.status == "PENDING" else get_admin_cancel_keyboard("adm_deposits")
+    )
+
+@router.callback_query(F.data.startswith("adm_stock_clear_"))
+async def cb_admin_stock_clear(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    variant_id = int(callback.data.split("_")[3])
+    await delete_unsold_stock_by_variant(session, variant_id)
+    await callback.message.answer(
+        f"{ce(CustomEmojis.CHECK, '✅')} All unsold stock lines for Plan #{variant_id} cleared successfully!"
+    )
+    callback.data = f"adm_stock_manage_{variant_id}"
+    await cb_admin_stock_manage(callback, session)
+
 # ================= 4. INVENTORY & STOCK MANAGEMENT =================
 
 @router.callback_query(F.data == "adm_stock")

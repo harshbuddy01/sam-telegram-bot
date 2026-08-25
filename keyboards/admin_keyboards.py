@@ -234,6 +234,9 @@ def get_admin_manual_order_detail_keyboard(order_id: int) -> InlineKeyboardMarku
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+# Alias for backward compatibility
+get_admin_order_actions_keyboard = get_admin_manual_order_detail_keyboard
+
 def get_admin_categories_keyboard(categories: list[Category]) -> InlineKeyboardMarkup:
     buttons = []
     for cat in categories:

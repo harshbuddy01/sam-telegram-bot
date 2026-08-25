@@ -56,14 +56,13 @@ DEFAULT_TEMPLATES: Dict[str, str] = {
         f"{UI.SECTION_BAR}\n\n"
         f"<blockquote>"
         f"{ce(CustomEmojis.WALLET, '💰')} <b>Price:</b> <b>{{currency}}{{price}}</b>\n"
-        f"{ce(CustomEmojis.DIAMOND, '🏷️')} <b>Plan Type:</b> {{variant_type}}\n"
-        f"{ce(CustomEmojis.FIRE, '🚀')} <b>Fulfillment:</b> {{fulfillment_badge}}\n"
-        f"{ce(CustomEmojis.TROPHY, '📊')} <b>Availability:</b> <b>{{stock_badge}}</b>"
+        f"{ce(CustomEmojis.DIAMOND, '🏷️')} <b>Plan:</b> {{variant_name}}\n"
+        f"{ce(CustomEmojis.FIRE, '🚀')} <b>Type:</b> {{variant_type}}\n"
+        f"{ce(CustomEmojis.TROPHY, '📊')} <b>Stock:</b> {{stock_badge}}\n"
+        f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Warranty:</b> 100% Replacement Guarantee\n"
+        f"{ce(CustomEmojis.FIRE, '⚡')} <b>Delivery:</b> {{delivery_time}}"
         f"</blockquote>\n\n"
         f"{{description_block}}"
-        f"{UI.SECTION_BAR}\n\n"
-        f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Warranty:</b> 100% replacement guarantee throughout validity.\n"
-        f"{ce(CustomEmojis.FIRE, '⚡')} <b>Delivery Time:</b> {{delivery_time}}"
     ),
 
     "checkout_text": (
@@ -219,14 +218,10 @@ async def reset_template(session: AsyncSession, key: str) -> str:
     return default_val
 
 async def render_template(session: AsyncSession, key: str, **kwargs) -> str:
-    """Renders template with provided variable arguments."""
+    """Renders template with provided variable arguments safely using exact tag replacement."""
     template_str = await get_template(session, key)
-    try:
-        return template_str.format(**kwargs)
-    except KeyError:
-        rendered = template_str
-        for k, v in kwargs.items():
-            rendered = rendered.replace(f"{{{k}}}", str(v))
-        return rendered
-    except Exception:
-        return template_str
+    rendered = template_str
+    for k, v in kwargs.items():
+        val = str(v) if v is not None else ""
+        rendered = rendered.replace(f"{{{k}}}", val)
+    return rendered

@@ -77,13 +77,24 @@ async def msg_search_query(message: types.Message, state: FSMContext, session: A
     )
     await message.answer(text, reply_markup=get_search_results_keyboard(products, stock_counts))
 
+async def safe_edit_or_reply(callback: types.CallbackQuery, text: str, reply_markup: Optional[InlineKeyboardMarkup] = None):
+    try:
+        await callback.message.edit_text(text, reply_markup=reply_markup)
+    except Exception:
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.message.answer(text, reply_markup=reply_markup)
+
 @router.callback_query(F.data == "nav_shop")
 async def cb_nav_shop(callback: types.CallbackQuery, session: AsyncSession):
     await callback.answer()
     categories = await get_active_categories(session)
     
     if not categories:
-        await callback.message.edit_text(
+        await safe_edit_or_reply(
+            callback,
             f"{ce(CustomEmojis.SHOP, '🛒')} <b>STORE CATALOG</b>\n"
             f"{UI.SECTION_BAR}\n\n"
             "No categories available right now. Please check back shortly!",
@@ -101,7 +112,7 @@ async def cb_nav_shop(callback: types.CallbackQuery, session: AsyncSession):
     cat_block = "\n".join(cat_lines) if cat_lines else "<i>No categories active yet.</i>"
 
     text = await render_template(session, "categories_header", store_name=config.STORE_NAME)
-    await callback.message.edit_text(text, reply_markup=get_categories_keyboard(categories))
+    await safe_edit_or_reply(callback, text, reply_markup=get_categories_keyboard(categories))
 
 @router.callback_query(F.data.startswith("cat_"))
 async def cb_category_products(callback: types.CallbackQuery, session: AsyncSession):
@@ -146,7 +157,8 @@ async def cb_category_products(callback: types.CallbackQuery, session: AsyncSess
         product_list=prod_block
     )
 
-    await callback.message.edit_text(
+    await safe_edit_or_reply(
+        callback,
         text,
         reply_markup=get_products_keyboard(products, category_id, stock_counts, page=1)
     )
@@ -178,7 +190,7 @@ async def cb_products_page(callback: types.CallbackQuery, session: AsyncSession)
         prod_lines.append(line)
     prod_block = "\n".join(prod_lines) if prod_lines else "<i>No products available yet.</i>"
 
-    if "<tg-emoji" in category.name:
+    if category and "<tg-emoji" in category.name:
         cat_header = f"{ce(CustomEmojis.SHOP, '📁')} <b>CATEGORY ➜ {category.name}</b>"
     else:
         cat_emoji = format_emoji(category.emoji, category.custom_emoji_id) if category else "📁"
@@ -192,10 +204,15 @@ async def cb_products_page(callback: types.CallbackQuery, session: AsyncSession)
         product_list=prod_block
     )
 
-    await callback.message.edit_text(
+    await safe_edit_or_reply(
+        callback,
         text,
         reply_markup=get_products_keyboard(products, category_id, stock_counts, page=page)
     )
+
+@router.callback_query(F.data == "noop")
+async def cb_noop(callback: types.CallbackQuery):
+    await callback.answer()
 
 @router.callback_query(F.data.startswith("prod_"))
 async def cb_product_variants(callback: types.CallbackQuery, session: AsyncSession):
@@ -222,12 +239,18 @@ async def cb_product_variants(callback: types.CallbackQuery, session: AsyncSessi
     if product.description:
         text += f"<blockquote>{product.description}</blockquote>\n\n"
 
-    text += (
-        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Select your plan / duration below:</b>\n"
-        f"<i>(Click on any plan to inspect the detailed specs, warranty & delivery info)</i>"
-    )
+    if variants:
+        text += (
+            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Select your plan / duration below:</b>\n"
+            f"<i>(Click on any plan to inspect the detailed specs, warranty & delivery info)</i>"
+        )
+    else:
+        text += (
+            f"{ce(CustomEmojis.LOCK, '⚠️')} <i>No plans are currently in stock for this item. Please contact support @{config.SUPPORT_USERNAME.lstrip('@')} to order!</i>"
+        )
 
-    await callback.message.edit_text(
+    await safe_edit_or_reply(
+        callback,
         text,
         reply_markup=get_variants_keyboard(variants, product_id, product.category_id)
     )
@@ -262,42 +285,19 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
     has_stock = (stock_count > 0) or is_manual
 
     if is_manual:
-        stock_badge = "🟢 <b>Available for Activation</b>"
-        fulfillment_badge = f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Manual Activation (Dispatched within {dispatch_time})</b>"
+        stock_badge = "Available (1–2h Activation)"
+        fulfillment_badge = f"Manual Activation ({dispatch_time})"
         action_note = f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>Click <b>'ORDER ACTIVATION'</b> to submit your details & buy:</i>"
     else:
-        stock_badge = f"🟢 <b>In Stock</b> ({stock_count} Available)" if has_stock else "🔴 <b>Out of Stock</b>"
-        fulfillment_badge = f"{ce(CustomEmojis.FIRE, '⚡')} <b>100% Automated Instant Delivery</b>"
+        stock_badge = f"In Stock ({stock_count} Available)" if has_stock else "Out of Stock"
+        fulfillment_badge = "100% Instant Delivery"
         action_note = f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>Click <b>'PURCHASE NOW'</b> to buy:</i>"
 
     if variant.detailed_description:
-        desc_content = variant.detailed_description
+        desc_clean = variant.detailed_description.strip()
+        desc_block = f"<blockquote><b>Features & Specifications:</b>\n{desc_clean}</blockquote>\n\n"
     else:
-        cat_name = ""
-        if product:
-            cat = await get_category(session, product.category_id)
-            if cat:
-                cat_name = cat.name.upper()
-        
-        if "OTT" in cat_name or "STREAM" in cat_name:
-            quality_text = "Official UHD/HD stream"
-        elif "AI" in cat_name:
-            quality_text = "Official AI subscription access"
-        elif "VPN" in cat_name:
-            quality_text = "High-speed secure VPN connection"
-        elif "GAM" in cat_name or "UTIL" in cat_name:
-            quality_text = "Official premium subscription"
-        else:
-            quality_text = "Official premium digital subscription"
-
-        desc_content = (
-            f"✦ <b>Quality:</b> {quality_text}\n"
-            f"✦ <b>Access:</b> Instant login credentials / activation\n"
-            f"✦ <b>Warranty:</b> 100% Replacement guarantee during validity\n"
-            f"✦ <b>Rules:</b> Use on assigned screen or personal email"
-        )
-
-    desc_block = f"<blockquote>{desc_content}</blockquote>\n\n"
+        desc_block = ""
 
     prod_title_clean = product.title if product else "Digital Item"
     prod_icon_clean = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if product else "📦"
@@ -317,9 +317,10 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
         description_block=desc_block,
         delivery_time=dispatch_time if is_manual else "Instant (< 5 seconds)"
     )
-    text += f"\n\n{action_note}"
+    text += f"\n{action_note}"
 
-    await callback.message.edit_text(
+    await safe_edit_or_reply(
+        callback,
         text,
         reply_markup=get_product_detail_keyboard(
             variant_id=variant.id,

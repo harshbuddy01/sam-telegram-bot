@@ -797,14 +797,9 @@ async def get_deposits_stats(session: AsyncSession):
 
 async def seed_initial_data(session: AsyncSession, force: bool = False):
     """
-    Seeds initial catalog ONLY on fresh database initialization.
-    If categories already exist in the database, it respects admin deletions and does NOT re-create them.
+    Synchronizes initial categories, products, and plan variants with rich specs.
+    Safely adds missing variants and cleans up orphaned/duplicate records.
     """
-    existing_count_res = await session.execute(select(func.count(Category.id)))
-    existing_count = existing_count_res.scalar() or 0
-    if existing_count > 0 and not force:
-        return
-
     # 1. Standardize Categories
     cats_data = [
         ("OTT & Streaming", "🍿", 1, CustomEmojis.NETFLIX),
@@ -818,7 +813,6 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
     # Clean and standardize all existing categories in database
     all_existing_cats = (await session.execute(select(Category))).scalars().all()
     for cat in all_existing_cats:
-        # Strip duplicate emoji prefixes and surrogate characters
         for prefix in ["🍿 🍿 ", "🍿 ", "🤖 🤖 ", "🤖 ", "🛡️ 🛡️ ", "🛡️ ", "🎓 🎓 ", "🎓 ", "🎮 🎮 ", "🎮 ", "🎁 🎁 ", "🎁 "]:
             if cat.name.startswith(prefix):
                 cat.name = cat.name[len(prefix):].strip()
@@ -831,13 +825,14 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
         res = await session.execute(stmt)
         cat = res.scalars().first()
         if not cat:
-            cat = Category(name=name, emoji=emoji, sort_order=order, custom_emoji_id=custom_id)
+            cat = Category(name=name, emoji=emoji, sort_order=order, custom_emoji_id=custom_id, is_active=True)
             session.add(cat)
             await session.flush()
         else:
             cat.emoji = emoji
             cat.custom_emoji_id = custom_id
             cat.sort_order = order
+            cat.is_active = True
             await session.flush()
         cats_dict[name] = cat
 
@@ -845,15 +840,19 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
         cat = cats_dict.get(cat_name)
         if not cat:
             return
-        stmt = select(Product).where(Product.title == title)
+        stmt = select(Product).where(Product.title == title, Product.category_id == cat.id)
         res = await session.execute(stmt)
         prod = res.scalars().first()
         if not prod:
-            prod = Product(category_id=cat.id, title=title, emoji=emoji, description=desc, custom_emoji_id=custom_emoji_id)
+            prod = Product(category_id=cat.id, title=title, emoji=emoji, description=desc, custom_emoji_id=custom_emoji_id, is_active=True)
             session.add(prod)
             await session.flush()
-        elif custom_emoji_id:
-            prod.custom_emoji_id = custom_emoji_id
+        else:
+            prod.description = desc
+            prod.emoji = emoji
+            prod.is_active = True
+            if custom_emoji_id:
+                prod.custom_emoji_id = custom_emoji_id
             await session.flush()
         
         for var_tuple in variants_list:
@@ -877,12 +876,17 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
                     detailed_description=v_spec,
                     fulfillment_type=v_fulf,
                     manual_dispatch_time=v_time,
-                    input_prompt=v_prompt
+                    input_prompt=v_prompt,
+                    is_active=True
                 ))
             else:
+                existing_v.price = v_price
+                existing_v.variant_type = v_type
+                existing_v.detailed_description = v_spec
                 existing_v.fulfillment_type = v_fulf
                 existing_v.manual_dispatch_time = v_time
                 existing_v.input_prompt = v_prompt
+                existing_v.is_active = True
 
     # --- 1. OTT & Streaming ---
     await ensure_prod(
@@ -890,7 +894,6 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
         "Official Netflix Ultra HD 4K streaming accounts with private or shared profiles.",
         [
             ("1 Month Private Profile", 129.0, "Private Profile",
-             "✨ <b>Netflix 4K UHD - 1 Month Private Profile</b>\n\n"
              "✦ <b>Quality:</b> 4K Ultra HD + HDR & Dolby Atmos\n"
              "✦ <b>Screen:</b> 1 Dedicated Screen (Pin Locked)\n"
              "✦ <b>Devices:</b> Smart TV, Mobile, Laptop, Tablet, PC\n"
@@ -898,25 +901,21 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
              "✦ <b>Rules:</b> Do not change password or email\n"
              "✦ <b>Delivery:</b> Instant Automated Delivery"),
             ("3 Months Private Profile", 359.0, "Private Profile",
-             "✨ <b>Netflix 4K UHD - 3 Months Private Profile</b>\n\n"
              "✦ <b>Quality:</b> 4K Ultra HD + HDR\n"
              "✦ <b>Screen:</b> 1 Dedicated Screen (Your Own Pin)\n"
              "✦ <b>Warranty:</b> 90 Days Full Warranty\n"
              "✦ <b>Delivery:</b> Instant Automated Delivery"),
             ("6 Months Private Profile", 679.0, "Private Profile",
-             "✨ <b>Netflix 4K UHD - 6 Months Private Profile</b>\n\n"
              "✦ <b>Quality:</b> Ultra HD 4K Quality\n"
              "✦ <b>Screen:</b> 1 Dedicated Screen\n"
              "✦ <b>Warranty:</b> 180 Days Full Warranty\n"
              "✦ <b>Delivery:</b> Instant Automated Delivery"),
             ("12 Months Private Profile", 1249.0, "Private Profile",
-             "✨ <b>Netflix 4K UHD - 12 Months (1 Year)</b>\n\n"
              "✦ <b>Quality:</b> Ultra HD 4K Quality (1 Year)\n"
              "✦ <b>Screen:</b> 1 Dedicated Pin-locked Profile\n"
              "✦ <b>Warranty:</b> 365 Days Replacement Guarantee\n"
              "✦ <b>Delivery:</b> Instant Automated Delivery"),
             ("1 Month Shared Profile", 99.0, "Shared Profile",
-             "✨ <b>Netflix 4K UHD - 1 Month Shared Profile</b>\n\n"
              "✦ <b>Quality:</b> Ultra HD 4K Quality\n"
              "✦ <b>Screen:</b> Shared Profile\n"
              "✦ <b>Warranty:</b> 30 Days Replacement Guarantee\n"
@@ -930,20 +929,17 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
         "Amazon Prime Video Premium with 4K UHD HDR streaming.",
         [
             ("1 Month Private Profile", 79.0, "Private Profile",
-             "✨ <b>Amazon Prime Video - 1 Month Private Profile</b>\n\n"
              "✦ <b>Quality:</b> 4K Ultra HD + HDR\n"
              "✦ <b>Screen:</b> 1 Dedicated Screen (Pin Locked)\n"
              "✦ <b>Devices:</b> Smart TV, Mobile, Laptop, PC\n"
              "✦ <b>Warranty:</b> 30 Days Full Replacement Warranty\n"
              "✦ <b>Delivery:</b> Instant Automated Delivery"),
             ("6 Months Private Profile", 299.0, "Private Profile",
-             "✨ <b>Amazon Prime Video - 6 Months Private Profile</b>\n\n"
              "✦ <b>Quality:</b> 4K Ultra HD Streaming\n"
              "✦ <b>Screen:</b> 1 Dedicated Screen\n"
              "✦ <b>Warranty:</b> 180 Days Replacement Guarantee\n"
              "✦ <b>Delivery:</b> Instant Automated Delivery"),
             ("12 Months Private Profile", 499.0, "Private Profile",
-             "✨ <b>Amazon Prime Video - 12 Months (1 Year)</b>\n\n"
              "✦ <b>Quality:</b> 4K Ultra HD Streaming\n"
              "✦ <b>Screen:</b> 1 Dedicated Screen\n"
              "✦ <b>Warranty:</b> 365 Days Replacement Guarantee\n"
@@ -957,14 +953,12 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
         "Ad-free YouTube & YouTube Music with background playback & downloads.",
         [
             ("1 Month Family Invite", 49.0, "Invite Link",
-             "✨ <b>YouTube Premium - 1 Month Plan</b>\n\n"
              "✦ <b>Features:</b> Ad-Free YouTube + YouTube Music\n"
              "✦ <b>Activation:</b> Added to your personal Gmail\n"
              "✦ <b>Warranty:</b> 30 Days Replacement Guarantee\n"
              "✦ <b>Delivery:</b> Manual Activation within 1–2 Hours",
              "MANUAL", "1–2 Hours", "📧 Please send your Gmail address for YouTube Family invite activation:"),
             ("12 Months Family Invite", 299.0, "Invite Link",
-             "✨ <b>YouTube Premium - 1 Year Plan</b>\n\n"
              "✦ <b>Features:</b> 12 Months Ad-Free YouTube\n"
              "✦ <b>Activation:</b> Added to your personal Gmail\n"
              "✦ <b>Warranty:</b> 1 Year Full Warranty\n"
@@ -976,20 +970,71 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
 
     await ensure_prod(
         "OTT & Streaming", "Spotify Premium", "🎵",
-        "Spotify Premium individual & family promo codes with high quality audio.",
+        "Spotify Premium individual & family promo codes with high quality lossless audio.",
         [
             ("3 Months Promo Code", 99.0, "Redeem Code",
-             "✨ <b>Spotify Premium - 3 Months Code</b>\n\n"
              "✦ <b>Quality:</b> 320kbps Lossless Audio\n"
              "✦ <b>Features:</b> Ad-free music & unlimited skips\n"
              "✦ <b>Delivery:</b> Instant Redeem Link"),
             ("12 Months Individual", 299.0, "Redeem Code",
-             "✨ <b>Spotify Premium - 1 Year Code</b>\n\n"
              "✦ <b>Features:</b> 1 Year Ad-Free Music\n"
-             "✦ <b>Warranty:</b> 1 Year Warranty\n"
+             "✦ <b>Warranty:</b> 1 Year Full Warranty\n"
              "✦ <b>Delivery:</b> Instant Activation"),
         ],
         custom_emoji_id=CustomEmojis.SPOTIFY
+    )
+
+    await ensure_prod(
+        "OTT & Streaming", "Zee5 Premium", "📺",
+        "Zee5 4K VIP subscription for all original web series, live TV and regional movies.",
+        [
+            ("1 Month Private Login", 49.0, "Private Account",
+             "✦ <b>Quality:</b> 1080p HD Zee5 Originals\n"
+             "✦ <b>Access:</b> Direct Login Details\n"
+             "✦ <b>Warranty:</b> 30 Days Replacement\n"
+             "✦ <b>Delivery:</b> Instant Delivery"),
+            ("12 Months All Access", 249.0, "Private Account",
+             "✦ <b>Features:</b> 1 Year Unlimited Zee5 Streaming\n"
+             "✦ <b>Warranty:</b> 365 Days Warranty\n"
+             "✦ <b>Delivery:</b> Instant Delivery"),
+        ],
+        custom_emoji_id=CustomEmojis.ZEE5 if hasattr(CustomEmojis, 'ZEE5') else None
+    )
+
+    await ensure_prod(
+        "OTT & Streaming", "Apple Music", "🍏",
+        "Apple Music individual subscription with lossless audio and Spatial Audio.",
+        [
+            ("3 Months Family Invite", 99.0, "Invite Link",
+             "✦ <b>Quality:</b> Lossless 24-bit 192kHz Audio\n"
+             "✦ <b>Activation:</b> Added to your Apple ID\n"
+             "✦ <b>Warranty:</b> 90 Days Guarantee\n"
+             "✦ <b>Delivery:</b> Manual Activation within 1–2 Hours",
+             "MANUAL", "1–2 Hours", "📧 Please send your Apple ID email:"),
+            ("12 Months Family Invite", 349.0, "Invite Link",
+             "✦ <b>Features:</b> 1 Year Apple Music Subscription\n"
+             "✦ <b>Warranty:</b> 1 Year Full Warranty\n"
+             "✦ <b>Delivery:</b> Manual Activation within 1–2 Hours",
+             "MANUAL", "1–2 Hours", "📧 Please send your Apple ID email:"),
+        ],
+        custom_emoji_id=CustomEmojis.APPLE_MUSIC if hasattr(CustomEmojis, 'APPLE_MUSIC') else None
+    )
+
+    await ensure_prod(
+        "OTT & Streaming", "Jio Hotstar Super/Premium", "🌟",
+        "JioCinema & Disney+ Hotstar 4K HDR live sports and premium originals.",
+        [
+            ("1 Month Super (2 Screens)", 89.0, "Shared Login",
+             "✦ <b>Quality:</b> Full HD 1080p + Live Cricket\n"
+             "✦ <b>Access:</b> Mobile + TV / Web\n"
+             "✦ <b>Warranty:</b> 30 Days Replacement\n"
+             "✦ <b>Delivery:</b> Instant Delivery"),
+            ("12 Months Premium (4 Screens 4K)", 499.0, "Private Account",
+             "✦ <b>Quality:</b> 4K Ultra HD + Dolby Vision\n"
+             "✦ <b>Warranty:</b> 1 Year Full Warranty\n"
+             "✦ <b>Delivery:</b> Instant Delivery"),
+        ],
+        custom_emoji_id=CustomEmojis.HOTSTAR if hasattr(CustomEmojis, 'HOTSTAR') else None
     )
 
     await ensure_prod(
@@ -997,12 +1042,10 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
         "Ad-free anime streaming in full HD with offline downloads.",
         [
             ("1 Month Mega Fan", 69.0, "Private Account",
-             "✨ <b>Crunchyroll Mega Fan - 1 Month</b>\n\n"
              "✦ <b>Quality:</b> 1080p HD Anime Streaming\n"
              "✦ <b>Features:</b> Simulcast 1 hour after Japan\n"
              "✦ <b>Delivery:</b> Instant Delivery"),
             ("12 Months Mega Fan", 399.0, "Private Account",
-             "✨ <b>Crunchyroll Mega Fan - 1 Year</b>\n\n"
              "✦ <b>Quality:</b> 1080p Full Access\n"
              "✦ <b>Warranty:</b> 365 Days Warranty\n"
              "✦ <b>Delivery:</b> Instant Delivery"),
@@ -1013,10 +1056,9 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
     # --- 2. AI Tools & Productivity ---
     await ensure_prod(
         "AI Tools & Productivity", "ChatGPT Plus (GPT-4o)", "🤖",
-        "Official OpenAI ChatGPT Plus subscription with GPT-4o, DALL-E 3 & plugins.",
+        "Official OpenAI ChatGPT Plus subscription with GPT-4o, DALL-E 3 and custom GPTs.",
         [
             ("1 Month Private Account", 499.0, "Private Account",
-             "✨ <b>ChatGPT Plus - 1 Month Private</b>\n\n"
              "✦ <b>Model:</b> GPT-4o, GPT-4, DALL-E 3, Browsing\n"
              "✦ <b>Access:</b> Dedicated Private Login (Email+Pass)\n"
              "✦ <b>Warranty:</b> 30 Days Full Replacement\n"
@@ -1027,11 +1069,10 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
 
     await ensure_prod(
         "AI Tools & Productivity", "Claude 3.5 Sonnet Pro", "🧠",
-        "Anthropic Claude Pro with 5x usage on Claude 3.5 Sonnet & Artifacts.",
+        "Anthropic Claude Pro with 5x usage on Claude 3.5 Sonnet and Artifacts.",
         [
             ("1 Month Private Account", 549.0, "Private Account",
-             "✨ <b>Claude 3.5 Sonnet Pro - 1 Month</b>\n\n"
-             "✦ <b>Features:</b> Claude 3.5 Sonnet & Opus, Projects\n"
+             "✦ <b>Features:</b> Claude 3.5 Sonnet and Opus, Projects\n"
              "✦ <b>Access:</b> Dedicated Private Login\n"
              "✦ <b>Warranty:</b> 30 Days Replacement\n"
              "✦ <b>Delivery:</b> Instant Delivery"),
@@ -1041,18 +1082,16 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
 
     await ensure_prod(
         "AI Tools & Productivity", "Canva Pro", "🎨",
-        "Unlock 100M+ premium photos, templates, fonts & brand kits on Canva.",
+        "Unlock 100M+ premium photos, templates, fonts and brand kits on Canva.",
         [
             ("1 Year Team Invite", 99.0, "Invite Link",
-             "✨ <b>Canva Pro - 1 Year Plan</b>\n\n"
              "✦ <b>Features:</b> All Pro Templates, Background Remover, Magic AI\n"
              "✦ <b>Activation:</b> Added to your own existing Canva email\n"
              "✦ <b>Warranty:</b> 1 Year Full Warranty\n"
              "✦ <b>Delivery:</b> Manual Activation within 1–2 Hours",
              "MANUAL", "1–2 Hours", "📧 Please send your Canva registered email address:"),
             ("Lifetime Pro Access", 199.0, "Invite Link",
-             "✨ <b>Canva Pro - Lifetime Access</b>\n\n"
-             "✦ <b>Features:</b> Unlimited Pro Tools & AI Suite\n"
+             "✦ <b>Features:</b> Unlimited Pro Tools and AI Suite\n"
              "✦ <b>Warranty:</b> Lifetime Guarantee\n"
              "✦ <b>Delivery:</b> Manual Activation within 1–2 Hours",
              "MANUAL", "1–2 Hours", "📧 Please send your Canva registered email address:"),
@@ -1062,17 +1101,15 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
 
     await ensure_prod(
         "AI Tools & Productivity", "CapCut Pro", "✂️",
-        "CapCut Pro video editor with premium AI filters, effects & cloud storage.",
+        "CapCut Pro video editor with premium AI filters, effects and cloud storage.",
         [
             ("6 Months Private Login", 299.0, "Private Account",
-             "✨ <b>CapCut Pro - 6 Months Plan</b>\n\n"
              "✦ <b>Features:</b> Auto Captions, 4K 60FPS Export, AI Tools\n"
              "✦ <b>Devices:</b> PC, Mac, Android, iOS\n"
              "✦ <b>Warranty:</b> 180 Days Full Warranty\n"
              "✦ <b>Delivery:</b> Instant Delivery"),
             ("12 Months Private Login", 499.0, "Private Account",
-             "✨ <b>CapCut Pro - 1 Year Plan</b>\n\n"
-             "✦ <b>Features:</b> 12 Months All Pro Effects & Tools\n"
+             "✦ <b>Features:</b> 12 Months All Pro Effects and Tools\n"
              "✦ <b>Warranty:</b> 365 Days Warranty\n"
              "✦ <b>Delivery:</b> Instant Delivery"),
         ],
@@ -1082,10 +1119,9 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
     # --- 3. VPN Services ---
     await ensure_prod(
         "VPN Services", "NordVPN Premium", "🌐",
-        "High-speed ultra secure VPN with Threat Protection & Meshnet.",
+        "High-speed ultra secure VPN with Threat Protection and Meshnet.",
         [
             ("1 Year Premium Account", 199.0, "Private Account",
-             "✨ <b>NordVPN Premium - 1 Year Plan</b>\n\n"
              "✦ <b>Servers:</b> 6000+ Servers in 110 Countries\n"
              "✦ <b>Features:</b> Double VPN, CyberSec, AdBlock\n"
              "✦ <b>Warranty:</b> 365 Days Replacement Guarantee\n"
@@ -1094,18 +1130,42 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
         custom_emoji_id=CustomEmojis.NORDVPN
     )
 
-    # --- 4. Gaming & Utilities ---
+    # --- 4. Education & Developer ---
+    await ensure_prod(
+        "Education & Developer", "GitHub Copilot Pro", "👨‍💻",
+        "AI pair programmer powered by OpenAI and Claude models for code completion.",
+        [
+            ("1 Year Student/Edu Pack", 299.0, "Activation Link",
+             "✦ <b>Features:</b> GitHub Copilot Chat, VS Code & JetBrains integration\n"
+             "✦ <b>Warranty:</b> 1 Year Full Warranty\n"
+             "✦ <b>Delivery:</b> Manual Activation within 1–2 Hours",
+             "MANUAL", "1–2 Hours", "📧 Please send your GitHub @username for activation:"),
+        ],
+        custom_emoji_id=None
+    )
+
+    await ensure_prod(
+        "Education & Developer", "JetBrains All Products Pack", "⚡",
+        "Access to IntelliJ IDEA Ultimate, PyCharm Pro, WebStorm and all JetBrains IDEs.",
+        [
+            ("1 Year License Key", 399.0, "License Key",
+             "✦ <b>Features:</b> Full offline/online activation for all JetBrains IDEs\n"
+             "✦ <b>Warranty:</b> 1 Year Guarantee\n"
+             "✦ <b>Delivery:</b> Instant Key Delivery"),
+        ],
+        custom_emoji_id=None
+    )
+
+    # --- 5. Gaming & Utilities ---
     await ensure_prod(
         "Gaming & Utilities", "Telegram Premium", "✈️",
-        "Official Telegram Premium subscription for 4GB uploads, custom emojis & badges.",
+        "Official Telegram Premium subscription for 4GB uploads, custom emojis and badges.",
         [
             ("3 Months Gift Code", 499.0, "Gift Link",
-             "✨ <b>Telegram Premium - 3 Months</b>\n\n"
              "✦ <b>Features:</b> Custom Emojis, 4GB Uploads, Fast Downloads\n"
              "✦ <b>Delivery:</b> Manual Activation within 1–2 Hours",
              "MANUAL", "1–2 Hours", "✈️ Please send your Telegram @username for Premium gift activation:"),
             ("12 Months Gift Code", 1499.0, "Gift Link",
-             "✨ <b>Telegram Premium - 1 Year</b>\n\n"
              "✦ <b>Features:</b> 1 Year Full Telegram Premium Perks\n"
              "✦ <b>Delivery:</b> Manual Activation within 1–2 Hours",
              "MANUAL", "1–2 Hours", "✈️ Please send your Telegram @username for 1 Year Premium gift activation:"),
@@ -1115,15 +1175,35 @@ async def seed_initial_data(session: AsyncSession, force: bool = False):
 
     await ensure_prod(
         "Gaming & Utilities", "Discord Nitro", "💬",
-        "Discord Nitro with 2 Server Boosts, HD streaming, custom emojis & stickers.",
+        "Discord Nitro with 2 Server Boosts, HD streaming, custom emojis and stickers.",
         [
             ("1 Month Nitro with 2 Boosts", 149.0, "Gift Link",
-             "✨ <b>Discord Nitro - 1 Month</b>\n\n"
              "✦ <b>Features:</b> 2 Server Boosts, 500MB Uploads, HD Stream\n"
              "✦ <b>Delivery:</b> Instant Gift Link"),
         ],
         custom_emoji_id=CustomEmojis.DISCORD
     )
+
+    # --- 6. Freebies & Deals ---
+    await ensure_prod(
+        "Freebies & Deals", "Discord Nitro Promo Link", "🎁",
+        "Free 3-Month Discord Nitro promotion link for eligible accounts.",
+        [
+            ("Free 3 Months Promo Link", 0.0, "Promo Link",
+             "✦ <b>Features:</b> 3 Months Free Nitro Trial\n"
+             "✦ <b>Eligibility:</b> Accounts that haven't had Nitro in the past 12 months\n"
+             "✦ <b>Delivery:</b> Instant Claim Link"),
+        ],
+        custom_emoji_id=CustomEmojis.GIFT
+    )
+
+    # Clean up empty duplicate products with 0 variants
+    prods_stmt = select(Product)
+    all_prods = (await session.execute(prods_stmt)).scalars().all()
+    for p in all_prods:
+        v_count = (await session.execute(select(func.count(Variant.id)).where(Variant.product_id == p.id, Variant.is_active == True))).scalar() or 0
+        if v_count == 0:
+            p.is_active = False
 
     await session.commit()
 

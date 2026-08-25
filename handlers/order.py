@@ -55,10 +55,43 @@ async def _background_notify(bot, order, prod_title, variant, user, remaining, a
     except Exception:
         pass
 
+async def safe_edit_or_reply(message: types.Message, text: str, reply_markup: Optional[InlineKeyboardMarkup] = None):
+    try:
+        await message.edit_text(text, reply_markup=reply_markup)
+    except Exception:
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        await message.answer(text, reply_markup=reply_markup)
+
 # In-memory lock to debounce multiple rapid clicks from the same user
 _generating_sessions = set()
 
-@router.callback_query(F.data.startswith("buy_"))
+@router.callback_query(F.data.startswith("buygw_"))
+async def cb_buy_variant_gateway(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
+    parts = callback.data.split("_")
+    gw_name = parts[1].upper()
+    variant_id = int(parts[2])
+
+    variant = await get_variant(session, variant_id)
+    if not variant:
+        await callback.answer("Product plan not found.", show_alert=True)
+        return
+
+    user = await get_user(session, callback.from_user.id)
+    if not user:
+        await callback.answer("User profile not found.", show_alert=True)
+        return
+
+    product = await get_product(session, variant.product_id)
+    prod_title = product.title if product else "Digital Item"
+    prod_icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if product else "📦"
+
+    await callback.answer("⚡ Initializing checkout session...", show_alert=False)
+    await initiate_1click_checkout(callback.message, user, variant, prod_title, prod_icon, session, preferred_gateway=gw_name)
+
+@router.callback_query(F.data.regexp(r"^buy_\d+$"))
 async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
     user_id = callback.from_user.id
     if user_id in _generating_sessions:
@@ -67,7 +100,6 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
 
     _generating_sessions.add(user_id)
     try:
-        await callback.answer("⚡ Generating Secure Razorpay UPI QR... Please wait!", show_alert=False)
         variant_id = int(callback.data.split("_")[1])
         variant = await get_variant(session, variant_id)
 
@@ -122,9 +154,11 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
                 buttons.append([
                     InlineKeyboardButton(text="◀️ Back to Plans", callback_data=f"prod_{variant.product_id}")
                 ])
-                await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+                await callback.answer()
+                await safe_edit_or_reply(callback.message, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
                 return
 
+            await callback.answer("⚡ Initializing checkout...", show_alert=False)
             await initiate_1click_checkout(callback.message, user, variant, prod_title, prod_icon, session)
             return
 
@@ -272,29 +306,6 @@ async def _background_notify_manual(bot: Bot, order, prod_title: str, var_name: 
             await bot.send_message(admin_id, admin_alert, reply_markup=get_admin_order_actions_keyboard(order.id))
         except Exception:
             pass
-
-@router.callback_query(F.data.startswith("buygw_"))
-async def cb_buy_variant_gateway(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
-    parts = callback.data.split("_")
-    gw_name = parts[1].upper()
-    variant_id = int(parts[2])
-
-    variant = await get_variant(session, variant_id)
-    if not variant:
-        await callback.answer("Product plan not found.", show_alert=True)
-        return
-
-    user = await get_user(session, callback.from_user.id)
-    if not user:
-        await callback.answer("User profile not found.", show_alert=True)
-        return
-
-    product = await get_product(session, variant.product_id)
-    prod_title = product.title if product else "Digital Item"
-    prod_icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if product else "📦"
-
-    await callback.answer()
-    await initiate_1click_checkout(callback.message, user, variant, prod_title, prod_icon, session, preferred_gateway=gw_name)
 
 async def initiate_1click_checkout(
     message: types.Message,

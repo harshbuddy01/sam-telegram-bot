@@ -89,20 +89,24 @@ def get_categories_keyboard(categories: list[Category]) -> InlineKeyboardMarkup:
     buttons = []
     for idx, cat in enumerate(categories, 1):
         clean_name = clean_button_text(cat.name)
+        display_emoji = cat.emoji or "📁"
+        if not any(clean_name.startswith(c) for c in ["🍿", "🤖", "🛡️", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "👑", "✨", "💎", "📦"]):
+            btn_text = f"{display_emoji}  {clean_name}"
+        else:
+            btn_text = clean_name
+
         btn_kwargs = {
-            "text": clean_name,
+            "text": btn_text,
             "callback_data": f"cat_{cat.id}"
         }
         if cat.custom_emoji_id and str(cat.custom_emoji_id).isdigit():
             btn_kwargs["icon_custom_emoji_id"] = str(cat.custom_emoji_id)
-        elif cat.emoji and not any(clean_name.startswith(c) for c in ["🍿", "🤖", "🛡️", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "👑", "✨", "💎", "📦"]):
-            btn_kwargs["text"] = f"{cat.emoji}  {clean_name}"
 
         buttons.append([InlineKeyboardButton(**btn_kwargs)])
     
     buttons.append([
-        InlineKeyboardButton(text="Search Products", callback_data="nav_search", icon_custom_emoji_id=CustomEmojis.SEARCH),
-        InlineKeyboardButton(text="Main Menu", callback_data="nav_home")
+        InlineKeyboardButton(text="🔍 Search Products", callback_data="nav_search", icon_custom_emoji_id=CustomEmojis.SEARCH),
+        InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -123,15 +127,19 @@ def get_products_keyboard(
         stock = stock_counts.get(prod.id, 0)
         stock_indicator = f"({stock})" if stock > 0 else "(Out)"
         clean_title = clean_button_text(prod.title)
+        display_emoji = prod.emoji or "📦"
         
+        if not any(clean_title.startswith(c) for c in ["🍿", "🤖", "🛡️", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "👑", "✨", "💎", "📦"]):
+            btn_text = f"{display_emoji} {clean_title} {stock_indicator}"
+        else:
+            btn_text = f"{clean_title} {stock_indicator}"
+
         btn_kwargs = {
-            "text": f"{clean_title} {stock_indicator}",
+            "text": btn_text,
             "callback_data": f"prod_{prod.id}"
         }
         if prod.custom_emoji_id and str(prod.custom_emoji_id).isdigit():
             btn_kwargs["icon_custom_emoji_id"] = str(prod.custom_emoji_id)
-        elif prod.emoji and not any(clean_title.startswith(c) for c in ["🍿", "🤖", "🛡️", "🎮", "🎁", "✈️", "💬", "🎵", "🎨", "📁", "👑", "✨", "💎", "📦"]):
-            btn_kwargs["text"] = f"{prod.emoji} {clean_title} {stock_indicator}"
 
         buttons.append([InlineKeyboardButton(**btn_kwargs)])
 
@@ -145,8 +153,8 @@ def get_products_keyboard(
         buttons.append(nav_row)
 
     buttons.append([
-        InlineKeyboardButton(text="◀️  Back to Categories", callback_data="nav_shop"),
-        InlineKeyboardButton(text="🏠  Home", callback_data="nav_home")
+        InlineKeyboardButton(text="◀️ Back to Categories", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP),
+        InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
