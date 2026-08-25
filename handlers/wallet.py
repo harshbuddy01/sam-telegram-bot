@@ -183,9 +183,9 @@ async def initiate_deposit_payment(
                     f"<i>Tap 'Pay with Crypto' below. Once sent, tap 'Auto-Verify & Credit':</i>"
                 )
                 kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text=f"🪙 PAY ${res.get('amount_usd', 0):.2f} {res.get('currency', 'USDT')} (OXAPAY)", url=res["payment_url"])],
-                    [InlineKeyboardButton(text="✅ I Have Paid (Auto-Verify & Credit)", callback_data=f"chkdep_{deposit.id}")],
-                    [InlineKeyboardButton(text="◀️ Cancel & Return", callback_data="nav_home")]
+                    [InlineKeyboardButton(text=f"PAY ${res.get('amount_usd', 0):.2f} {res.get('currency', 'USDT')} (OXAPAY)", url=res["payment_url"], icon_custom_emoji_id=CustomEmojis.WALLET)],
+                    [InlineKeyboardButton(text="I Have Paid (Auto-Verify & Credit)", callback_data=f"chkdep_{deposit.id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
+                    [InlineKeyboardButton(text="Cancel & Return", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.LOCK)]
                 ])
                 try:
                     await message.edit_text(text, reply_markup=kb)
@@ -197,7 +197,7 @@ async def initiate_deposit_payment(
                 await message.answer(
                     f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Crypto Gateway Error:</b>\n{err_msg}\n\nPlease try again or select another payment method.",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                        [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
                     ])
                 )
                 return
@@ -232,9 +232,9 @@ async def initiate_deposit_payment(
                     f"<i>Tap 'Pay via PayPal' below to complete payment. Once done, tap 'Auto-Verify & Credit':</i>"
                 )
                 kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text=f"🅿️ PAY ${res.get('total_usd', 0):.2f} VIA PAYPAL", url=res["payment_url"])],
-                    [InlineKeyboardButton(text="✅ I Have Paid (Auto-Verify & Credit)", callback_data=f"chkdep_{deposit.id}")],
-                    [InlineKeyboardButton(text="◀️ Cancel & Return", callback_data="nav_home")]
+                    [InlineKeyboardButton(text=f"PAY ${res.get('total_usd', 0):.2f} VIA PAYPAL", url=res["payment_url"], icon_custom_emoji_id=CustomEmojis.CARD)],
+                    [InlineKeyboardButton(text="I Have Paid (Auto-Verify & Credit)", callback_data=f"chkdep_{deposit.id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
+                    [InlineKeyboardButton(text="Cancel & Return", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.LOCK)]
                 ])
                 try:
                     await message.edit_text(text, reply_markup=kb)
@@ -246,7 +246,7 @@ async def initiate_deposit_payment(
                 await message.answer(
                     f"{ce(CustomEmojis.LOCK, '⚠️')} <b>PayPal Error:</b>\n{err_msg}\n\nPlease try again or select another payment method.",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                        [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
                     ])
                 )
                 return
@@ -469,8 +469,8 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
                         f"Our team has received your order and is processing your invitation/activation right now! You will receive your details directly in this chat shortly."
                     )
                     kb = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="🛟 Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}")],
-                        [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
+                        [InlineKeyboardButton(text="Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+                        [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
                     ])
                     await callback.message.edit_text(manual_confirm_text, reply_markup=kb)
 
@@ -516,8 +516,8 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
             f"You can now purchase any subscription instantly from the store!"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🛍️ Explore Store", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
-            [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+            [InlineKeyboardButton(text="Explore Store", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
+            [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
         ])
         await callback.message.edit_text(text, reply_markup=kb)
         return

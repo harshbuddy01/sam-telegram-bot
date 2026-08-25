@@ -157,18 +157,18 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
                 buttons = []
                 if payment_manager.razorpay.is_configured:
                     buttons.append([
-                        InlineKeyboardButton(text=f"⚡ Instant UPI / Razorpay ({config.CURRENCY_SYMBOL}{variant.price:.0f})", callback_data=f"buygw_razorpay_{variant.id}")
+                        InlineKeyboardButton(text=f"Instant UPI / Razorpay ({config.CURRENCY_SYMBOL}{variant.price:.0f})", callback_data=f"buygw_razorpay_{variant.id}", icon_custom_emoji_id=CustomEmojis.FIRE)
                     ])
                 if payment_manager.paypal.is_configured:
                     buttons.append([
-                        InlineKeyboardButton(text=f"🅿️ PayPal & Cards (${pp_usd:.2f} USD)", callback_data=f"buygw_paypal_{variant.id}")
+                        InlineKeyboardButton(text=f"PayPal & Cards (${pp_usd:.2f} USD)", callback_data=f"buygw_paypal_{variant.id}", icon_custom_emoji_id=CustomEmojis.CARD)
                     ])
                 if payment_manager.oxapay.is_configured:
                     buttons.append([
-                        InlineKeyboardButton(text=f"🪙 Crypto via OxaPay (${oxa_usd:.2f} USDT)", callback_data=f"buygw_oxapay_{variant.id}")
+                        InlineKeyboardButton(text=f"Crypto via OxaPay (${oxa_usd:.2f} USDT)", callback_data=f"buygw_oxapay_{variant.id}", icon_custom_emoji_id=CustomEmojis.DIAMOND)
                     ])
                 buttons.append([
-                    InlineKeyboardButton(text="◀️ Back to Plans", callback_data=f"prod_{variant.product_id}")
+                    InlineKeyboardButton(text="Back to Plans", callback_data=f"prod_{variant.product_id}", icon_custom_emoji_id=CustomEmojis.SHOP)
                 ])
                 await callback.answer()
                 await safe_edit_or_reply(callback.message, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
@@ -418,9 +418,9 @@ async def initiate_1click_checkout(
             )
             pay_btn_url = res.get("payment_url") or "https://oxapay.com"
             kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text=f"🪙 PAY ${res.get('amount_usd', 0):.2f} {res.get('currency', 'USDT')} VIA OXAPAY", url=pay_btn_url)],
-                [InlineKeyboardButton(text="✅ I Have Paid (Auto-Verify & Deliver)", callback_data=f"chkdep_{deposit.id}")],
-                [InlineKeyboardButton(text="◀️ Cancel & Return", callback_data=f"var_{variant.id}")]
+                [InlineKeyboardButton(text=f"PAY ${res.get('amount_usd', 0):.2f} {res.get('currency', 'USDT')} VIA OXAPAY", url=pay_btn_url, icon_custom_emoji_id=CustomEmojis.WALLET)],
+                [InlineKeyboardButton(text="I Have Paid (Auto-Verify & Deliver)", callback_data=f"chkdep_{deposit.id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
+                [InlineKeyboardButton(text="Cancel & Return", callback_data=f"var_{variant.id}", icon_custom_emoji_id=CustomEmojis.LOCK)]
             ])
             try:
                 await message.edit_text(text, reply_markup=kb)
@@ -432,7 +432,7 @@ async def initiate_1click_checkout(
             await message.answer(
                 f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Crypto Gateway Error:</b>\n{err_msg}\n\nPlease try again or select another payment method.",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="◀️ Back to Plans", callback_data=f"prod_{variant.product_id}")]
+                    [InlineKeyboardButton(text="Back to Plans", callback_data=f"prod_{variant.product_id}", icon_custom_emoji_id=CustomEmojis.SHOP)]
                 ])
             )
             return
@@ -471,9 +471,9 @@ async def initiate_1click_checkout(
             )
             pay_btn_url = res.get("payment_url") or "https://paypal.com"
             kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text=f"🅿️ PAY ${res.get('total_usd', 0):.2f} VIA PAYPAL", url=pay_btn_url)],
-                [InlineKeyboardButton(text="✅ I Have Paid (Auto-Verify & Deliver)", callback_data=f"chkdep_{deposit.id}")],
-                [InlineKeyboardButton(text="◀️ Cancel & Return", callback_data=f"var_{variant.id}")]
+                [InlineKeyboardButton(text=f"PAY ${res.get('total_usd', 0):.2f} VIA PAYPAL", url=pay_btn_url, icon_custom_emoji_id=CustomEmojis.CARD)],
+                [InlineKeyboardButton(text="I Have Paid (Auto-Verify & Deliver)", callback_data=f"chkdep_{deposit.id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
+                [InlineKeyboardButton(text="Cancel & Return", callback_data=f"var_{variant.id}", icon_custom_emoji_id=CustomEmojis.LOCK)]
             ])
             try:
                 await message.edit_text(text, reply_markup=kb)
@@ -485,7 +485,7 @@ async def initiate_1click_checkout(
             await message.answer(
                 f"{ce(CustomEmojis.LOCK, '⚠️')} <b>PayPal Error:</b>\n{err_msg}\n\nPlease try again or select another payment method.",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="◀️ Back to Plans", callback_data=f"prod_{variant.product_id}")]
+                    [InlineKeyboardButton(text="Back to Plans", callback_data=f"prod_{variant.product_id}", icon_custom_emoji_id=CustomEmojis.SHOP)]
                 ])
             )
             return
@@ -523,10 +523,10 @@ async def initiate_1click_checkout(
                 input_file = BufferedInputFile(qr_io.read(), filename=f"rzp_qr_{deposit.id}.png")
             else:
                 qr_img = qrcode.make(res["payment_url"])
-                qr_buf = io.BytesIO()
-                qr_img.save(qr_buf, format='PNG')
-                qr_buf.seek(0)
-                input_file = BufferedInputFile(qr_buf.read(), filename=f"rzp_checkout_{deposit.id}.png")
+                qr_io = io.BytesIO()
+                qr_img.save(qr_io, format="PNG")
+                qr_io.seek(0)
+                input_file = BufferedInputFile(qr_io.read(), filename=f"rzp_qr_{deposit.id}.png")
 
             caption = await render_template(
                 session,
@@ -539,9 +539,9 @@ async def initiate_1click_checkout(
             )
             pay_btn_url = res.get("payment_url") or "https://rzp.io"
             kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text=f"💳 PAY {config.CURRENCY_SYMBOL}{amount:.0f} VIA RAZORPAY / UPI", url=pay_btn_url)],
-                [InlineKeyboardButton(text="✅ I Have Paid (Auto-Verify & Deliver)", callback_data=f"chkdep_{deposit.id}")],
-                [InlineKeyboardButton(text="Cancel & Return", callback_data=f"var_{variant.id}")]
+                [InlineKeyboardButton(text=f"PAY {config.CURRENCY_SYMBOL}{amount:.0f} VIA RAZORPAY / UPI", url=pay_btn_url, icon_custom_emoji_id=CustomEmojis.FIRE)],
+                [InlineKeyboardButton(text="I Have Paid (Auto-Verify & Deliver)", callback_data=f"chkdep_{deposit.id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
+                [InlineKeyboardButton(text="Cancel & Return", callback_data=f"var_{variant.id}", icon_custom_emoji_id=CustomEmojis.LOCK)]
             ])
             await message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
             return
@@ -550,7 +550,7 @@ async def initiate_1click_checkout(
             await message.answer(
                 f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Payment Gateway Error:</b>\n{err_msg}\n\nPlease try again shortly or contact support.",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="◀️ Back to Plans", callback_data=f"prod_{variant.product_id}")]
+                    [InlineKeyboardButton(text="Back to Plans", callback_data=f"prod_{variant.product_id}", icon_custom_emoji_id=CustomEmojis.SHOP)]
                 ])
             )
             return

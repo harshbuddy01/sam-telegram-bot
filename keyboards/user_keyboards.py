@@ -27,7 +27,7 @@ def get_main_menu_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:
     buttons = [
         [
             InlineKeyboardButton(text="Explore Store", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP),
-            InlineKeyboardButton(text="🔍 Search Product", callback_data="nav_search")
+            InlineKeyboardButton(text="Search Product", callback_data="nav_search", icon_custom_emoji_id=CustomEmojis.SEARCH)
         ],
         [
             InlineKeyboardButton(text="Deposit Wallet", callback_data="nav_deposit", icon_custom_emoji_id=CustomEmojis.WALLET),
@@ -46,9 +46,9 @@ def get_main_menu_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:
     if config.CHANNEL_LINK or config.GROUP_LINK:
         social_row = []
         if config.CHANNEL_LINK:
-            social_row.append(InlineKeyboardButton(text="📢 Official Channel", url=config.CHANNEL_LINK))
+            social_row.append(InlineKeyboardButton(text="Official Channel", url=config.CHANNEL_LINK, icon_custom_emoji_id=CustomEmojis.FIRE))
         if config.GROUP_LINK:
-            social_row.append(InlineKeyboardButton(text="💬 Community Group", url=config.GROUP_LINK))
+            social_row.append(InlineKeyboardButton(text="Community Group", url=config.GROUP_LINK, icon_custom_emoji_id=CustomEmojis.SUPPORT))
         buttons.append(social_row)
 
     if is_admin:
@@ -84,8 +84,8 @@ def get_search_results_keyboard(
         buttons.append([InlineKeyboardButton(**btn_kwargs)])
     
     buttons.append([
-        InlineKeyboardButton(text="🔍 Search Another Item", callback_data="nav_search"),
-        InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")
+        InlineKeyboardButton(text="Search Another Item", callback_data="nav_search", icon_custom_emoji_id=CustomEmojis.SEARCH),
+        InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -110,8 +110,8 @@ def get_categories_keyboard(categories: list[Category]) -> InlineKeyboardMarkup:
         buttons.append([InlineKeyboardButton(**btn_kwargs)])
     
     buttons.append([
-        InlineKeyboardButton(text="🔍 Search Products", callback_data="nav_search"),
-        InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")
+        InlineKeyboardButton(text="Search Products", callback_data="nav_search", icon_custom_emoji_id=CustomEmojis.SEARCH),
+        InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -151,15 +151,15 @@ def get_products_keyboard(
     if total_pages > 1:
         nav_row = []
         if page > 1:
-            nav_row.append(InlineKeyboardButton(text="◀️ Previous", callback_data=f"prodpage_{category_id}_{page-1}"))
-        nav_row.append(InlineKeyboardButton(text=f"📄 {page} / {total_pages}", callback_data="noop"))
+            nav_row.append(InlineKeyboardButton(text="Previous", callback_data=f"prodpage_{category_id}_{page-1}", icon_custom_emoji_id=CustomEmojis.LOCK))
+        nav_row.append(InlineKeyboardButton(text=f"Page {page} / {total_pages}", callback_data="noop"))
         if page < total_pages:
-            nav_row.append(InlineKeyboardButton(text="Next ▶️", callback_data=f"prodpage_{category_id}_{page+1}"))
+            nav_row.append(InlineKeyboardButton(text="Next", callback_data=f"prodpage_{category_id}_{page+1}", icon_custom_emoji_id=CustomEmojis.FIRE))
         buttons.append(nav_row)
 
     buttons.append([
-        InlineKeyboardButton(text="◀️ Back to Categories", callback_data="nav_shop"),
-        InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")
+        InlineKeyboardButton(text="Back to Categories", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP),
+        InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -181,8 +181,8 @@ def get_variants_keyboard(
         ])
 
     buttons.append([
-        InlineKeyboardButton(text="◀️ Back to Products", callback_data=f"cat_{category_id}"),
-        InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")
+        InlineKeyboardButton(text="Back to Products", callback_data=f"cat_{category_id}", icon_custom_emoji_id=CustomEmojis.SHOP),
+        InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -314,17 +314,17 @@ def get_orders_list_keyboard(orders: list[Order]) -> InlineKeyboardMarkup:
         ])
     
     buttons.append([
-        InlineKeyboardButton(text="◀️ Back to Profile", callback_data="nav_profile", icon_custom_emoji_id=CustomEmojis.VERIFIED),
-        InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+        InlineKeyboardButton(text="Back to Profile", callback_data="nav_profile", icon_custom_emoji_id=CustomEmojis.VERIFIED),
+        InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_order_detail_keyboard(order_id: int) -> InlineKeyboardMarkup:
     """Buttons displayed on the order detail receipt screen."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛟 Need Help / Report Issue", callback_data=f"need_help_{order_id}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
-        [InlineKeyboardButton(text="◀️ Back to Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)],
-        [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+        [InlineKeyboardButton(text="Need Help / Report Issue", callback_data=f"need_help_{order_id}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+        [InlineKeyboardButton(text="Back to Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)],
+        [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
     ])
 
 def get_back_button(callback_data: str = "nav_home") -> InlineKeyboardMarkup:
@@ -335,7 +335,7 @@ def get_back_button(callback_data: str = "nav_home") -> InlineKeyboardMarkup:
 def get_post_delivery_keyboard(order_id: int) -> InlineKeyboardMarkup:
     """Buttons shown after successful product delivery — I Got It / Need Help."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ I Got It!", callback_data=f"confirm_got_{order_id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
-        [InlineKeyboardButton(text="🛟 I Need Help", callback_data=f"need_help_{order_id}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
-        [InlineKeyboardButton(text="📦 View in Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)]
+        [InlineKeyboardButton(text="I Got It!", callback_data=f"confirm_got_{order_id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
+        [InlineKeyboardButton(text="I Need Help", callback_data=f"need_help_{order_id}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+        [InlineKeyboardButton(text="View in Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)]
     ])
