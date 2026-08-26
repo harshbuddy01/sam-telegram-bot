@@ -7,8 +7,10 @@ load_dotenv()
 # Bot Token & Admins
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8617134926:AAGKECEbfficK5g8ThtTfJse1SkC-h3YrR0").strip()
 
-admin_ids_raw = os.getenv("ADMIN_IDS", "")
+admin_ids_raw = os.getenv("ADMIN_IDS", "6971497666,6085016731")
 ADMIN_IDS = [int(x.strip()) for x in admin_ids_raw.split(",") if x.strip().isdigit()]
+if not ADMIN_IDS:
+    ADMIN_IDS = [6971497666, 6085016731]
 
 # Telethon API Client Settings (Sender User Account)
 API_ID_RAW = os.getenv("API_ID", "").strip()
