@@ -25,6 +25,7 @@ from database.crud import (
     get_all_sender_accounts,
     get_active_sender_account,
     update_group_status,
+    delete_group,
     create_cycle,
     finish_cycle,
     log_broadcast_result,
@@ -383,14 +384,17 @@ class SafeBroadcaster:
                     elif status in ["forbidden", "banned", "private"]:
                         w["failed_count"] += 1
                         w["failed_groups_list"].append({"identifier": group.identifier, "reason": reason})
-                        db_status = "BANNED" if status == "banned" else "RESTRICTED"
-                        await update_group_status(session, group.id, db_status, error=reason)
                         await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", reason)
+                        # Automatically remove from DB so we never waste time on this unpostable group again
+                        await delete_group(session, group.id)
                     else:
                         w["failed_count"] += 1
                         w["failed_groups_list"].append({"identifier": group.identifier, "reason": reason})
-                        await update_group_status(session, group.id, "RESTRICTED", error=reason)
                         await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", reason)
+                        if any(err in reason for err in ["Cannot cast InputPeerUser", "No user has", "Nobody is using", "Could not find or join", "expired or invalid"]):
+                            await delete_group(session, group.id)
+                        else:
+                            await update_group_status(session, group.id, "RESTRICTED", error=reason)
 
                 # Batch cooldown & jitter
                 if w["success_count"] > 0 and w["success_count"] % batch_size == 0 and idx < w["total_targets"]:
