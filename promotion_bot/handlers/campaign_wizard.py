@@ -56,7 +56,11 @@ async def render_step1_account_selection(query: CallbackQuery | Message):
     )
     
     if isinstance(query, CallbackQuery):
-        await query.message.edit_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+        from aiogram.exceptions import TelegramBadRequest
+        try:
+            await query.message.edit_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+        except TelegramBadRequest:
+            pass
         await query.answer()
     else:
         await query.answer(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))

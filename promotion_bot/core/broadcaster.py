@@ -86,6 +86,8 @@ class SafeBroadcaster:
         }
 
     async def send_to_single_group(self, client: TelegramClient, group, promo) -> dict:
+        await tg_manager.ensure_connected()
+        client = tg_manager.client or client
         identifier = group.identifier
         
         # Prepare unique anti-hash Spintax variation
@@ -202,6 +204,7 @@ class SafeBroadcaster:
             logger.warning("Broadcast round is already running! Skipping duplicate trigger.")
             return {"status": "already_running"}
 
+        await tg_manager.ensure_connected()
         client = tg_manager.client
         if not client or not tg_manager.is_connected:
             msg = "⚠️ <b>Broadcast Skipped:</b> No active Telegram sender account connected. Please login in /menu."

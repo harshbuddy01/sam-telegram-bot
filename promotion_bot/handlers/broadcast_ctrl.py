@@ -42,11 +42,14 @@ def get_broadcast_ctrl_keyboard(is_enabled: bool, is_running: bool, is_paused: b
 
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
+from aiogram.exceptions import TelegramBadRequest
+
 @router.callback_query(F.data == "menu_broadcast")
-async def cb_broadcast_menu(query: CallbackQuery, state: FSMContext):
+async def cb_broadcast_menu(query: CallbackQuery, state: FSMContext = None):
     if not config.is_admin(query.from_user.id):
         return
-    await state.clear()
+    if state is not None:
+        await state.clear()
 
     async with AsyncSessionLocal() as session:
         is_enabled = (await get_setting(session, "broadcast_enabled", "true")).lower() == "true"
@@ -71,7 +74,10 @@ async def cb_broadcast_menu(query: CallbackQuery, state: FSMContext):
         "• Full cycle time for 350 groups ≈ 2.2 hours\n\n"
         "<i>Use the control buttons below:</i>"
     )
-    await query.message.edit_text(text, parse_mode="HTML", reply_markup=get_broadcast_ctrl_keyboard(is_enabled, is_running, is_paused))
+    try:
+        await query.message.edit_text(text, parse_mode="HTML", reply_markup=get_broadcast_ctrl_keyboard(is_enabled, is_running, is_paused))
+    except TelegramBadRequest:
+        pass
     await query.answer()
 
 @router.callback_query(F.data == "bc_run_now")

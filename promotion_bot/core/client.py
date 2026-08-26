@@ -17,8 +17,10 @@ class TelegramClientManager:
         self.is_connected = False
         self.active_account_id = None
         self.active_phone = None
-        self.phone = None
-        self.phone_code_hash = None
+        # Isolated client for adding new accounts
+        self.temp_auth_client: TelegramClient | None = None
+        self.auth_phone = None
+        self.auth_code_hash = None
 
     @classmethod
     def get_instance(cls):
@@ -42,6 +44,19 @@ class TelegramClientManager:
             app_version="5.0.1"
         )
         return self.client
+
+    async def ensure_connected(self) -> bool:
+        """Ensures the active sender client is connected. Reconnects automatically if dropped."""
+        if not self.client:
+            return await self.start()
+        try:
+            if not self.client.is_connected():
+                await self.client.connect()
+            self.is_connected = await self.client.is_user_authorized()
+            return self.is_connected
+        except Exception as e:
+            logger.warning(f"Reconnection needed: {e}. Reloading active sender from database...")
+            return await self.start()
 
     async def start(self) -> bool:
         if not config.API_ID or not config.API_HASH:
@@ -106,42 +121,58 @@ class TelegramClientManager:
             return StringSession.save(self.client.session)
         return ""
 
-    # ================= Interactive Auth Helper Methods =================
+    # ================= Interactive Auth Helper Methods (Isolated) =================
 
     async def send_auth_code(self, phone_number: str) -> dict:
-        if not self.client:
-            self.initialize_client()
-        if not self.client.is_connected():
-            await self.client.connect()
-
-        self.phone = phone_number.strip()
+        self.auth_phone = phone_number.strip()
         try:
-            sent_code = await self.client.send_code_request(self.phone)
-            self.phone_code_hash = sent_code.phone_code_hash
-            return {"status": "ok", "phone_code_hash": self.phone_code_hash}
+            # Create a separate, isolated client specifically for this login session
+            if self.temp_auth_client and self.temp_auth_client.is_connected():
+                await self.temp_auth_client.disconnect()
+
+            self.temp_auth_client = TelegramClient(
+                StringSession(""),
+                config.API_ID,
+                config.API_HASH,
+                device_model="Desktop",
+                system_version="Linux/macOS",
+                app_version="5.0.1"
+            )
+            await self.temp_auth_client.connect()
+
+            sent_code = await self.temp_auth_client.send_code_request(self.auth_phone)
+            self.auth_code_hash = sent_code.phone_code_hash
+            return {"status": "ok", "phone_code_hash": self.auth_code_hash}
         except Exception as e:
             logger.error(f"Failed to send code to {phone_number}: {e}")
             return {"status": "error", "message": str(e)}
 
     async def sign_in_with_code(self, code: str, password_2fa: str = None) -> dict:
-        if not self.client or not self.phone or not self.phone_code_hash:
+        auth_client = self.temp_auth_client or self.client
+        if not auth_client or not self.auth_phone or not self.auth_code_hash:
             return {"status": "error", "message": "No active sign in request. Please request OTP first."}
         
         try:
-            await self.client.sign_in(
-                phone=self.phone,
-                code=code.strip(),
-                phone_code_hash=self.phone_code_hash
-            )
-            self.is_connected = True
-            session_str = await self.export_session_string()
-            me = await self.client.get_me()
+            if not auth_client.is_connected():
+                await auth_client.connect()
+
+            if code:
+                await auth_client.sign_in(
+                    phone=self.auth_phone,
+                    code=code.strip(),
+                    phone_code_hash=self.auth_code_hash
+                )
+            elif password_2fa:
+                await auth_client.sign_in(password=password_2fa.strip())
+
+            session_str = StringSession.save(auth_client.session)
+            me = await auth_client.get_me()
             
-            # Save account into database
+            # Save new account into SQLite
             async with AsyncSessionLocal() as session:
                 acc = await add_or_update_sender_account(
                     session=session,
-                    phone=self.phone,
+                    phone=self.auth_phone,
                     session_string=session_str,
                     user_id=me.id,
                     username=me.username,
@@ -149,8 +180,17 @@ class TelegramClientManager:
                     is_premium=getattr(me, 'premium', False) or False,
                     set_active=True
                 )
-                self.active_account_id = acc.id
-                self.active_phone = acc.phone
+
+            # Switch the main client to this newly added account
+            await self.switch_to_account(session_str, acc.id, acc.phone)
+
+            # Disconnect the temporary auth client cleanly
+            if self.temp_auth_client and self.temp_auth_client != self.client:
+                try:
+                    await self.temp_auth_client.disconnect()
+                except Exception:
+                    pass
+                self.temp_auth_client = None
 
             return {
                 "status": "ok",
@@ -162,16 +202,14 @@ class TelegramClientManager:
             if isinstance(e, SessionPasswordNeededError):
                 if password_2fa:
                     try:
-                        await self.client.sign_in(password=password_2fa.strip())
-                        self.is_connected = True
-                        session_str = await self.export_session_string()
-                        me = await self.client.get_me()
+                        await auth_client.sign_in(password=password_2fa.strip())
+                        session_str = StringSession.save(auth_client.session)
+                        me = await auth_client.get_me()
                         
-                        # Save account into database
                         async with AsyncSessionLocal() as session:
                             acc = await add_or_update_sender_account(
                                 session=session,
-                                phone=self.phone,
+                                phone=self.auth_phone,
                                 session_string=session_str,
                                 user_id=me.id,
                                 username=me.username,
@@ -179,9 +217,8 @@ class TelegramClientManager:
                                 is_premium=getattr(me, 'premium', False) or False,
                                 set_active=True
                             )
-                            self.active_account_id = acc.id
-                            self.active_phone = acc.phone
 
+                        await self.switch_to_account(session_str, acc.id, acc.phone)
                         return {
                             "status": "ok",
                             "session_string": session_str,

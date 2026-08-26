@@ -69,8 +69,9 @@ class SafeGroupJoiner:
             await session.commit()
 
     async def join_single_group(self, identifier: str, group_db_id: int = None) -> dict:
+        is_conn = await tg_manager.ensure_connected()
         client = tg_manager.client
-        if not client or not tg_manager.is_connected:
+        if not client or not is_conn:
             return {"status": "error", "reason": "Userbot client is not connected."}
 
         parsed = extract_group_identifier(identifier)
@@ -124,12 +125,12 @@ class SafeGroupJoiner:
                     await update_group_status(session, group_db_id, "INVALID_LINK", error="Invite link expired or revoked")
             return {"status": "error", "reason": "Invite link expired or revoked"}
 
-        except (UsernameInvalidError, UsernameNotOccupiedError, ChannelInvalidError, ValueError) as e:
-            logger.warning(f"Group {identifier} not found or invalid: {e}")
+        except (UsernameInvalidError, UsernameNotOccupiedError, ChannelInvalidError, ValueError, TypeError) as e:
+            logger.warning(f"Group {identifier} is invalid or is a private user profile: {e}")
             if group_db_id:
                 async with AsyncSessionLocal() as session:
-                    await update_group_status(session, group_db_id, "INVALID_LINK", error=f"Group not found / invalid username: {e}")
-            return {"status": "error", "reason": f"Group not found on Telegram: {e}"}
+                    await update_group_status(session, group_db_id, "INVALID_LINK", error=f"Target is not a channel/group: {e}")
+            return {"status": "error", "reason": f"Target is a user account or does not exist: {e}"}
             
         except ChannelsTooMuchError:
             logger.error("Telegram limit reached: User account is in maximum number of channels/groups.")
