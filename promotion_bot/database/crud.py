@@ -255,6 +255,18 @@ async def delete_all_groups_by_status(session: AsyncSession, status: str) -> int
     await session.commit()
     return result.rowcount
 
+async def purge_invalid_identifiers(session: AsyncSession) -> int:
+    result = await session.execute(select(Group))
+    groups = result.scalars().all()
+    deleted_count = 0
+    for g in groups:
+        if not _is_valid_group_identifier(g.identifier):
+            await session.delete(g)
+            deleted_count += 1
+    if deleted_count > 0:
+        await session.commit()
+    return deleted_count
+
 async def reset_all_group_statuses(session: AsyncSession) -> int:
     stmt = update(Group).values(status="ACTIVE", consecutive_failures=0, last_error=None)
     result = await session.execute(stmt)

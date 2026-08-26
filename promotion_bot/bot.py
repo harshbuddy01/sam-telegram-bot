@@ -51,6 +51,10 @@ async def on_startup(bot: Bot):
     await init_db()
     async with AsyncSessionLocal() as session:
         await seed_default_settings(session)
+        from database.crud import purge_invalid_identifiers
+        purged = await purge_invalid_identifiers(session)
+        if purged > 0:
+            logger.info(f"Cleaned up {purged} invalid/garbage group identifiers from database.")
     logger.info("Database & settings initialized successfully.")
 
     # Initialize Telethon Client (loads active sender account)

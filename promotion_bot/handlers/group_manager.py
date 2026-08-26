@@ -1,6 +1,7 @@
 import asyncio
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from database.database import AsyncSessionLocal
@@ -11,7 +12,8 @@ from database.crud import (
     get_unjoined_groups,
     get_groups_by_status,
     reset_all_group_statuses,
-    delete_all_groups_by_status
+    delete_all_groups_by_status,
+    purge_invalid_identifiers
 )
 from core.joiner import safe_joiner
 import config
@@ -68,7 +70,10 @@ async def cb_groups_menu(query: CallbackQuery, state: FSMContext = None):
         f"⚡ <b>Auto-Joiner Status:</b> <code>{join_status}</code>\n\n"
         "💡 <i>You can paste up to 1000s of group links at once without duplicates!</i>"
     )
-    await query.message.edit_text(text, parse_mode="HTML", reply_markup=get_group_manager_keyboard(safe_joiner.is_running))
+    try:
+        await query.message.edit_text(text, parse_mode="HTML", reply_markup=get_group_manager_keyboard(safe_joiner.is_running))
+    except TelegramBadRequest:
+        pass
     await query.answer()
 
 @router.callback_query(F.data == "groups_add_bulk")
@@ -233,10 +238,11 @@ async def cb_purge_banned(query: CallbackQuery):
         return
 
     async with AsyncSessionLocal() as session:
+        d0 = await purge_invalid_identifiers(session)
         d1 = await delete_all_groups_by_status(session, "BANNED")
         d2 = await delete_all_groups_by_status(session, "INVALID_LINK")
         d3 = await delete_all_groups_by_status(session, "RESTRICTED")
 
-    total_deleted = d1 + d2 + d3
-    await query.answer(f"Purged {total_deleted} invalid/banned groups from database.", show_alert=True)
+    total_deleted = d0 + d1 + d2 + d3
+    await query.answer(f"Purged {total_deleted} invalid/banned/garbage groups from database.", show_alert=True)
     await cb_groups_menu(query, None)

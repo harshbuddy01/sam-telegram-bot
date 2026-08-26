@@ -11,7 +11,11 @@ from telethon.errors import (
     ChannelsTooMuchError,
     FloodWaitError,
     ChannelPrivateError,
-    ChatAdminRequiredError
+    ChannelInvalidError,
+    ChatAdminRequiredError,
+    UsernameInvalidError,
+    UsernameNotOccupiedError,
+    UserBannedInChannelError
 )
 from core.client import tg_manager
 from database.database import AsyncSessionLocal
@@ -73,6 +77,13 @@ class SafeGroupJoiner:
         item_type = parsed["type"]
         val = parsed["value"]
 
+        if item_type == "raw":
+            logger.warning(f"Invalid group identifier format: {identifier}")
+            if group_db_id:
+                async with AsyncSessionLocal() as session:
+                    await update_group_status(session, group_db_id, "INVALID_LINK", error="Invalid format or unsupported non-English characters")
+            return {"status": "error", "reason": "Invalid format or unsupported characters"}
+
         try:
             if item_type == "invite_hash":
                 logger.info(f"Joining private group with hash: {val}")
@@ -92,6 +103,9 @@ class SafeGroupJoiner:
                 try:
                     await client.get_entity(val)
                 except Exception as e:
+                    if group_db_id:
+                        async with AsyncSessionLocal() as session:
+                            await update_group_status(session, group_db_id, "INVALID_LINK", error=f"Could not find chat ID: {e}")
                     return {"status": "error", "reason": f"Could not find chat ID: {e}"}
 
             if group_db_id:
@@ -109,12 +123,19 @@ class SafeGroupJoiner:
                 async with AsyncSessionLocal() as session:
                     await update_group_status(session, group_db_id, "INVALID_LINK", error="Invite link expired or revoked")
             return {"status": "error", "reason": "Invite link expired or revoked"}
+
+        except (UsernameInvalidError, UsernameNotOccupiedError, ChannelInvalidError, ValueError) as e:
+            logger.warning(f"Group {identifier} not found or invalid: {e}")
+            if group_db_id:
+                async with AsyncSessionLocal() as session:
+                    await update_group_status(session, group_db_id, "INVALID_LINK", error=f"Group not found / invalid username: {e}")
+            return {"status": "error", "reason": f"Group not found on Telegram: {e}"}
             
         except ChannelsTooMuchError:
             logger.error("Telegram limit reached: User account is in maximum number of channels/groups.")
             return {"status": "error", "reason": "Maximum channels/groups limit reached on Telegram account"}
             
-        except ChannelPrivateError:
+        except (ChannelPrivateError, UserBannedInChannelError):
             if group_db_id:
                 async with AsyncSessionLocal() as session:
                     await update_group_status(session, group_db_id, "BANNED", error="Channel is private or account is banned")
