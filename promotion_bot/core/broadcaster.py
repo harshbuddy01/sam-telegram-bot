@@ -143,6 +143,20 @@ class SafeBroadcaster:
             if not entity:
                 return {"status": "error", "reason": "Could not locate group entity on Telegram"}
 
+            # If it's a broadcast-only channel, regular users cannot post
+            from telethon.tl.types import Channel
+            from telethon.tl.functions.channels import JoinChannelRequest
+            from telethon.errors import UserAlreadyParticipantError
+
+            if isinstance(entity, Channel) and getattr(entity, 'broadcast', False):
+                return {"status": "forbidden", "reason": "Target is a Broadcast Channel (Admin post only)"}
+
+            # Ensure we are joined before sending
+            try:
+                await client(JoinChannelRequest(entity))
+            except (UserAlreadyParticipantError, Exception):
+                pass
+
             # Send message
             if promo.media_type == "photo" and promo.media_path:
                 await client.send_file(
@@ -172,7 +186,19 @@ class SafeBroadcaster:
             return {"status": "slowmode", "reason": f"Slowmode active: wait {e.seconds}s", "seconds": e.seconds}
 
         except ChatWriteForbiddenError:
-            return {"status": "forbidden", "reason": "No permission to send messages (ChatWriteForbidden)"}
+            # Try joining explicitly and retry once
+            try:
+                from telethon.tl.functions.channels import JoinChannelRequest
+                await client(JoinChannelRequest(entity))
+                if promo.media_type == "photo" and promo.media_path:
+                    await client.send_file(entity, file=promo.media_path, caption=message_text, parse_mode="html")
+                elif promo.media_type == "video" and promo.media_path:
+                    await client.send_file(entity, file=promo.media_path, caption=message_text, parse_mode="html")
+                else:
+                    await client.send_message(entity, message_text, parse_mode="html", link_preview=True)
+                return {"status": "ok", "reason": "Joined & Sent successfully"}
+            except Exception as e_retry:
+                return {"status": "forbidden", "reason": f"No permission to post: {e_retry}"}
 
         except UserBannedInChannelError:
             return {"status": "banned", "reason": "Account is banned/muted in this group"}
