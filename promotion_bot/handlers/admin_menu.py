@@ -97,12 +97,18 @@ async def cb_refresh_dashboard(query: CallbackQuery, state: FSMContext):
         await query.message.edit_text(dashboard, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
     except Exception:
         pass
-    await query.answer("Dashboard updated!")
+    try:
+        await query.answer("Dashboard updated!")
+    except Exception:
+        pass
 
 @router.callback_query(F.data == "main_menu")
 async def cb_main_menu(query: CallbackQuery, state: FSMContext):
     if not config.is_admin(query.from_user.id):
-        await query.answer("Access Denied", show_alert=True)
+        try:
+            await query.answer("Access Denied", show_alert=True)
+        except Exception:
+            pass
         return
     if state is not None:
         await state.clear()
@@ -111,4 +117,7 @@ async def cb_main_menu(query: CallbackQuery, state: FSMContext):
         await query.message.edit_text(dashboard, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
     except Exception:
         pass
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass
