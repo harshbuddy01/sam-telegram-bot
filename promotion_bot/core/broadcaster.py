@@ -376,9 +376,10 @@ class SafeBroadcaster:
                     elif status == "peer_flood":
                         w["failed_count"] += 1
                         w["failed_groups_list"].append({"identifier": group.identifier, "reason": reason})
+                        await update_group_status(session, group.id, "INVALID_LINK", error=reason)
                         await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", reason)
-                        await self.notify_admins(f"⚠️ <b>PEER FLOOD ({w['account_phone']}):</b> Pausing worker to protect number!")
-                        break
+                        await self.notify_admins(f"⏳ <b>Telegram Search Rate Limit ({w['account_phone']}):</b> Pausing 90s for safety, then resuming automatically...")
+                        await asyncio.sleep(90)
                     elif status in ["forbidden", "banned", "private"]:
                         w["failed_count"] += 1
                         w["failed_groups_list"].append({"identifier": group.identifier, "reason": reason})

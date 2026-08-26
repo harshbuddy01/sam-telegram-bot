@@ -255,20 +255,47 @@ async def delete_all_groups_by_status(session: AsyncSession, status: str) -> int
     await session.commit()
     return result.rowcount
 
-KNOWN_BAD_IDENTIFIERS = {
-    "@comments", "@twitter", "@discord", "@crypto", "@telegram", "@card", "@dealer",
-    "@game", "@sleep", "@follows", "@likes", "@brend", "@neon", "@marketing", "@tools",
-    "@accounts", "@community", "@artists", "@cosmetics", "@legit", "@marketplace",
-    "@onlyfans", "@jual", "@beli", "@market", "@trusted", "@dealer", "@card"
+KNOWN_BAD_WORDS = {
+    "comments", "twitter", "discord", "crypto", "telegram", "card", "dealer",
+    "game", "sleep", "follows", "likes", "brend", "neon", "marketing", "tools",
+    "accounts", "community", "artists", "cosmetics", "legit", "marketplace",
+    "onlyfans", "jual", "beli", "market", "trusted", "referral", "link", "gain",
+    "view", "views", "promo", "admin", "owner", "service", "services", "price",
+    "channel", "group", "click", "here", "share", "order", "stock", "update",
+    "contact", "bot", "store", "deals", "offer", "discount", "seller", "buyer"
 }
+
+def _is_valid_group_identifier(identifier: str) -> bool:
+    if not identifier or not isinstance(identifier, str):
+        return False
+    raw = identifier.strip()
+    
+    # Exclude common single dictionary words
+    clean_name = raw.lstrip("@").lower()
+    if clean_name in KNOWN_BAD_WORDS:
+        return False
+
+    # Valid t.me/joinchat/... or t.me/+hash
+    if re.match(r'https?://t\.me/(joinchat/|\+)[a-zA-Z0-9_\-]+$', raw):
+        return True
+    # Valid t.me/username (at least 4 chars)
+    if re.match(r'https?://t\.me/[a-zA-Z][a-zA-Z0-9_]{3,31}$', raw):
+        return True
+    # Valid @username (at least 4 chars)
+    if re.match(r'^@[a-zA-Z][a-zA-Z0-9_]{3,31}$', raw):
+        return True
+    # Valid numeric chat ID (starts with -100)
+    if re.match(r'^-100\d{7,13}$', raw):
+        return True
+    return False
 
 async def purge_invalid_identifiers(session: AsyncSession) -> int:
     result = await session.execute(select(Group))
     groups = result.scalars().all()
     deleted_count = 0
     for g in groups:
-        clean_id = g.identifier.strip().lower()
-        if not _is_valid_group_identifier(g.identifier) or clean_id in KNOWN_BAD_IDENTIFIERS:
+        clean_name = g.identifier.strip().lstrip("@").lower()
+        if not _is_valid_group_identifier(g.identifier) or clean_name in KNOWN_BAD_WORDS:
             await session.delete(g)
             deleted_count += 1
     if deleted_count > 0:
@@ -281,17 +308,17 @@ async def smart_clean_and_purge_groups(session: AsyncSession) -> dict:
     groups = result.scalars().all()
     deleted_count = 0
     for g in groups:
-        clean_id = g.identifier.strip().lower()
+        clean_name = g.identifier.strip().lstrip("@").lower()
         is_bad_status = g.status in ["INVALID_LINK", "BANNED"]
         is_invalid_syntax = not _is_valid_group_identifier(g.identifier)
-        is_known_bad = clean_id in KNOWN_BAD_IDENTIFIERS
+        is_known_bad = clean_name in KNOWN_BAD_WORDS
         is_user_cast_error = g.last_error and "Cannot cast InputPeerUser" in g.last_error
+        is_not_found = g.last_error and ("No user has" in g.last_error or "Nobody is using this username" in g.last_error)
 
-        if is_bad_status or is_invalid_syntax or is_known_bad or is_user_cast_error:
+        if is_bad_status or is_invalid_syntax or is_known_bad or is_user_cast_error or is_not_found:
             await session.delete(g)
             deleted_count += 1
         elif g.status in ["RESTRICTED", "SLOWMODE"]:
-            # Reset restricted/slowmode so they can be tried again cleanly
             g.status = "ACTIVE"
             g.consecutive_failures = 0
             g.last_error = None
