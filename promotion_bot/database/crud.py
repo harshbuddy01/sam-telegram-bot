@@ -79,6 +79,10 @@ async def set_active_sender_account(session: AsyncSession, account_id: int) -> S
         await session.refresh(acc)
     return acc
 
+async def update_sender_account_status(session: AsyncSession, account_id: int, status: str):
+    await session.execute(update(SenderAccount).where(SenderAccount.id == account_id).values(status=status))
+    await session.commit()
+
 async def delete_sender_account(session: AsyncSession, account_id: int) -> bool:
     stmt = delete(SenderAccount).where(SenderAccount.id == account_id)
     await session.execute(stmt)

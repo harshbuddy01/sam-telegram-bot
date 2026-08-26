@@ -12,7 +12,11 @@ from telethon.errors import (
     ChannelPrivateError,
     ChatAdminRequiredError,
     ChatSendMediaForbiddenError,
-    PeerFloodError
+    PeerFloodError,
+    AuthKeyUnregisteredError,
+    SessionRevokedError,
+    UserDeactivatedError,
+    UserDeactivatedBanError
 )
 from core.client import tg_manager
 from utils.spintax import prepare_broadcast_message
@@ -25,6 +29,7 @@ from database.crud import (
     get_all_sender_accounts,
     get_active_sender_account,
     update_group_status,
+    update_sender_account_status,
     delete_group,
     create_cycle,
     finish_cycle,
@@ -254,6 +259,9 @@ class SafeBroadcaster:
         except FloodWaitError as e:
             return {"status": "flood_wait", "reason": f"FloodWait: {e.seconds}s", "seconds": e.seconds}
 
+        except (AuthKeyUnregisteredError, SessionRevokedError, UserDeactivatedError, UserDeactivatedBanError) as e:
+            return {"status": "logged_out", "reason": f"Telegram session revoked or deactivated: {e}"}
+
         except Exception as e:
             return {"status": "error", "reason": str(e)}
 
@@ -374,13 +382,24 @@ class SafeBroadcaster:
                             w["failed_groups_list"].append({"identifier": group.identifier, "reason": res2.get("reason")})
                             await update_group_status(session, group.id, "RESTRICTED", error=res2.get("reason"))
                             await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", res2.get("reason"))
+                    elif status == "logged_out":
+                        await update_sender_account_status(session, account_id, "NEED_LOGIN")
+                        await self.notify_admins(
+                            f"⚠️ <b>Account Logged Out:</b> {w['account_phone']} session was terminated on Telegram.\n"
+                            "Please re-login via /menu ➡️ 📱 Phone Numbers & OTP."
+                        )
+                        break
                     elif status == "peer_flood":
                         w["failed_count"] += 1
-                        w["failed_groups_list"].append({"identifier": group.identifier, "reason": reason})
-                        await update_group_status(session, group.id, "INVALID_LINK", error=reason)
-                        await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", reason)
-                        await self.notify_admins(f"⏳ <b>Telegram Search Rate Limit ({w['account_phone']}):</b> Pausing 90s for safety, then resuming automatically...")
-                        await asyncio.sleep(90)
+                        w["failed_groups_list"].append({"identifier": group.identifier, "reason": "Telegram Search Rate Limit (PeerFlood)"})
+                        await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", "Telegram PeerFlood")
+                        # Alert admin ONCE and safely stop worker to protect account from ban
+                        await self.notify_admins(
+                            f"🛡️ <b>Telegram Search Rate Limit Active ({w['account_phone']})</b>\n"
+                            "Telegram has temporarily paused username searches for this account to prevent bans.\n\n"
+                            "Worker paused safely. Please allow ~15 minutes before re-launching."
+                        )
+                        break
                     elif status in ["forbidden", "banned", "private"]:
                         w["failed_count"] += 1
                         w["failed_groups_list"].append({"identifier": group.identifier, "reason": reason})
