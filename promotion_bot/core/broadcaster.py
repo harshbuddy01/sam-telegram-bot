@@ -93,19 +93,53 @@ class SafeBroadcaster:
         message_text = parse_shortcodes_to_tg_emoji(message_text)
 
         try:
-            # Resolve entity
+            # Resolve entity (with auto-join support for unjoined groups)
             entity = None
             if str(identifier).startswith("-100") or (str(identifier).startswith("-") and str(identifier)[1:].isdigit()):
                 entity = await client.get_entity(int(identifier))
-            elif identifier.startswith("@") or not identifier.startswith("http"):
-                entity = await client.get_entity(identifier)
+            elif identifier.startswith("@"):
+                try:
+                    entity = await client.get_entity(identifier)
+                except Exception:
+                    # Try joining public channel/group first if not found
+                    from telethon.tl.functions.channels import JoinChannelRequest
+                    try:
+                        await client(JoinChannelRequest(identifier.lstrip("@")))
+                        entity = await client.get_entity(identifier)
+                    except Exception as ej:
+                        return {"status": "error", "reason": f"Could not find or join group: {ej}"}
             else:
                 from core.joiner import extract_group_identifier
                 parsed = extract_group_identifier(identifier)
                 if parsed["type"] == "username":
-                    entity = await client.get_entity(parsed["value"])
+                    try:
+                        entity = await client.get_entity(parsed["value"])
+                    except Exception:
+                        from telethon.tl.functions.channels import JoinChannelRequest
+                        try:
+                            await client(JoinChannelRequest(parsed["value"]))
+                            entity = await client.get_entity(parsed["value"])
+                        except Exception as ej:
+                            return {"status": "error", "reason": f"Could not resolve group: {ej}"}
+                elif parsed["type"] == "invite_hash":
+                    from telethon.tl.functions.messages import ImportChatInviteRequest
+                    from telethon.errors import UserAlreadyParticipantError
+                    try:
+                        res = await client(ImportChatInviteRequest(parsed["value"]))
+                        if hasattr(res, 'chats') and res.chats:
+                            entity = res.chats[0]
+                    except UserAlreadyParticipantError:
+                        entity = await client.get_entity(identifier)
+                    except Exception as e_inv:
+                        return {"status": "error", "reason": f"Private invite link expired or invalid: {e_inv}"}
                 else:
-                    return {"status": "error", "reason": "Invite link format - must be joined first"}
+                    try:
+                        entity = await client.get_entity(identifier)
+                    except Exception as e_raw:
+                        return {"status": "error", "reason": f"Could not resolve entity: {e_raw}"}
+
+            if not entity:
+                return {"status": "error", "reason": "Could not locate group entity on Telegram"}
 
             # Send message
             if promo.media_type == "photo" and promo.media_path:
