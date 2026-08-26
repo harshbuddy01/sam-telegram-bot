@@ -13,7 +13,8 @@ from database.crud import (
     get_groups_by_status,
     reset_all_group_statuses,
     delete_all_groups_by_status,
-    purge_invalid_identifiers
+    purge_invalid_identifiers,
+    smart_clean_and_purge_groups
 )
 from core.joiner import safe_joiner
 import config
@@ -29,16 +30,16 @@ def get_group_manager_keyboard(is_joining: bool = False) -> InlineKeyboardMarkup
         kb.append([InlineKeyboardButton(text="🛑 Stop Auto-Joiner", callback_data="groups_stop_join")])
     else:
         kb.append([
-            InlineKeyboardButton(text="➕ Add / Bulk Import Groups", callback_data="groups_add_bulk"),
-            InlineKeyboardButton(text="⚡ Run Safe Auto-Joiner", callback_data="groups_auto_join")
+            InlineKeyboardButton(text="➕ Bulk Import Groups", callback_data="groups_add_bulk"),
+            InlineKeyboardButton(text="⚡ Safe Auto-Joiner", callback_data="groups_auto_join")
         ])
     
     kb.append([
-        InlineKeyboardButton(text="📋 List & Stats", callback_data="groups_list_stats"),
-        InlineKeyboardButton(text="🔄 Reset All to Active", callback_data="groups_reset_active")
+        InlineKeyboardButton(text="🧹 Smart Clean All Dead Links", callback_data="groups_purge_banned"),
+        InlineKeyboardButton(text="📋 List & Stats", callback_data="groups_list_stats")
     ])
     kb.append([
-        InlineKeyboardButton(text="🧹 Purge Banned/Invalid", callback_data="groups_purge_banned")
+        InlineKeyboardButton(text="🔄 Reset All to Active", callback_data="groups_reset_active")
     ])
     kb.append([
         InlineKeyboardButton(text="⬅️ Back to Main Menu", callback_data="main_menu")
@@ -238,11 +239,7 @@ async def cb_purge_banned(query: CallbackQuery):
         return
 
     async with AsyncSessionLocal() as session:
-        d0 = await purge_invalid_identifiers(session)
-        d1 = await delete_all_groups_by_status(session, "BANNED")
-        d2 = await delete_all_groups_by_status(session, "INVALID_LINK")
-        d3 = await delete_all_groups_by_status(session, "RESTRICTED")
+        res = await smart_clean_and_purge_groups(session)
 
-    total_deleted = d0 + d1 + d2 + d3
-    await query.answer(f"Purged {total_deleted} invalid/banned/garbage groups from database.", show_alert=True)
+    await query.answer(f"🧹 Cleaned {res['deleted']} bad links! {res['active']} active groups ready.", show_alert=True)
     await cb_groups_menu(query, None)
