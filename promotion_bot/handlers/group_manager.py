@@ -164,7 +164,7 @@ async def cb_run_auto_joiner(query: CallbackQuery):
     await query.answer()
 
     async def notify_progress(current, total, joined, failed, identifier):
-        if current % 10 == 0 or current == total:
+        if current % 5 == 0 or current == total:
             for admin_id in config.ADMIN_IDS:
                 try:
                     await query.bot.send_message(

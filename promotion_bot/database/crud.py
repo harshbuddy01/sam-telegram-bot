@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import select, update, delete, func, desc
+from sqlalchemy import select, update, delete, func, desc, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.models import Group, PromoMessage, BroadcastCycle, BroadcastLog, BotSetting, SenderAccount
 import config
@@ -108,32 +108,49 @@ async def add_or_get_group(session: AsyncSession, identifier: str, title: str = 
     return group, True
 
 async def bulk_add_groups(session: AsyncSession, identifiers: list[str]) -> tuple[int, int]:
-    # 1. Fetch all existing identifiers from DB in one fast set
-    existing_result = await session.execute(select(Group.identifier))
-    existing_db_set = set(existing_result.scalars().all())
+    now = datetime.datetime.utcnow().isoformat()
 
+    # Step 1: Clean and deduplicate ALL identifiers in Python (zero DB round-trips)
     seen_in_batch = set()
-    added = 0
-    existing = 0
-
+    clean_list = []
     for raw in identifiers:
         clean = raw.strip()
         if not clean:
             continue
         if not clean.startswith("http") and not clean.startswith("@") and not clean.startswith("-100") and not clean.lstrip("-").isdigit():
             clean = f"@{clean}"
-        
-        if clean in existing_db_set or clean in seen_in_batch:
-            existing += 1
-            continue
+        if clean not in seen_in_batch:
+            seen_in_batch.add(clean)
+            clean_list.append(clean)
 
-        seen_in_batch.add(clean)
-        grp = Group(identifier=clean, title=clean, is_joined=False, status="ACTIVE")
-        session.add(grp)
-        added += 1
+    if not clean_list:
+        return 0, 0
 
+    # Step 2: Fetch existing identifiers in ONE bulk query
+    existing_result = await session.execute(select(Group.identifier))
+    existing_db_set = set(existing_result.scalars().all())
+
+    # Step 3: Split into new vs existing
+    new_items = [c for c in clean_list if c not in existing_db_set]
+    existing_count = len(clean_list) - len(new_items)
+
+    if not new_items:
+        return 0, existing_count
+
+    # Step 4: INSERT OR IGNORE using raw SQL (bypasses ORM autoflush entirely)
+    # This is 100% safe - even if somehow a duplicate sneaks through, SQLite silently ignores it
+    await session.execute(
+        text(
+            "INSERT OR IGNORE INTO target_groups "
+            "(identifier, title, is_joined, status, failure_count, consecutive_failures, slowmode_seconds, created_at, updated_at) "
+            "VALUES (:identifier, :title, 0, 'ACTIVE', 0, 0, 0, :now, :now)"
+        ),
+        [{"identifier": c, "title": c, "now": now} for c in new_items]
+    )
     await session.commit()
-    return added, existing
+
+    return len(new_items), existing_count
+
 
 async def get_unjoined_groups(session: AsyncSession) -> list[Group]:
     result = await session.execute(

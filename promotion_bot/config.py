@@ -30,9 +30,9 @@ BATCH_SIZE = int(os.getenv("BATCH_SIZE", "25"))
 BATCH_COOLDOWN = int(os.getenv("BATCH_COOLDOWN_SEC", "240"))  # 4 minutes cooldown per 25 groups
 
 # Auto-Join Safe Settings
-MIN_JOIN_DELAY = int(os.getenv("MIN_JOIN_DELAY_SEC", "45"))
-MAX_JOIN_DELAY = int(os.getenv("MAX_JOIN_DELAY_SEC", "90"))
-MAX_JOINS_PER_DAY = int(os.getenv("MAX_JOINS_PER_DAY", "40"))
+MIN_JOIN_DELAY = int(os.getenv("MIN_JOIN_DELAY_SEC", "20"))
+MAX_JOIN_DELAY = int(os.getenv("MAX_JOIN_DELAY_SEC", "45"))
+MAX_JOINS_PER_DAY = int(os.getenv("MAX_JOINS_PER_DAY", "200"))
 
 # Railway Port
 PORT = int(os.getenv("PORT", "8080"))

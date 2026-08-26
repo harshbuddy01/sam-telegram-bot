@@ -157,6 +157,7 @@ class SafeGroupJoiner:
             res = await self.join_single_group(grp.identifier, grp.id)
             if res.get("status") == "ok":
                 joined += 1
+                logger.info(f"✅ Joined ({joined} done, {idx}/{total}): {grp.identifier}")
             elif res.get("status") == "flood_wait":
                 wait_sec = res.get("seconds", 60)
                 logger.info(f"FloodWait: sleeping {wait_sec}s...")
@@ -165,10 +166,13 @@ class SafeGroupJoiner:
                 res2 = await self.join_single_group(grp.identifier, grp.id)
                 if res2.get("status") == "ok":
                     joined += 1
+                    logger.info(f"✅ Joined after FloodWait ({joined} done, {idx}/{total}): {grp.identifier}")
                 else:
                     failed += 1
+                    logger.info(f"❌ Failed ({failed} failed, {idx}/{total}): {grp.identifier} — {res2.get('reason')}")
             else:
                 failed += 1
+                logger.info(f"❌ Failed ({failed} failed, {idx}/{total}): {grp.identifier} — {res.get('reason')}")
 
             if progress_callback:
                 try:
@@ -176,10 +180,10 @@ class SafeGroupJoiner:
                 except Exception:
                     pass
 
-            # Anti-ban sleep between joins (random 45-90s)
+            # Anti-ban sleep between joins (random 20-45s)
             if idx < total and not self.should_stop:
                 delay = random.randint(config.MIN_JOIN_DELAY, config.MAX_JOIN_DELAY)
-                logger.info(f"Anti-ban pause: sleeping {delay}s before next group join ({idx}/{total})...")
+                logger.info(f"⏳ Anti-ban cooldown: {delay}s before joining group {idx+1}/{total}...")
                 await asyncio.sleep(delay)
 
         self.is_running = False
