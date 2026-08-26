@@ -13,9 +13,9 @@ if not ADMIN_IDS:
     ADMIN_IDS = [6971497666, 6085016731]
 
 # Telethon API Client Settings (Sender User Account)
-API_ID_RAW = os.getenv("API_ID", "").strip()
-API_ID = int(API_ID_RAW) if API_ID_RAW.isdigit() else 0
-API_HASH = os.getenv("API_HASH", "").strip()
+API_ID_RAW = os.getenv("API_ID", "31580751").strip()
+API_ID = int(API_ID_RAW) if API_ID_RAW.isdigit() else 31580751
+API_HASH = os.getenv("API_HASH", "1ff2e55d98542a7aaffbe34238e61ed2").strip()
 SESSION_STRING = os.getenv("SESSION_STRING", "").strip()
 
 # Database
