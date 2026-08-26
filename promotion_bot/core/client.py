@@ -13,8 +13,8 @@ class TelegramClientManager:
     _instance = None
 
     def __init__(self):
-        self.client: TelegramClient | None = None
-        self.is_connected = False
+        # Pool of active clients: account_id -> TelegramClient
+        self.clients: dict[int, TelegramClient] = {}
         self.active_account_id = None
         self.active_phone = None
         # Isolated client for adding new accounts
@@ -28,34 +28,68 @@ class TelegramClientManager:
             cls._instance = TelegramClientManager()
         return cls._instance
 
-    def initialize_client(self, session_str: str = None) -> TelegramClient:
-        sess = session_str or config.SESSION_STRING
-        if sess:
-            session_obj = StringSession(sess)
-        else:
-            session_obj = "promo_userbot_session"
-            
-        self.client = TelegramClient(
-            session_obj,
+    @property
+    def client(self) -> TelegramClient | None:
+        """Returns active sender client, or the first available client in the pool."""
+        if self.active_account_id and self.active_account_id in self.clients:
+            return self.clients[self.active_account_id]
+        if self.clients:
+            return next(iter(self.clients.values()))
+        return None
+
+    @property
+    def is_connected(self) -> bool:
+        c = self.client
+        return c is not None and c.is_connected()
+
+    def create_client_instance(self, session_str: str) -> TelegramClient:
+        return TelegramClient(
+            StringSession(session_str),
             config.API_ID,
             config.API_HASH,
             device_model="Desktop",
             system_version="Linux/macOS",
             app_version="5.0.1"
         )
-        return self.client
+
+    async def get_client_for_account(self, account_id: int) -> TelegramClient | None:
+        """Retrieves or connects a dedicated client instance for a given account_id."""
+        if account_id in self.clients:
+            c = self.clients[account_id]
+            if not c.is_connected():
+                try:
+                    await c.connect()
+                except Exception as e:
+                    logger.warning(f"Error reconnecting client for account #{account_id}: {e}")
+            return c
+
+        async with AsyncSessionLocal() as session:
+            accounts = await get_all_sender_accounts(session)
+            acc = next((a for a in accounts if a.id == account_id), None)
+            if not acc or not acc.session_string:
+                return None
+
+        c = self.create_client_instance(acc.session_string)
+        try:
+            await c.connect()
+            if await c.is_user_authorized():
+                self.clients[account_id] = c
+                return c
+        except Exception as e:
+            logger.error(f"Failed to connect client for {acc.phone}: {e}")
+        return None
 
     async def ensure_connected(self) -> bool:
-        """Ensures the active sender client is connected. Reconnects automatically if dropped."""
-        if not self.client:
+        """Ensures the primary active sender client is connected."""
+        c = self.client
+        if not c:
             return await self.start()
         try:
-            if not self.client.is_connected():
-                await self.client.connect()
-            self.is_connected = await self.client.is_user_authorized()
-            return self.is_connected
+            if not c.is_connected():
+                await c.connect()
+            return await c.is_user_authorized()
         except Exception as e:
-            logger.warning(f"Reconnection needed: {e}. Reloading active sender from database...")
+            logger.warning(f"Primary reconnection needed: {e}. Reinitializing...")
             return await self.start()
 
     async def start(self) -> bool:
@@ -63,62 +97,61 @@ class TelegramClientManager:
             logger.warning("API_ID or API_HASH is not set! Userbot sender cannot start.")
             return False
 
-        # Check if we have an active sender account in DB
         async with AsyncSessionLocal() as session:
+            accounts = await get_all_sender_accounts(session)
             active_acc = await get_active_sender_account(session)
-            if active_acc and active_acc.session_string:
-                logger.info(f"Loading active sender account from DB: {active_acc.phone}")
-                self.initialize_client(active_acc.session_string)
-                self.active_account_id = active_acc.id
-                self.active_phone = active_acc.phone
-            else:
-                self.initialize_client()
 
-        try:
-            await self.client.connect()
-            self.is_connected = await self.client.is_user_authorized()
-            if self.is_connected:
-                me: User = await self.client.get_me()
-                logger.info(f"Userbot connected successfully as @{me.username or me.first_name} (ID: {me.id}, Premium: {getattr(me, 'premium', False)})")
-                return True
-            else:
-                logger.warning("Userbot client is NOT authorized yet. Please login via Bot menu or generate session string.")
-                return False
-        except Exception as e:
-            logger.error(f"Error starting Userbot client: {e}")
-            self.is_connected = False
+        if not accounts:
+            logger.info("No sender accounts saved in database yet.")
             return False
 
-    async def switch_to_account(self, session_string: str, account_id: int = None, phone: str = None) -> bool:
-        """
-        Disconnects current client and connects using another saved account session string.
-        """
-        try:
-            if self.client and self.client.is_connected():
-                await self.client.disconnect()
+        connected_any = False
+        for acc in accounts:
+            if acc.session_string:
+                try:
+                    c = self.create_client_instance(acc.session_string)
+                    await c.connect()
+                    if await c.is_user_authorized():
+                        self.clients[acc.id] = c
+                        connected_any = True
+                        me: User = await c.get_me()
+                        logger.info(f"Loaded client for {acc.phone} (@{me.username or me.first_name}, ID: {me.id})")
+                except Exception as e:
+                    logger.warning(f"Could not connect {acc.phone}: {e}")
 
-            self.initialize_client(session_string)
-            await self.client.connect()
-            self.is_connected = await self.client.is_user_authorized()
-            if self.is_connected:
+        if active_acc and active_acc.id in self.clients:
+            self.active_account_id = active_acc.id
+            self.active_phone = active_acc.phone
+        elif self.clients:
+            self.active_account_id = next(iter(self.clients.keys()))
+
+        return connected_any
+
+    async def switch_to_account(self, session_string: str, account_id: int = None, phone: str = None) -> bool:
+        """Connects or switches the primary active sender account."""
+        try:
+            c = await self.get_client_for_account(account_id)
+            if c and await c.is_user_authorized():
                 self.active_account_id = account_id
                 self.active_phone = phone
-                me = await self.client.get_me()
-                logger.info(f"Switched active sender account to @{me.username or me.first_name} ({phone})")
+                me = await c.get_me()
+                logger.info(f"Switched primary active sender to @{me.username or me.first_name} ({phone})")
                 return True
             return False
         except Exception as e:
             logger.error(f"Failed to switch account: {e}")
             return False
 
-    async def get_me(self):
-        if self.client and self.client.is_connected() and await self.client.is_user_authorized():
-            return await self.client.get_me()
+    async def get_me(self, account_id: int = None):
+        c = (await self.get_client_for_account(account_id)) if account_id else self.client
+        if c and c.is_connected() and await c.is_user_authorized():
+            return await c.get_me()
         return None
 
-    async def export_session_string(self) -> str:
-        if self.client and self.client.session:
-            return StringSession.save(self.client.session)
+    async def export_session_string(self, account_id: int = None) -> str:
+        c = (await self.get_client_for_account(account_id)) if account_id else self.client
+        if c and c.session:
+            return StringSession.save(c.session)
         return ""
 
     # ================= Interactive Auth Helper Methods (Isolated) =================

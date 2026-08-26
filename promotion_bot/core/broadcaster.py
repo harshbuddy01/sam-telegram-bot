@@ -33,23 +33,24 @@ logger = logging.getLogger(__name__)
 
 class SafeBroadcaster:
     def __init__(self):
-        self.is_broadcasting = False
-        self.is_paused = False
-        self.should_stop = False
-        self.current_cycle_id = None
-        self.current_index = 0
-        self.total_targets = 0
-        self.success_count = 0
-        self.failed_count = 0
-        self.skipped_count = 0
-        self.start_time = 0
-        self.sent_groups_list = []
-        self.failed_groups_list = []
-        self.remaining_groups_list = []
+        # account_id -> worker state dict
+        self.workers: dict[int, dict] = {}
         self.bot_instance = None  # Reference to Aiogram Bot to send notifications
 
     def set_bot_instance(self, bot):
         self.bot_instance = bot
+
+    @property
+    def is_broadcasting(self) -> bool:
+        return any(w.get("is_running", False) for w in self.workers.values())
+
+    @property
+    def is_paused(self) -> bool:
+        return any(w.get("is_paused", False) for w in self.workers.values())
+
+    def is_account_broadcasting(self, account_id: int) -> bool:
+        w = self.workers.get(account_id)
+        return w is not None and w.get("is_running", False)
 
     async def notify_admins(self, text: str):
         if not self.bot_instance:
@@ -65,29 +66,58 @@ class SafeBroadcaster:
             except Exception as e:
                 logger.warning(f"Failed to notify admin {admin_id}: {e}")
 
-    def get_progress_status(self) -> dict:
-        if not self.is_broadcasting:
+    def get_progress_status(self, account_id: int = None) -> dict:
+        """Returns live progress metrics for a specific account or the primary active worker."""
+        if account_id and account_id in self.workers:
+            w = self.workers[account_id]
+        elif self.workers:
+            running_w = next((w for w in self.workers.values() if w.get("is_running")), None)
+            w = running_w or next(iter(self.workers.values()))
+        else:
             return {"is_running": False}
 
-        elapsed = int(time.time() - self.start_time)
-        remaining = max(0, self.total_targets - self.current_index)
+        if not w.get("is_running"):
+            return {"is_running": False, "account_phone": w.get("account_phone", "N/A")}
+
+        elapsed = int(time.time() - w.get("start_time", time.time()))
+        total = w.get("total_targets", 0)
+        curr = w.get("current_index", 0)
+        remaining = max(0, total - curr)
+        
         return {
             "is_running": True,
-            "is_paused": self.is_paused,
-            "cycle_id": self.current_cycle_id,
-            "current_index": self.current_index,
-            "total_targets": self.total_targets,
-            "success_count": self.success_count,
-            "failed_count": self.failed_count,
-            "skipped_count": self.skipped_count,
+            "is_paused": w.get("is_paused", False),
+            "account_id": w.get("account_id"),
+            "account_phone": w.get("account_phone"),
+            "cycle_id": w.get("cycle_id"),
+            "current_index": curr,
+            "total_targets": total,
+            "success_count": w.get("success_count", 0),
+            "failed_count": w.get("failed_count", 0),
+            "skipped_count": w.get("skipped_count", 0),
             "remaining_count": remaining,
             "elapsed_seconds": elapsed,
-            "progress_percent": round((self.current_index / max(self.total_targets, 1)) * 100, 1)
+            "progress_percent": round((curr / max(total, 1)) * 100, 1)
         }
 
+    def get_all_workers_status(self) -> list[dict]:
+        """Returns status list for all accounts."""
+        results = []
+        for acc_id, w in self.workers.items():
+            results.append({
+                "account_id": acc_id,
+                "account_phone": w.get("account_phone"),
+                "is_running": w.get("is_running", False),
+                "is_paused": w.get("is_paused", False),
+                "current_index": w.get("current_index", 0),
+                "total_targets": w.get("total_targets", 0),
+                "success_count": w.get("success_count", 0),
+                "failed_count": w.get("failed_count", 0),
+                "progress_percent": round((w.get("current_index", 0) / max(w.get("total_targets", 1), 1)) * 100, 1)
+            })
+        return results
+
     async def send_to_single_group(self, client: TelegramClient, group, promo) -> dict:
-        await tg_manager.ensure_connected()
-        client = tg_manager.client or client
         identifier = group.identifier
         
         # Prepare unique anti-hash Spintax variation
@@ -103,7 +133,6 @@ class SafeBroadcaster:
                 try:
                     entity = await client.get_entity(identifier)
                 except Exception:
-                    # Try joining public channel/group first if not found
                     from telethon.tl.functions.channels import JoinChannelRequest
                     try:
                         await client(JoinChannelRequest(identifier.lstrip("@")))
@@ -143,7 +172,7 @@ class SafeBroadcaster:
             if not entity:
                 return {"status": "error", "reason": "Could not locate group entity on Telegram"}
 
-            # If it's a broadcast-only channel, regular users cannot post
+            # Check if it's a broadcast-only channel
             from telethon.tl.types import Channel
             from telethon.tl.functions.channels import JoinChannelRequest
             from telethon.errors import UserAlreadyParticipantError
@@ -151,13 +180,13 @@ class SafeBroadcaster:
             if isinstance(entity, Channel) and getattr(entity, 'broadcast', False):
                 return {"status": "forbidden", "reason": "Target is a Broadcast Channel (Admin post only)"}
 
-            # Ensure we are joined before sending
+            # Ensure membership before sending
             try:
                 await client(JoinChannelRequest(entity))
             except (UserAlreadyParticipantError, Exception):
                 pass
 
-            # Send message
+            # Send message with media if attached
             if promo.media_type == "photo" and promo.media_path:
                 await client.send_file(
                     entity,
@@ -186,7 +215,6 @@ class SafeBroadcaster:
             return {"status": "slowmode", "reason": f"Slowmode active: wait {e.seconds}s", "seconds": e.seconds}
 
         except ChatWriteForbiddenError:
-            # Try joining explicitly and retry once
             try:
                 from telethon.tl.functions.channels import JoinChannelRequest
                 await client(JoinChannelRequest(entity))
@@ -217,7 +245,7 @@ class SafeBroadcaster:
             return {"status": "forbidden", "reason": "Only admins can send messages"}
 
         except PeerFloodError:
-            return {"status": "peer_flood", "reason": "Telegram PeerFlood triggered. Pausing broadcast."}
+            return {"status": "peer_flood", "reason": "Telegram PeerFlood triggered. Pausing worker."}
 
         except FloodWaitError as e:
             return {"status": "flood_wait", "reason": f"FloodWait: {e.seconds}s", "seconds": e.seconds}
@@ -225,78 +253,91 @@ class SafeBroadcaster:
         except Exception as e:
             return {"status": "error", "reason": str(e)}
 
-    async def execute_broadcast_round(self, trigger_type: str = "SCHEDULED") -> dict:
-        if self.is_broadcasting:
-            logger.warning("Broadcast round is already running! Skipping duplicate trigger.")
+    # ==================== MULTI-ACCOUNT WORKER RUNNER ====================
+
+    async def start_account_broadcast(self, account_id: int, trigger_type: str = "MANUAL_ADMIN") -> dict:
+        """Launches an independent broadcast worker for a specific phone account."""
+        if self.is_account_broadcasting(account_id):
             return {"status": "already_running"}
 
-        await tg_manager.ensure_connected()
-        client = tg_manager.client
-        if not client or not tg_manager.is_connected:
-            msg = "⚠️ <b>Broadcast Skipped:</b> No active Telegram sender account connected. Please login in /menu."
-            logger.warning(msg)
-            await self.notify_admins(msg)
-            return {"status": "not_authorized"}
-
-        me = await tg_manager.get_me()
-        sender_badge = f"@{me.username or me.first_name}" if me else "Sender Account"
+        client = await tg_manager.get_client_for_account(account_id)
+        if not client or not await client.is_user_authorized():
+            return {"status": "not_authorized", "reason": "Sender account client not connected or unauthorized."}
 
         async with AsyncSessionLocal() as session:
-            is_enabled = await get_setting(session, "broadcast_enabled", "true")
-            if is_enabled.lower() != "true" and trigger_type == "SCHEDULED":
-                logger.info("Broadcasting is disabled in settings.")
-                return {"status": "disabled"}
+            accounts = await get_all_sender_accounts(session)
+            acc = next((a for a in accounts if a.id == account_id), None)
+            if not acc:
+                return {"status": "account_not_found"}
 
             target_groups = await get_active_groups(session)
             if not target_groups:
-                logger.info("No active groups found.")
-                await self.notify_admins("⚠️ <b>Broadcast Skipped:</b> No active target groups found. Add groups using /menu.")
                 return {"status": "no_groups"}
 
-            promo = await get_active_promo_message(session)
+            promo = await get_or_create_account_promo(session, account_id, acc.phone)
             min_delay = int(await get_setting(session, "min_delay_sec", str(config.MIN_DELAY_PER_GROUP)))
             max_delay = int(await get_setting(session, "max_delay_sec", str(config.MAX_DELAY_PER_GROUP)))
             batch_size = int(await get_setting(session, "batch_size", str(config.BATCH_SIZE)))
             batch_cooldown = int(await get_setting(session, "batch_cooldown_sec", str(config.BATCH_COOLDOWN)))
 
-            cycle = await create_cycle(session, len(target_groups))
-            self.current_cycle_id = cycle.id
+            cycle = await create_cycle(session, len(target_groups), account_id=acc.id, account_phone=acc.phone)
+            cycle_id = cycle.id
 
-        self.is_broadcasting = True
-        self.is_paused = False
-        self.should_stop = False
-        self.total_targets = len(target_groups)
-        self.current_index = 0
-        self.success_count = 0
-        self.failed_count = 0
-        self.skipped_count = 0
-        self.start_time = time.time()
-        self.sent_groups_list = []
-        self.failed_groups_list = []
-        self.remaining_groups_list = [g.identifier for g in target_groups]
+        worker_state = {
+            "account_id": account_id,
+            "account_phone": acc.phone,
+            "sender_badge": f"@{acc.username or acc.first_name or acc.phone}",
+            "cycle_id": cycle_id,
+            "is_running": True,
+            "is_paused": False,
+            "should_stop": False,
+            "current_index": 0,
+            "total_targets": len(target_groups),
+            "success_count": 0,
+            "failed_count": 0,
+            "skipped_count": 0,
+            "start_time": time.time(),
+            "sent_groups_list": [],
+            "failed_groups_list": [],
+            "remaining_groups_list": [g.identifier for g in target_groups]
+        }
+        self.workers[account_id] = worker_state
 
         start_msg = (
-            f"🚀 <b>Broadcast Cycle #{self.current_cycle_id} Started</b>\n"
+            f"🚀 <b>Campaign Started for {acc.phone}</b> ({worker_state['sender_badge']})\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📱 <b>Sender Account:</b> {sender_badge}\n"
-            f"🎯 <b>Total Target Groups:</b> {self.total_targets}\n"
+            f"📝 <b>Ad:</b> {promo.title}\n"
+            f"🎯 <b>Total Target Groups:</b> {len(target_groups)}\n"
             f"⏱️ <b>Trigger:</b> {trigger_type}\n"
-            f"🛡️ <b>Anti-Ban Protection:</b> {min_delay}s–{max_delay}s Jitter + Anti-Hash Spintax"
+            f"🛡️ <b>Anti-Ban:</b> {min_delay}s–{max_delay}s Jitter + Spintax"
         )
         await self.notify_admins(start_msg)
 
+        asyncio.create_task(
+            self._run_worker_loop(account_id, client, promo, target_groups, min_delay, max_delay, batch_size, batch_cooldown)
+        )
+        return {"status": "started", "cycle_id": cycle_id, "phone": acc.phone}
+
+    async def _run_worker_loop(self, account_id, client, promo, target_groups, min_delay, max_delay, batch_size, batch_cooldown):
+        w = self.workers.get(account_id)
+        if not w:
+            return
+
+        sender_badge = w["sender_badge"]
+        cycle_id = w["cycle_id"]
+
         try:
             for idx, group in enumerate(target_groups, 1):
-                while self.is_paused:
+                while w.get("is_paused") and not w.get("should_stop"):
                     await asyncio.sleep(3)
-                
-                if self.should_stop or not self.is_broadcasting:
-                    logger.info("Broadcast was stopped manually by Admin.")
+
+                if w.get("should_stop") or not w.get("is_running"):
+                    logger.info(f"Broadcast for {w['account_phone']} was stopped by Admin.")
                     break
 
-                self.current_index = idx
-                if group.identifier in self.remaining_groups_list:
-                    self.remaining_groups_list.remove(group.identifier)
+                w["current_index"] = idx
+                if group.identifier in w["remaining_groups_list"]:
+                    w["remaining_groups_list"].remove(group.identifier)
 
                 res = await self.send_to_single_group(client, group, promo)
                 status = res.get("status")
@@ -304,146 +345,166 @@ class SafeBroadcaster:
 
                 async with AsyncSessionLocal() as session:
                     if status == "ok":
-                        self.success_count += 1
-                        self.sent_groups_list.append(group.identifier)
+                        w["success_count"] += 1
+                        w["sent_groups_list"].append(group.identifier)
                         await update_group_status(session, group.id, "ACTIVE", is_success=True)
-                        await log_broadcast_result(session, self.current_cycle_id, group.id, group.identifier, "SENT")
+                        await log_broadcast_result(session, cycle_id, group.id, group.identifier, "SENT")
                     elif status == "slowmode":
-                        self.skipped_count += 1
+                        w["skipped_count"] += 1
                         sec = res.get("seconds", 60)
-                        self.failed_groups_list.append({"identifier": group.identifier, "reason": f"Slowmode ({sec}s)"})
+                        w["failed_groups_list"].append({"identifier": group.identifier, "reason": f"Slowmode ({sec}s)"})
                         await update_group_status(session, group.id, "SLOWMODE", error=reason, slowmode_sec=sec)
-                        await log_broadcast_result(session, self.current_cycle_id, group.id, group.identifier, "SLOWMODE", reason)
+                        await log_broadcast_result(session, cycle_id, group.id, group.identifier, "SLOWMODE", reason)
                     elif status == "flood_wait":
                         wait_seconds = res.get("seconds", 60)
-                        await self.notify_admins(f"⏳ <b>Telegram FloodWait:</b> Pausing {wait_seconds}s to protect {sender_badge}...")
+                        await self.notify_admins(f"⏳ <b>Telegram FloodWait ({w['account_phone']}):</b> Pausing {wait_seconds}s...")
                         await asyncio.sleep(wait_seconds + 5)
-                        # Retry once
                         res2 = await self.send_to_single_group(client, group, promo)
                         if res2.get("status") == "ok":
-                            self.success_count += 1
-                            self.sent_groups_list.append(group.identifier)
+                            w["success_count"] += 1
+                            w["sent_groups_list"].append(group.identifier)
                             await update_group_status(session, group.id, "ACTIVE", is_success=True)
-                            await log_broadcast_result(session, self.current_cycle_id, group.id, group.identifier, "SENT")
+                            await log_broadcast_result(session, cycle_id, group.id, group.identifier, "SENT")
                         else:
-                            self.failed_count += 1
-                            self.failed_groups_list.append({"identifier": group.identifier, "reason": res2.get("reason")})
+                            w["failed_count"] += 1
+                            w["failed_groups_list"].append({"identifier": group.identifier, "reason": res2.get("reason")})
                             await update_group_status(session, group.id, "RESTRICTED", error=res2.get("reason"))
-                            await log_broadcast_result(session, self.current_cycle_id, group.id, group.identifier, "FAILED", res2.get("reason"))
+                            await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", res2.get("reason"))
                     elif status == "peer_flood":
-                        self.failed_count += 1
-                        self.failed_groups_list.append({"identifier": group.identifier, "reason": reason})
-                        await log_broadcast_result(session, self.current_cycle_id, group.id, group.identifier, "FAILED", reason)
-                        await self.notify_admins(f"⚠️ <b>PEER FLOOD DETECTED:</b> Halting round early to safeguard {sender_badge}!")
+                        w["failed_count"] += 1
+                        w["failed_groups_list"].append({"identifier": group.identifier, "reason": reason})
+                        await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", reason)
+                        await self.notify_admins(f"⚠️ <b>PEER FLOOD ({w['account_phone']}):</b> Pausing worker to protect number!")
                         break
                     elif status in ["forbidden", "banned", "private"]:
-                        self.failed_count += 1
-                        self.failed_groups_list.append({"identifier": group.identifier, "reason": reason})
+                        w["failed_count"] += 1
+                        w["failed_groups_list"].append({"identifier": group.identifier, "reason": reason})
                         db_status = "BANNED" if status == "banned" else "RESTRICTED"
                         await update_group_status(session, group.id, db_status, error=reason)
-                        await log_broadcast_result(session, self.current_cycle_id, group.id, group.identifier, "FAILED", reason)
+                        await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", reason)
                     else:
-                        self.failed_count += 1
-                        self.failed_groups_list.append({"identifier": group.identifier, "reason": reason})
+                        w["failed_count"] += 1
+                        w["failed_groups_list"].append({"identifier": group.identifier, "reason": reason})
                         await update_group_status(session, group.id, "RESTRICTED", error=reason)
-                        await log_broadcast_result(session, self.current_cycle_id, group.id, group.identifier, "FAILED", reason)
+                        await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", reason)
 
                 # Batch cooldown & jitter
-                if idx % batch_size == 0 and idx < self.total_targets:
-                    logger.info(f"Anti-ban batch cooldown: pausing {batch_cooldown}s after {idx} groups...")
+                if idx % batch_size == 0 and idx < w["total_targets"]:
+                    logger.info(f"Anti-ban batch cooldown for {w['account_phone']}: pausing {batch_cooldown}s...")
                     await asyncio.sleep(batch_cooldown)
-                elif idx < self.total_targets:
+                elif idx < w["total_targets"]:
                     sleep_sec = random.randint(min_delay, max_delay)
                     await asyncio.sleep(sleep_sec)
 
         except Exception as e:
-            logger.error(f"Fatal error during broadcast loop: {e}", exc_info=True)
-            await self.notify_admins(f"❌ <b>Broadcast Error:</b> {e}")
+            logger.error(f"Fatal error in worker for {w['account_phone']}: {e}", exc_info=True)
+            await self.notify_admins(f"❌ <b>Campaign Error ({w['account_phone']}):</b> {e}")
 
         finally:
-            duration = int(time.time() - self.start_time)
+            duration = int(time.time() - w["start_time"])
             mins = duration // 60
             secs = duration % 60
-            final_status = "COMPLETED" if self.current_index >= self.total_targets else ("STOPPED" if self.should_stop else "PAUSED")
+            final_status = "COMPLETED" if w["current_index"] >= w["total_targets"] else ("STOPPED" if w["should_stop"] else "PAUSED")
 
             async with AsyncSessionLocal() as session:
                 await finish_cycle(
                     session,
-                    self.current_cycle_id,
+                    cycle_id,
                     final_status,
-                    self.success_count,
-                    self.failed_count,
-                    self.skipped_count,
+                    w["success_count"],
+                    w["failed_count"],
+                    w["skipped_count"],
                     duration
                 )
 
-            # Send Detailed Completion / Stop Breakdown
-            report = self.generate_detailed_summary_report(mins, secs, final_status, sender_badge)
+            report = self._generate_worker_summary(w, mins, secs, final_status)
             await self.notify_admins(report)
 
-            self.is_broadcasting = False
-            self.is_paused = False
-            self.should_stop = False
+            w["is_running"] = False
+            w["is_paused"] = False
+            w["should_stop"] = False
 
-        return {
-            "cycle_id": self.current_cycle_id,
-            "status": final_status,
-            "sent": self.success_count,
-            "failed": self.failed_count,
-            "remaining": len(self.remaining_groups_list),
-            "duration_min": mins
-        }
-
-    def generate_detailed_summary_report(self, mins: int, secs: int, status: str, sender: str) -> str:
-        remaining_count = len(self.remaining_groups_list)
-        
-        # Sent samples
-        sent_samples = [f"• <code>{g}</code>" for g in self.sent_groups_list[:6]]
+    def _generate_worker_summary(self, w: dict, mins: int, secs: int, status: str) -> str:
+        remaining_count = len(w["remaining_groups_list"])
+        sent_samples = [f"• <code>{g}</code>" for g in w["sent_groups_list"][:5]]
         sent_text = "\n".join(sent_samples) if sent_samples else "<i>None</i>"
-        if len(self.sent_groups_list) > 6:
-            sent_text += f"\n<i>...and {len(self.sent_groups_list) - 6} more sent successfully.</i>"
+        if len(w["sent_groups_list"]) > 5:
+            sent_text += f"\n<i>...and {len(w['sent_groups_list']) - 5} more sent.</i>"
 
-        # Failed samples
-        failed_samples = [f"• <b>{f['identifier']}</b>: <code>{f['reason']}</code>" for f in self.failed_groups_list[:6]]
+        failed_samples = [f"• <b>{f['identifier']}</b>: <code>{f['reason']}</code>" for f in w["failed_groups_list"][:5]]
         failed_text = "\n".join(failed_samples) if failed_samples else "<i>None</i>"
-        if len(self.failed_groups_list) > 6:
-            failed_text += f"\n<i>...and {len(self.failed_groups_list) - 6} more failed.</i>"
-
-        # Remaining samples
-        rem_samples = [f"• <code>{g}</code>" for g in self.remaining_groups_list[:5]]
-        rem_text = "\n".join(rem_samples) if rem_samples else "<i>0 remaining (All processed)</i>"
-        if remaining_count > 5:
-            rem_text += f"\n<i>...and {remaining_count - 5} more pending.</i>"
+        if len(w["failed_groups_list"]) > 5:
+            failed_text += f"\n<i>...and {len(w['failed_groups_list']) - 5} more failed.</i>"
 
         status_emoji = "🛑 STOPPED" if status == "STOPPED" else "🎉 COMPLETED"
 
-        report = (
-            f"📊 <b>BROADCAST SUMMARY — CYCLE #{self.current_cycle_id} ({status_emoji})</b>\n"
+        return (
+            f"📊 <b>CAMPAIGN SUMMARY — {w['account_phone']} ({status_emoji})</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📱 <b>Sender Account:</b> {sender}\n"
-            f"⏱️ <b>Time Elapsed:</b> {mins}m {secs}s\n"
-            f"🎯 <b>Total Groups Targeted:</b> {self.total_targets}\n\n"
-            f"📈 <b>Performance Metrics:</b>\n"
-            f"• ✅ <b>Delivered Successfully:</b> <code>{self.success_count} groups</code>\n"
-            f"• ❌ <b>Failed / Banned:</b> <code>{self.failed_count} groups</code>\n"
-            f"• ⏳ <b>Slowmode Skipped:</b> <code>{self.skipped_count} groups</code>\n"
-            f"• ⏸️ <b>Remaining / Unsent:</b> <code>{remaining_count} groups</code>\n\n"
-            f"✅ <b>Delivered Groups Sample:</b>\n{sent_text}\n\n"
-            f"⚠️ <b>Failed Groups & Reasons:</b>\n{failed_text}\n\n"
-            f"📋 <b>Remaining Groups:</b>\n{rem_text}\n\n"
-            "🛡️ <i>Your account remains safe & protected. Full logs stored in /menu.</i>"
+            f"📱 <b>Sender:</b> {w['sender_badge']}\n"
+            f"⏱️ <b>Duration:</b> {mins}m {secs}s\n"
+            f"🎯 <b>Total Targets:</b> {w['total_targets']}\n\n"
+            f"📈 <b>Results:</b>\n"
+            f"• ✅ <b>Delivered Successfully:</b> <code>{w['success_count']} groups</code>\n"
+            f"• ❌ <b>Failed / Banned:</b> <code>{w['failed_count']} groups</code>\n"
+            f"• ⏳ <b>Slowmode Skipped:</b> <code>{w['skipped_count']} groups</code>\n"
+            f"• ⏸️ <b>Remaining:</b> <code>{remaining_count} groups</code>\n\n"
+            f"✅ <b>Delivered Sample:</b>\n{sent_text}\n\n"
+            f"⚠️ <b>Failed Sample:</b>\n{failed_text}\n\n"
+            f"🛡️ <i>Your account is safe. Detailed logs saved in /menu.</i>"
         )
-        return report
+
+    # ==================== GLOBAL MULTI-CAMPAIGN CONTROLS ====================
+
+    async def start_all_campaigns(self, trigger_type: str = "MANUAL_ALL") -> dict:
+        """Launches all connected accounts simultaneously in parallel!"""
+        async with AsyncSessionLocal() as session:
+            accounts = await get_all_sender_accounts(session)
+
+        if not accounts:
+            return {"status": "no_accounts", "started": 0}
+
+        started = 0
+        for acc in accounts:
+            res = await self.start_account_broadcast(acc.id, trigger_type=trigger_type)
+            if res.get("status") == "started":
+                started += 1
+
+        return {"status": "ok", "started": started, "total_accounts": len(accounts)}
+
+    def stop_account_broadcast(self, account_id: int):
+        if account_id in self.workers:
+            self.workers[account_id]["should_stop"] = True
+            self.workers[account_id]["is_running"] = False
+
+    def pause_account_broadcast(self, account_id: int):
+        if account_id in self.workers:
+            self.workers[account_id]["is_paused"] = True
+
+    def resume_account_broadcast(self, account_id: int):
+        if account_id in self.workers:
+            self.workers[account_id]["is_paused"] = False
+
+    def stop_all_campaigns(self):
+        for w in self.workers.values():
+            w["should_stop"] = True
+            w["is_running"] = False
+            w["is_paused"] = False
 
     def stop_broadcast(self):
-        self.should_stop = True
-        self.is_broadcasting = False
-        self.is_paused = False
+        self.stop_all_campaigns()
 
     def pause_broadcast(self):
-        self.is_paused = True
+        for w in self.workers.values():
+            w["is_paused"] = True
 
     def resume_broadcast(self):
-        self.is_paused = False
+        for w in self.workers.values():
+            w["is_paused"] = False
+
+    async def execute_broadcast_round(self, trigger_type: str = "SCHEDULED") -> dict:
+        """Default scheduled trigger: runs all connected accounts in parallel."""
+        return await self.start_all_campaigns(trigger_type=trigger_type)
 
 broadcaster = SafeBroadcaster()
+

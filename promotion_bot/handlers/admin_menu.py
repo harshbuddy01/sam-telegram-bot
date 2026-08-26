@@ -13,21 +13,22 @@ router = Router(name="admin_menu")
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     kb = [
         [
-            InlineKeyboardButton(text="🧙‍♂️ 🚀 Launch Campaign Wizard", callback_data="start_wizard")
+            InlineKeyboardButton(text="📢 Multi-Ad Campaigns (Per Number)", callback_data="menu_campaigns")
         ],
         [
-            InlineKeyboardButton(text="📝 Edit Promo Message", callback_data="menu_promo_msg"),
-            InlineKeyboardButton(text="👥 Manage Groups", callback_data="menu_groups")
+            InlineKeyboardButton(text="🧙‍♂️ 🚀 Launch Campaign Wizard", callback_data="start_wizard"),
+            InlineKeyboardButton(text="📝 Edit Promo Message", callback_data="menu_promo_msg")
         ],
         [
             InlineKeyboardButton(text="🚀 Broadcast Controls", callback_data="menu_broadcast"),
-            InlineKeyboardButton(text="📊 Reports & Failures", callback_data="menu_reports")
+            InlineKeyboardButton(text="👥 Manage Groups", callback_data="menu_groups")
         ],
         [
             InlineKeyboardButton(text="📱 Switch / Add Number", callback_data="menu_auth"),
-            InlineKeyboardButton(text="🛡️ Anti-Ban Settings", callback_data="menu_settings")
+            InlineKeyboardButton(text="📊 Reports & Failures", callback_data="menu_reports")
         ],
         [
+            InlineKeyboardButton(text="🛡️ Anti-Ban Settings", callback_data="menu_settings"),
             InlineKeyboardButton(text="🔄 Refresh Dashboard", callback_data="refresh_dashboard")
         ]
     ]

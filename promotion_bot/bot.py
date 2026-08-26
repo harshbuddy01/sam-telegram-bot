@@ -21,6 +21,7 @@ from core.scheduler import scheduler
 # Import Handlers
 from handlers import (
     admin_menu,
+    campaign_manager,
     campaign_wizard,
     message_editor,
     group_manager,
@@ -88,6 +89,7 @@ async def main():
 
     # Register Handler Routers
     dp.include_router(admin_menu.router)
+    dp.include_router(campaign_manager.router)
     dp.include_router(campaign_wizard.router)
     dp.include_router(message_editor.router)
     dp.include_router(group_manager.router)

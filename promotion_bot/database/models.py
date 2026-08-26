@@ -51,21 +51,30 @@ class PromoMessage(Base):
     __tablename__ = "promo_messages"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    account_id = Column(Integer, ForeignKey("sender_accounts.id", ondelete="CASCADE"), nullable=True, index=True)
     title = Column(String(100), default="Primary Promotion")
     text = Column(Text, nullable=False)
     media_type = Column(String(20), default="none")  # 'none', 'photo', 'video', 'document'
     media_file_id = Column(String(255), nullable=True)
     media_path = Column(String(255), nullable=True)
+    interval_hours = Column(Float, default=2.0)
+    is_enabled = Column(Boolean, default=True)
+    status = Column(String(50), default="IDLE")  # 'IDLE', 'RUNNING', 'PAUSED', 'STOPPED'
     is_active = Column(Boolean, default=True)
+    last_run_at = Column(DateTime, nullable=True)
     
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    account = relationship("SenderAccount", backref="promos")
 
 
 class BroadcastCycle(Base):
     __tablename__ = "broadcast_cycles"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    account_id = Column(Integer, nullable=True, index=True)
+    account_phone = Column(String(50), nullable=True)
     started_at = Column(DateTime, default=datetime.datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
     

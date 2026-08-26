@@ -273,11 +273,11 @@ async def reset_all_group_statuses(session: AsyncSession) -> int:
     await session.commit()
     return result.rowcount
 
-# ==================== PROMO MESSAGE CRUD ====================
+# ==================== PROMO MESSAGE & MULTI-ACCOUNT CAMPAIGNS ====================
 
 async def get_active_promo_message(session: AsyncSession) -> PromoMessage:
     result = await session.execute(
-        select(PromoMessage).where(PromoMessage.is_active == True).order_by(PromoMessage.id.desc())
+        select(PromoMessage).where(PromoMessage.account_id == None, PromoMessage.is_active == True).order_by(PromoMessage.id.desc())
     )
     promo = result.scalars().first()
     if not promo:
@@ -288,11 +288,75 @@ async def get_active_promo_message(session: AsyncSession) -> PromoMessage:
             "👉 <b>Order Now:</b> @SamStoreAd_Bot\n"
             "🌐 <b>Official Channel:</b> @SamStoreServices"
         )
-        promo = PromoMessage(title="Default Promo", text=default_text, media_type="none", is_active=True)
+        promo = PromoMessage(title="Default Promo Template", text=default_text, media_type="none", is_active=True)
         session.add(promo)
         await session.commit()
         await session.refresh(promo)
     return promo
+
+async def get_or_create_account_promo(session: AsyncSession, account_id: int, phone: str = None) -> PromoMessage:
+    result = await session.execute(
+        select(PromoMessage).where(PromoMessage.account_id == account_id)
+    )
+    promo = result.scalars().first()
+    if not promo:
+        global_promo = await get_active_promo_message(session)
+        title = f"Campaign ({phone or f'Account #{account_id}'})"
+        promo = PromoMessage(
+            account_id=account_id,
+            title=title,
+            text=global_promo.text,
+            media_type=global_promo.media_type,
+            media_file_id=global_promo.media_file_id,
+            media_path=global_promo.media_path,
+            interval_hours=2.0,
+            is_enabled=True,
+            status="IDLE",
+            is_active=True
+        )
+        session.add(promo)
+        await session.commit()
+        await session.refresh(promo)
+    return promo
+
+async def update_account_promo(
+    session: AsyncSession,
+    account_id: int,
+    text: str,
+    media_type: str = "none",
+    media_file_id: str = None,
+    media_path: str = None,
+    phone: str = None
+) -> PromoMessage:
+    promo = await get_or_create_account_promo(session, account_id, phone)
+    promo.text = text
+    promo.media_type = media_type
+    promo.media_file_id = media_file_id
+    promo.media_path = media_path
+    promo.updated_at = datetime.datetime.utcnow()
+    await session.commit()
+    await session.refresh(promo)
+    return promo
+
+async def set_account_interval(session: AsyncSession, account_id: int, interval_hours: float):
+    promo = await get_or_create_account_promo(session, account_id)
+    promo.interval_hours = float(interval_hours)
+    promo.updated_at = datetime.datetime.utcnow()
+    await session.commit()
+
+async def set_account_campaign_status(session: AsyncSession, account_id: int, status: str):
+    promo = await get_or_create_account_promo(session, account_id)
+    promo.status = status
+    promo.updated_at = datetime.datetime.utcnow()
+    await session.commit()
+
+async def get_all_account_campaigns(session: AsyncSession) -> list[tuple[SenderAccount, PromoMessage]]:
+    accounts = await get_all_sender_accounts(session)
+    pairs = []
+    for acc in accounts:
+        promo = await get_or_create_account_promo(session, acc.id, acc.phone)
+        pairs.append((acc, promo))
+    return pairs
 
 async def update_promo_message(
     session: AsyncSession,
@@ -301,31 +365,22 @@ async def update_promo_message(
     media_file_id: str = None,
     media_path: str = None
 ) -> PromoMessage:
-    result = await session.execute(select(PromoMessage).where(PromoMessage.is_active == True))
-    promo = result.scalars().first()
-    if promo:
-        promo.text = text
-        promo.media_type = media_type
-        promo.media_file_id = media_file_id
-        promo.media_path = media_path
-        promo.updated_at = datetime.datetime.utcnow()
-    else:
-        promo = PromoMessage(
-            text=text,
-            media_type=media_type,
-            media_file_id=media_file_id,
-            media_path=media_path,
-            is_active=True
-        )
-        session.add(promo)
+    promo = await get_active_promo_message(session)
+    promo.text = text
+    promo.media_type = media_type
+    promo.media_file_id = media_file_id
+    promo.media_path = media_path
+    promo.updated_at = datetime.datetime.utcnow()
     await session.commit()
     await session.refresh(promo)
     return promo
 
 # ==================== BROADCAST CYCLE & LOG CRUD ====================
 
-async def create_cycle(session: AsyncSession, total_targets: int) -> BroadcastCycle:
+async def create_cycle(session: AsyncSession, total_targets: int, account_id: int = None, account_phone: str = None) -> BroadcastCycle:
     cycle = BroadcastCycle(
+        account_id=account_id,
+        account_phone=account_phone,
         started_at=datetime.datetime.utcnow(),
         status="RUNNING",
         total_targets=total_targets,
