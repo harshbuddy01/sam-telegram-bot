@@ -205,10 +205,13 @@ class SafeGroupJoiner:
                 except Exception:
                     pass
 
-            # Anti-ban sleep between joins (random 20-45s)
+            # Anti-ban sleep between joins: 20-45s for successful joins, 2s fast skip for invalid/failed
             if idx < total and not self.should_stop:
-                delay = random.randint(config.MIN_JOIN_DELAY, config.MAX_JOIN_DELAY)
-                logger.info(f"⏳ Anti-ban cooldown: {delay}s before joining group {idx+1}/{total}...")
+                if res.get("status") == "ok":
+                    delay = random.randint(config.MIN_JOIN_DELAY, config.MAX_JOIN_DELAY)
+                    logger.info(f"⏳ Anti-ban cooldown: {delay}s before joining group {idx+1}/{total}...")
+                else:
+                    delay = 2
                 await asyncio.sleep(delay)
 
         self.is_running = False

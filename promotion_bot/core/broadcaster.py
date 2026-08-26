@@ -392,11 +392,14 @@ class SafeBroadcaster:
                         await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", reason)
 
                 # Batch cooldown & jitter
-                if idx % batch_size == 0 and idx < w["total_targets"]:
+                if w["success_count"] > 0 and w["success_count"] % batch_size == 0 and idx < w["total_targets"]:
                     logger.info(f"Anti-ban batch cooldown for {w['account_phone']}: pausing {batch_cooldown}s...")
                     await asyncio.sleep(batch_cooldown)
                 elif idx < w["total_targets"]:
-                    sleep_sec = random.randint(min_delay, max_delay)
+                    if status == "ok":
+                        sleep_sec = random.randint(min_delay, max_delay)
+                    else:
+                        sleep_sec = 2  # Fast skip on unsendable/dead links
                     await asyncio.sleep(sleep_sec)
 
         except Exception as e:
