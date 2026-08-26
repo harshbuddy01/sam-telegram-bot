@@ -52,6 +52,7 @@ class SafeGroupJoiner:
         self.is_running = False
         self.should_stop = False
         self.bot_instance = None
+        self._lock = asyncio.Lock()
 
     def set_bot_instance(self, bot):
         self.bot_instance = bot
@@ -131,23 +132,25 @@ class SafeGroupJoiner:
         Fetches all unjoined groups from DB and joins them safely with anti-ban delays.
         Resumes automatically where it was previously stopped.
         """
-        if self.is_running:
+        # Prevent two instances from running at the same time
+        if self._lock.locked() or self.is_running:
             return {"status": "already_running"}
 
-        async with AsyncSessionLocal() as session:
-            unjoined_groups = await get_unjoined_groups(session)
+        async with self._lock:
+            async with AsyncSessionLocal() as session:
+                unjoined_groups = await get_unjoined_groups(session)
 
-        if not unjoined_groups:
-            logger.info("All target groups are already joined and verified.")
-            return {"total": 0, "joined": 0, "failed": 0, "status": "all_joined"}
+            if not unjoined_groups:
+                logger.info("All target groups are already joined and verified.")
+                return {"total": 0, "joined": 0, "failed": 0, "status": "all_joined"}
 
-        self.is_running = True
-        self.should_stop = False
-        total = len(unjoined_groups)
-        joined = 0
-        failed = 0
+            self.is_running = True
+            self.should_stop = False
+            total = len(unjoined_groups)
+            joined = 0
+            failed = 0
 
-        logger.info(f"Resuming Safe Auto-Joiner for {total} unjoined groups...")
+            logger.info(f"Resuming Safe Auto-Joiner for {total} unjoined groups...")
 
         for idx, grp in enumerate(unjoined_groups, 1):
             if self.should_stop or not self.is_running:

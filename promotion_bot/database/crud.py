@@ -107,18 +107,44 @@ async def add_or_get_group(session: AsyncSession, identifier: str, title: str = 
     await session.refresh(group)
     return group, True
 
+def _is_valid_group_identifier(raw: str) -> bool:
+    """
+    Returns True only for valid group identifiers:
+    - t.me/username or t.me/+hash (invite links)
+    - @username (4–32 alphanumeric chars + underscore, ASCII only)
+    - Negative chat IDs like -1001234567890
+    """
+    import re
+    # Valid invite link
+    if re.match(r'https?://t\.me/(\+|joinchat/)[a-zA-Z0-9_-]{4,}', raw):
+        return True
+    # Valid t.me/username
+    if re.match(r'https?://t\.me/[a-zA-Z][a-zA-Z0-9_]{3,31}$', raw):
+        return True
+    # Valid @username (ASCII letters/digits/underscore, 4-32 chars)
+    if re.match(r'^@[a-zA-Z][a-zA-Z0-9_]{3,31}$', raw):
+        return True
+    # Valid numeric chat ID (starts with -100)
+    if re.match(r'^-100\d{7,13}$', raw):
+        return True
+    return False
+
 async def bulk_add_groups(session: AsyncSession, identifiers: list[str]) -> tuple[int, int]:
     now = datetime.datetime.utcnow().isoformat()
 
-    # Step 1: Clean and deduplicate ALL identifiers in Python (zero DB round-trips)
+    # Step 1: Clean, normalize, validate and deduplicate ALL identifiers in Python
     seen_in_batch = set()
     clean_list = []
     for raw in identifiers:
         clean = raw.strip()
         if not clean:
             continue
+        # Normalize: add @ prefix if no prefix
         if not clean.startswith("http") and not clean.startswith("@") and not clean.startswith("-100") and not clean.lstrip("-").isdigit():
             clean = f"@{clean}"
+        # Strict validation — skip garbage entries like @-, @گروه, @and, etc.
+        if not _is_valid_group_identifier(clean):
+            continue
         if clean not in seen_in_batch:
             seen_in_batch.add(clean)
             clean_list.append(clean)
@@ -138,7 +164,7 @@ async def bulk_add_groups(session: AsyncSession, identifiers: list[str]) -> tupl
         return 0, existing_count
 
     # Step 4: INSERT OR IGNORE using raw SQL (bypasses ORM autoflush entirely)
-    # This is 100% safe - even if somehow a duplicate sneaks through, SQLite silently ignores it
+    # 100% safe — even if somehow a duplicate sneaks through, SQLite silently ignores it
     await session.execute(
         text(
             "INSERT OR IGNORE INTO target_groups "
