@@ -33,10 +33,11 @@ def get_auth_menu_keyboard(accounts: list) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
 @router.callback_query(F.data == "menu_auth")
-async def cb_auth_menu(query: CallbackQuery, state: FSMContext):
+async def cb_auth_menu(query: CallbackQuery, state: FSMContext = None):
     if not config.is_admin(query.from_user.id):
         return
-    await state.clear()
+    if state is not None:
+        await state.clear()
 
     async with AsyncSessionLocal() as session:
         accounts = await get_all_sender_accounts(session)

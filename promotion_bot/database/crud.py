@@ -108,8 +108,14 @@ async def add_or_get_group(session: AsyncSession, identifier: str, title: str = 
     return group, True
 
 async def bulk_add_groups(session: AsyncSession, identifiers: list[str]) -> tuple[int, int]:
+    # 1. Fetch all existing identifiers from DB in one fast set
+    existing_result = await session.execute(select(Group.identifier))
+    existing_db_set = set(existing_result.scalars().all())
+
+    seen_in_batch = set()
     added = 0
     existing = 0
+
     for raw in identifiers:
         clean = raw.strip()
         if not clean:
@@ -117,19 +123,30 @@ async def bulk_add_groups(session: AsyncSession, identifiers: list[str]) -> tupl
         if not clean.startswith("http") and not clean.startswith("@") and not clean.startswith("-100") and not clean.lstrip("-").isdigit():
             clean = f"@{clean}"
         
-        result = await session.execute(select(Group).where(Group.identifier == clean))
-        if result.scalars().first():
+        if clean in existing_db_set or clean in seen_in_batch:
             existing += 1
-        else:
-            grp = Group(identifier=clean, title=clean, status="ACTIVE")
-            session.add(grp)
-            added += 1
+            continue
+
+        seen_in_batch.add(clean)
+        grp = Group(identifier=clean, title=clean, is_joined=False, status="ACTIVE")
+        session.add(grp)
+        added += 1
+
     await session.commit()
     return added, existing
 
+async def get_unjoined_groups(session: AsyncSession) -> list[Group]:
+    result = await session.execute(
+        select(Group).where(
+            Group.is_joined == False,
+            Group.status.in_(["ACTIVE", "SLOWMODE"])
+        ).order_by(Group.id.asc())
+    )
+    return list(result.scalars().all())
+
 async def get_active_groups(session: AsyncSession) -> list[Group]:
     result = await session.execute(
-        select(Group).where(Group.status.in_(["ACTIVE", "SLOWMODE"])).order_by(Group.id.asc())
+        select(Group).where(Group.status.in_(["ACTIVE", "SLOWMODE"])).order_by(Group.last_sent_at.asc().nullsfirst(), Group.id.asc())
     )
     return list(result.scalars().all())
 

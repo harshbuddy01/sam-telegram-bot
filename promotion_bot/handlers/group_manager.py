@@ -8,6 +8,7 @@ from database.crud import (
     bulk_add_groups,
     get_group_stats,
     get_all_groups,
+    get_unjoined_groups,
     get_groups_by_status,
     reset_all_group_statuses,
     delete_all_groups_by_status
@@ -20,46 +21,54 @@ router = Router(name="group_manager")
 class GroupManagerStates(StatesGroup):
     waiting_for_bulk_links = State()
 
-def get_group_manager_keyboard() -> InlineKeyboardMarkup:
-    kb = [
-        [
+def get_group_manager_keyboard(is_joining: bool = False) -> InlineKeyboardMarkup:
+    kb = []
+    if is_joining:
+        kb.append([InlineKeyboardButton(text="🛑 Stop Auto-Joiner", callback_data="groups_stop_join")])
+    else:
+        kb.append([
             InlineKeyboardButton(text="➕ Add / Bulk Import Groups", callback_data="groups_add_bulk"),
             InlineKeyboardButton(text="⚡ Run Safe Auto-Joiner", callback_data="groups_auto_join")
-        ],
-        [
-            InlineKeyboardButton(text="📋 List & Stats", callback_data="groups_list_stats"),
-            InlineKeyboardButton(text="🔄 Reset All to Active", callback_data="groups_reset_active")
-        ],
-        [
-            InlineKeyboardButton(text="🧹 Purge Banned/Invalid", callback_data="groups_purge_banned")
-        ],
-        [
-            InlineKeyboardButton(text="⬅️ Back to Main Menu", callback_data="main_menu")
-        ]
-    ]
+        ])
+    
+    kb.append([
+        InlineKeyboardButton(text="📋 List & Stats", callback_data="groups_list_stats"),
+        InlineKeyboardButton(text="🔄 Reset All to Active", callback_data="groups_reset_active")
+    ])
+    kb.append([
+        InlineKeyboardButton(text="🧹 Purge Banned/Invalid", callback_data="groups_purge_banned")
+    ])
+    kb.append([
+        InlineKeyboardButton(text="⬅️ Back to Main Menu", callback_data="main_menu")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
 @router.callback_query(F.data == "menu_groups")
-async def cb_groups_menu(query: CallbackQuery, state: FSMContext):
+async def cb_groups_menu(query: CallbackQuery, state: FSMContext = None):
     if not config.is_admin(query.from_user.id):
         return
-    await state.clear()
+    if state is not None:
+        await state.clear()
     
     async with AsyncSessionLocal() as session:
         stats = await get_group_stats(session)
+        unjoined = await get_unjoined_groups(session)
+
+    join_status = "⚡ Running..." if safe_joiner.is_running else "Idle"
 
     text = (
         "👥 <b>TARGET GROUPS MANAGER</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📊 <b>Total Target Groups:</b> <code>{stats.get('TOTAL', 0)}</code>\n\n"
+        f"📊 <b>Total Saved Groups:</b> <code>{stats.get('TOTAL', 0)}</code>\n"
         f"• 🟢 Active & Ready: <code>{stats.get('ACTIVE', 0)}</code>\n"
-        f"• ⏳ Slowmode Queued: <code>{stats.get('SLOWMODE', 0)}</code>\n"
+        f"• ⏳ Unjoined Groups Pending: <code>{len(unjoined)}</code>\n"
         f"• 🔴 Banned by Admin: <code>{stats.get('BANNED', 0)}</code>\n"
         f"• ⚠️ Restricted / Read-Only: <code>{stats.get('RESTRICTED', 0)}</code>\n"
         f"• 🚫 Expired / Invalid Links: <code>{stats.get('INVALID_LINK', 0)}</code>\n\n"
-        "💡 <i>You can paste up to 400+ group links or usernames at once!</i>"
+        f"⚡ <b>Auto-Joiner Status:</b> <code>{join_status}</code>\n\n"
+        "💡 <i>You can paste up to 1000s of group links at once without duplicates!</i>"
     )
-    await query.message.edit_text(text, parse_mode="HTML", reply_markup=get_group_manager_keyboard())
+    await query.message.edit_text(text, parse_mode="HTML", reply_markup=get_group_manager_keyboard(safe_joiner.is_running))
     await query.answer()
 
 @router.callback_query(F.data == "groups_add_bulk")
@@ -82,7 +91,7 @@ async def cb_add_bulk_start(query: CallbackQuery, state: FSMContext):
         "• <code>https://t.me/groupusername</code>\n"
         "• <code>https://t.me/+join_hash_code</code>\n"
         "• <code>-1001234567890</code> (Chat ID)\n\n"
-        "<i>Paste your group links now (up to 400+):</i>"
+        "<i>Paste your group links now (any amount):</i>"
     )
     await query.message.edit_text(text, parse_mode="HTML", reply_markup=cancel_kb)
     await query.answer()
@@ -97,7 +106,6 @@ async def handle_bulk_groups_input(message: Message, state: FSMContext):
         await message.answer("⚠️ Please send text containing group links or usernames.")
         return
 
-    # Split lines and whitespace
     raw_lines = raw_text.replace(",", "\n").splitlines()
     cleaned = []
     for line in raw_lines:
@@ -111,7 +119,7 @@ async def handle_bulk_groups_input(message: Message, state: FSMContext):
         await message.answer("⚠️ No valid group identifiers found. Try again.")
         return
 
-    status_msg = await message.answer(f"⏳ <i>Processing and validating {len(cleaned)} groups...</i>", parse_mode="HTML")
+    status_msg = await message.answer(f"⏳ <i>Processing and safely deduplicating {len(cleaned)} groups...</i>", parse_mode="HTML")
 
     async with AsyncSessionLocal() as session:
         added, existing = await bulk_add_groups(session, cleaned)
@@ -123,11 +131,11 @@ async def handle_bulk_groups_input(message: Message, state: FSMContext):
         "🎉 <b>Bulk Import Completed!</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"✅ <b>Newly Added:</b> {added}\n"
-        f"🔁 <b>Already Existing (Skipped):</b> {existing}\n"
-        f"📈 <b>Total Groups in Bot:</b> {stats.get('TOTAL', 0)}\n\n"
-        "💡 <i>If these are private groups your userbot has not joined yet, tap <b>'Run Safe Auto-Joiner'</b> to automatically join them with anti-ban safeguards.</i>"
+        f"🔁 <b>Already Existing / Duplicates:</b> {existing}\n"
+        f"📈 <b>Total Unique Groups in Bot:</b> {stats.get('TOTAL', 0)}\n\n"
+        "💡 <i>Tap <b>'Run Safe Auto-Joiner'</b> to automatically join the pending groups with anti-ban safeguards.</i>"
     )
-    await status_msg.edit_text(res_text, parse_mode="HTML", reply_markup=get_group_manager_keyboard())
+    await status_msg.edit_text(res_text, parse_mode="HTML", reply_markup=get_group_manager_keyboard(safe_joiner.is_running))
 
 @router.callback_query(F.data == "groups_auto_join")
 async def cb_run_auto_joiner(query: CallbackQuery):
@@ -139,24 +147,45 @@ async def cb_run_auto_joiner(query: CallbackQuery):
         return
 
     async with AsyncSessionLocal() as session:
-        groups = await get_all_groups(session)
+        unjoined = await get_unjoined_groups(session)
 
-    if not groups:
-        await query.answer("No groups found in database. Add groups first.", show_alert=True)
+    if not unjoined:
+        await query.answer("All groups are already joined and verified! No pending groups to join.", show_alert=True)
         return
 
     await query.message.answer(
-        f"⚡ <b>Safe Auto-Joiner Started!</b>\n"
+        f"⚡ <b>Safe Auto-Joiner Resumed / Started!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🎯 <b>Total Targets:</b> {len(groups)}\n"
+        f"🎯 <b>Pending Unjoined Targets:</b> {len(unjoined)}\n"
         f"🛡️ <b>Anti-Ban Delay:</b> 45s - 90s between joins\n"
-        f"<i>The bot will join in the background and notify you when finished.</i>",
+        f"<i>The bot will join in the background. If stopped or restarted, it will resume right where it stopped.</i>",
         parse_mode="HTML"
     )
     await query.answer()
 
-    # Run in background task
-    asyncio.create_task(safe_joiner.join_bulk_groups_safely(groups))
+    async def notify_progress(current, total, joined, failed, identifier):
+        if current % 10 == 0 or current == total:
+            for admin_id in config.ADMIN_IDS:
+                try:
+                    await query.bot.send_message(
+                        admin_id,
+                        f"⚡ <b>Auto-Joiner Progress:</b> {current}/{total} processed\n"
+                        f"✅ Joined: {joined} | ❌ Failed: {failed}\n"
+                        f"Latest: <code>{identifier}</code>",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+
+    asyncio.create_task(safe_joiner.resume_or_start_auto_join(notify_progress))
+
+@router.callback_query(F.data == "groups_stop_join")
+async def cb_stop_joiner(query: CallbackQuery):
+    if not config.is_admin(query.from_user.id):
+        return
+    safe_joiner.stop_joiner()
+    await query.answer("Auto-joiner stopped. You can resume anytime!", show_alert=True)
+    await cb_groups_menu(query, None)
 
 @router.callback_query(F.data == "groups_list_stats")
 async def cb_list_stats(query: CallbackQuery):
@@ -196,7 +225,6 @@ async def cb_reset_active(query: CallbackQuery):
         updated = await reset_all_group_statuses(session)
 
     await query.answer(f"Reset {updated} groups to ACTIVE status!", show_alert=True)
-    # Refresh menu
     await cb_groups_menu(query, None)
 
 @router.callback_query(F.data == "groups_purge_banned")

@@ -3,7 +3,7 @@ import asyncio
 import random
 import logging
 from telethon.tl.functions.channels import JoinChannelRequest
-from telethon.tl.functions.messages import ImportChatInviteRequest, CheckChatInviteRequest
+from telethon.tl.functions.messages import ImportChatInviteRequest
 from telethon.errors import (
     UserAlreadyParticipantError,
     InviteHashExpiredError,
@@ -15,7 +15,9 @@ from telethon.errors import (
 )
 from core.client import tg_manager
 from database.database import AsyncSessionLocal
-from database.crud import update_group_status
+from database.crud import update_group_status, get_unjoined_groups
+from sqlalchemy import update
+from database.models import Group
 import config
 
 logger = logging.getLogger(__name__)
@@ -48,6 +50,18 @@ def extract_group_identifier(raw_input: str) -> dict:
 class SafeGroupJoiner:
     def __init__(self):
         self.is_running = False
+        self.should_stop = False
+        self.bot_instance = None
+
+    def set_bot_instance(self, bot):
+        self.bot_instance = bot
+
+    async def mark_group_joined(self, group_id: int):
+        if not group_id:
+            return
+        async with AsyncSessionLocal() as session:
+            await session.execute(update(Group).where(Group.id == group_id).values(is_joined=True, status="ACTIVE"))
+            await session.commit()
 
     async def join_single_group(self, identifier: str, group_db_id: int = None) -> dict:
         client = tg_manager.client
@@ -59,36 +73,30 @@ class SafeGroupJoiner:
         val = parsed["value"]
 
         try:
-            entity = None
             if item_type == "invite_hash":
-                logger.info(f"Attempting to join private group with hash: {val}")
+                logger.info(f"Joining private group with hash: {val}")
                 try:
-                    updates = await client(ImportChatInviteRequest(val))
-                    if hasattr(updates, 'chats') and updates.chats:
-                        entity = updates.chats[0]
+                    await client(ImportChatInviteRequest(val))
                 except UserAlreadyParticipantError:
-                    return {"status": "ok", "reason": "Already participant", "joined": True}
+                    pass
                     
             elif item_type == "username":
-                logger.info(f"Attempting to join public group @{val}")
+                logger.info(f"Joining public group @{val}")
                 try:
-                    updates = await client(JoinChannelRequest(val))
-                    if hasattr(updates, 'chats') and updates.chats:
-                        entity = updates.chats[0]
+                    await client(JoinChannelRequest(val))
                 except UserAlreadyParticipantError:
-                    return {"status": "ok", "reason": "Already participant", "joined": True}
+                    pass
                     
             elif item_type == "chat_id":
                 try:
-                    entity = await client.get_entity(val)
+                    await client.get_entity(val)
                 except Exception as e:
                     return {"status": "error", "reason": f"Could not find chat ID: {e}"}
 
             if group_db_id:
-                async with AsyncSessionLocal() as session:
-                    await update_group_status(session, group_db_id, "ACTIVE", is_success=True)
+                await self.mark_group_joined(group_db_id)
 
-            return {"status": "ok", "reason": "Successfully joined", "joined": True}
+            return {"status": "ok", "reason": "Successfully joined / Verified", "joined": True}
 
         except FloodWaitError as e:
             logger.warning(f"Telegram FloodWait triggered while joining: wait {e.seconds}s")
@@ -118,35 +126,43 @@ class SafeGroupJoiner:
                     await update_group_status(session, group_db_id, "RESTRICTED", error=str(e))
             return {"status": "error", "reason": str(e)}
 
-    async def join_bulk_groups_safely(self, groups_list: list, progress_callback=None) -> dict:
+    async def resume_or_start_auto_join(self, progress_callback=None) -> dict:
         """
-        Joins multiple groups safely with random delays between 45s to 90s to avoid account ban.
+        Fetches all unjoined groups from DB and joins them safely with anti-ban delays.
+        Resumes automatically where it was previously stopped.
         """
+        if self.is_running:
+            return {"status": "already_running"}
+
+        async with AsyncSessionLocal() as session:
+            unjoined_groups = await get_unjoined_groups(session)
+
+        if not unjoined_groups:
+            logger.info("All target groups are already joined and verified.")
+            return {"total": 0, "joined": 0, "failed": 0, "status": "all_joined"}
+
         self.is_running = True
-        total = len(groups_list)
+        self.should_stop = False
+        total = len(unjoined_groups)
         joined = 0
         failed = 0
-        skipped = 0
-        
-        logger.info(f"Starting Safe Bulk Joiner for {total} groups with anti-ban delay...")
 
-        for idx, grp in enumerate(groups_list, 1):
-            if not self.is_running:
-                logger.info("Bulk joiner cancelled by admin.")
+        logger.info(f"Resuming Safe Auto-Joiner for {total} unjoined groups...")
+
+        for idx, grp in enumerate(unjoined_groups, 1):
+            if self.should_stop or not self.is_running:
+                logger.info("Auto-joiner paused/stopped by admin.")
                 break
 
-            grp_id = grp.id if hasattr(grp, 'id') else None
-            identifier = grp.identifier if hasattr(grp, 'identifier') else str(grp)
-
-            res = await self.join_single_group(identifier, grp_id)
+            res = await self.join_single_group(grp.identifier, grp.id)
             if res.get("status") == "ok":
                 joined += 1
             elif res.get("status") == "flood_wait":
                 wait_sec = res.get("seconds", 60)
-                logger.info(f"Sleeping for {wait_sec}s due to Telegram FloodWait...")
+                logger.info(f"FloodWait: sleeping {wait_sec}s...")
                 await asyncio.sleep(wait_sec + 5)
                 # Retry once
-                res2 = await self.join_single_group(identifier, grp_id)
+                res2 = await self.join_single_group(grp.identifier, grp.id)
                 if res2.get("status") == "ok":
                     joined += 1
                 else:
@@ -156,17 +172,22 @@ class SafeGroupJoiner:
 
             if progress_callback:
                 try:
-                    await progress_callback(idx, total, joined, failed, identifier)
-                except Exception as e:
-                    logger.warning(f"Joiner progress callback error: {e}")
+                    await progress_callback(idx, total, joined, failed, grp.identifier)
+                except Exception:
+                    pass
 
-            # Anti-ban sleep between joins
-            if idx < total:
+            # Anti-ban sleep between joins (random 45-90s)
+            if idx < total and not self.should_stop:
                 delay = random.randint(config.MIN_JOIN_DELAY, config.MAX_JOIN_DELAY)
                 logger.info(f"Anti-ban pause: sleeping {delay}s before next group join ({idx}/{total})...")
                 await asyncio.sleep(delay)
 
         self.is_running = False
-        return {"total": total, "joined": joined, "failed": failed, "skipped": skipped}
+        self.should_stop = False
+        return {"total": total, "joined": joined, "failed": failed, "status": "completed"}
+
+    def stop_joiner(self):
+        self.should_stop = True
+        self.is_running = False
 
 safe_joiner = SafeGroupJoiner()

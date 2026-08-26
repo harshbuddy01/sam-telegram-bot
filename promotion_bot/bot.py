@@ -57,8 +57,10 @@ async def on_startup(bot: Bot):
     logger.info("Starting Telegram Sender User Client...")
     await tg_manager.start()
 
-    # Pass bot to broadcaster for admin alerts
+    # Pass bot to broadcaster and joiner for admin alerts
     broadcaster.set_bot_instance(bot)
+    from core.joiner import safe_joiner
+    safe_joiner.set_bot_instance(bot)
 
     # Start repeating scheduler
     logger.info("Starting Repeating Broadcast Scheduler...")
