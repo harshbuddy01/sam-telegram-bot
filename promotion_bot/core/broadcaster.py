@@ -35,6 +35,7 @@ class SafeBroadcaster:
     def __init__(self):
         self.is_broadcasting = False
         self.is_paused = False
+        self.should_stop = False
         self.current_cycle_id = None
         self.current_index = 0
         self.total_targets = 0
@@ -42,7 +43,9 @@ class SafeBroadcaster:
         self.failed_count = 0
         self.skipped_count = 0
         self.start_time = 0
-        self.last_error_alert = ""
+        self.sent_groups_list = []
+        self.failed_groups_list = []
+        self.remaining_groups_list = []
         self.bot_instance = None  # Reference to Aiogram Bot to send notifications
 
     def set_bot_instance(self, bot):
@@ -67,6 +70,7 @@ class SafeBroadcaster:
             return {"is_running": False}
 
         elapsed = int(time.time() - self.start_time)
+        remaining = max(0, self.total_targets - self.current_index)
         return {
             "is_running": True,
             "is_paused": self.is_paused,
@@ -76,17 +80,15 @@ class SafeBroadcaster:
             "success_count": self.success_count,
             "failed_count": self.failed_count,
             "skipped_count": self.skipped_count,
+            "remaining_count": remaining,
             "elapsed_seconds": elapsed,
             "progress_percent": round((self.current_index / max(self.total_targets, 1)) * 100, 1)
         }
 
     async def send_to_single_group(self, client: TelegramClient, group, promo) -> dict:
-        """
-        Sends the promotion message to a single group with anti-ban protections.
-        """
         identifier = group.identifier
         
-        # 1. Prepare unique anti-hash Spintax variation of promo message
+        # Prepare unique anti-hash Spintax variation
         message_text = prepare_broadcast_message(promo.text, apply_spintax=True, apply_jitter=True)
         message_text = parse_shortcodes_to_tg_emoji(message_text)
 
@@ -105,7 +107,7 @@ class SafeBroadcaster:
                 else:
                     return {"status": "error", "reason": "Invite link format - must be joined first"}
 
-            # Send message based on media type
+            # Send message
             if promo.media_type == "photo" and promo.media_path:
                 await client.send_file(
                     entity,
@@ -131,19 +133,15 @@ class SafeBroadcaster:
             return {"status": "ok", "reason": "Sent successfully"}
 
         except SlowModeWaitError as e:
-            logger.warning(f"Slowmode active in {identifier}: wait {e.seconds}s")
-            return {"status": "slowmode", "reason": f"Slowmode active: {e.seconds}s", "seconds": e.seconds}
+            return {"status": "slowmode", "reason": f"Slowmode active: wait {e.seconds}s", "seconds": e.seconds}
 
         except ChatWriteForbiddenError:
-            logger.warning(f"Posting forbidden in {identifier}")
             return {"status": "forbidden", "reason": "No permission to send messages (ChatWriteForbidden)"}
 
         except UserBannedInChannelError:
-            logger.warning(f"Account banned or muted in {identifier}")
             return {"status": "banned", "reason": "Account is banned/muted in this group"}
 
         except ChatSendMediaForbiddenError:
-            logger.warning(f"Media forbidden in {identifier}, trying text fallback...")
             try:
                 await client.send_message(entity, message_text, parse_mode="html", link_preview=False)
                 return {"status": "ok", "reason": "Sent as text fallback (Media Forbidden)"}
@@ -157,90 +155,86 @@ class SafeBroadcaster:
             return {"status": "forbidden", "reason": "Only admins can send messages"}
 
         except PeerFloodError:
-            logger.error("Telegram PeerFloodError triggered! Too many requests.")
             return {"status": "peer_flood", "reason": "Telegram PeerFlood triggered. Pausing broadcast."}
 
         except FloodWaitError as e:
-            logger.warning(f"Telegram FloodWaitError: wait {e.seconds}s")
             return {"status": "flood_wait", "reason": f"FloodWait: {e.seconds}s", "seconds": e.seconds}
 
         except Exception as e:
-            logger.error(f"Failed to send to {identifier}: {e}")
             return {"status": "error", "reason": str(e)}
 
-    async def execute_broadcast_round(self, trigger_type: str = "SCHEDULED"):
-        """
-        Main execution loop for a full broadcasting cycle across all target groups.
-        """
+    async def execute_broadcast_round(self, trigger_type: str = "SCHEDULED") -> dict:
         if self.is_broadcasting:
             logger.warning("Broadcast round is already running! Skipping duplicate trigger.")
-            return
+            return {"status": "already_running"}
 
         client = tg_manager.client
         if not client or not tg_manager.is_connected:
-            msg = "⚠️ <b>Broadcast Skipped:</b> Userbot sender client is not connected or authorized. Please login first."
+            msg = "⚠️ <b>Broadcast Skipped:</b> No active Telegram sender account connected. Please login in /menu."
             logger.warning(msg)
             await self.notify_admins(msg)
-            return
+            return {"status": "not_authorized"}
+
+        me = await tg_manager.get_me()
+        sender_badge = f"@{me.username or me.first_name}" if me else "Sender Account"
 
         async with AsyncSessionLocal() as session:
-            # Check if broadcast is enabled
             is_enabled = await get_setting(session, "broadcast_enabled", "true")
             if is_enabled.lower() != "true" and trigger_type == "SCHEDULED":
-                logger.info("Broadcasting is currently disabled by Admin in settings.")
-                return
+                logger.info("Broadcasting is disabled in settings.")
+                return {"status": "disabled"}
 
             target_groups = await get_active_groups(session)
             if not target_groups:
-                logger.info("No active groups found to broadcast to.")
+                logger.info("No active groups found.")
                 await self.notify_admins("⚠️ <b>Broadcast Skipped:</b> No active target groups found. Add groups using /menu.")
-                return
+                return {"status": "no_groups"}
 
             promo = await get_active_promo_message(session)
-            
-            # Anti-ban dynamic settings
             min_delay = int(await get_setting(session, "min_delay_sec", str(config.MIN_DELAY_PER_GROUP)))
             max_delay = int(await get_setting(session, "max_delay_sec", str(config.MAX_DELAY_PER_GROUP)))
             batch_size = int(await get_setting(session, "batch_size", str(config.BATCH_SIZE)))
             batch_cooldown = int(await get_setting(session, "batch_cooldown_sec", str(config.BATCH_COOLDOWN)))
 
-            # Initialize Cycle
             cycle = await create_cycle(session, len(target_groups))
             self.current_cycle_id = cycle.id
 
         self.is_broadcasting = True
         self.is_paused = False
+        self.should_stop = False
         self.total_targets = len(target_groups)
         self.current_index = 0
         self.success_count = 0
         self.failed_count = 0
         self.skipped_count = 0
         self.start_time = time.time()
+        self.sent_groups_list = []
+        self.failed_groups_list = []
+        self.remaining_groups_list = [g.identifier for g in target_groups]
 
         start_msg = (
             f"🚀 <b>Broadcast Cycle #{self.current_cycle_id} Started</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📱 <b>Sender Account:</b> {sender_badge}\n"
             f"🎯 <b>Total Target Groups:</b> {self.total_targets}\n"
             f"⏱️ <b>Trigger:</b> {trigger_type}\n"
-            f"🛡️ <b>Anti-Ban Delay:</b> {min_delay}s - {max_delay}s per group\n"
-            f"☕ <b>Batch Cooldown:</b> {batch_cooldown}s every {batch_size} groups"
+            f"🛡️ <b>Anti-Ban Protection:</b> {min_delay}s–{max_delay}s Jitter + Anti-Hash Spintax"
         )
         await self.notify_admins(start_msg)
-
-        failed_details = []
 
         try:
             for idx, group in enumerate(target_groups, 1):
                 while self.is_paused:
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(3)
                 
-                if not self.is_broadcasting:
+                if self.should_stop or not self.is_broadcasting:
                     logger.info("Broadcast was stopped manually by Admin.")
                     break
 
                 self.current_index = idx
+                if group.identifier in self.remaining_groups_list:
+                    self.remaining_groups_list.remove(group.identifier)
 
-                # Send
                 res = await self.send_to_single_group(client, group, promo)
                 status = res.get("status")
                 reason = res.get("reason", "Unknown")
@@ -248,53 +242,54 @@ class SafeBroadcaster:
                 async with AsyncSessionLocal() as session:
                     if status == "ok":
                         self.success_count += 1
+                        self.sent_groups_list.append(group.identifier)
                         await update_group_status(session, group.id, "ACTIVE", is_success=True)
                         await log_broadcast_result(session, self.current_cycle_id, group.id, group.identifier, "SENT")
                     elif status == "slowmode":
                         self.skipped_count += 1
                         sec = res.get("seconds", 60)
+                        self.failed_groups_list.append({"identifier": group.identifier, "reason": f"Slowmode ({sec}s)"})
                         await update_group_status(session, group.id, "SLOWMODE", error=reason, slowmode_sec=sec)
                         await log_broadcast_result(session, self.current_cycle_id, group.id, group.identifier, "SLOWMODE", reason)
-                        failed_details.append(f"• <b>{group.identifier}</b>: Slowmode ({sec}s)")
                     elif status == "flood_wait":
                         wait_seconds = res.get("seconds", 60)
-                        logger.warning(f"Telegram FloodWait: sleeping {wait_seconds}s...")
-                        await self.notify_admins(f"⏳ <b>Telegram FloodWait:</b> Pausing for {wait_seconds}s to protect your account...")
+                        await self.notify_admins(f"⏳ <b>Telegram FloodWait:</b> Pausing {wait_seconds}s to protect {sender_badge}...")
                         await asyncio.sleep(wait_seconds + 5)
-                        # Retry once after sleep
+                        # Retry once
                         res2 = await self.send_to_single_group(client, group, promo)
                         if res2.get("status") == "ok":
                             self.success_count += 1
+                            self.sent_groups_list.append(group.identifier)
                             await update_group_status(session, group.id, "ACTIVE", is_success=True)
                             await log_broadcast_result(session, self.current_cycle_id, group.id, group.identifier, "SENT")
                         else:
                             self.failed_count += 1
+                            self.failed_groups_list.append({"identifier": group.identifier, "reason": res2.get("reason")})
                             await update_group_status(session, group.id, "RESTRICTED", error=res2.get("reason"))
                             await log_broadcast_result(session, self.current_cycle_id, group.id, group.identifier, "FAILED", res2.get("reason"))
-                            failed_details.append(f"• <b>{group.identifier}</b>: {res2.get('reason')}")
                     elif status == "peer_flood":
                         self.failed_count += 1
+                        self.failed_groups_list.append({"identifier": group.identifier, "reason": reason})
                         await log_broadcast_result(session, self.current_cycle_id, group.id, group.identifier, "FAILED", reason)
-                        await self.notify_admins("⚠️ <b>PEER FLOOD DETECTED:</b> Halting current broadcast cycle early to safeguard your phone number!")
+                        await self.notify_admins(f"⚠️ <b>PEER FLOOD DETECTED:</b> Halting round early to safeguard {sender_badge}!")
                         break
                     elif status in ["forbidden", "banned", "private"]:
                         self.failed_count += 1
+                        self.failed_groups_list.append({"identifier": group.identifier, "reason": reason})
                         db_status = "BANNED" if status == "banned" else "RESTRICTED"
                         await update_group_status(session, group.id, db_status, error=reason)
                         await log_broadcast_result(session, self.current_cycle_id, group.id, group.identifier, "FAILED", reason)
-                        failed_details.append(f"• <b>{group.identifier}</b>: {reason}")
                     else:
                         self.failed_count += 1
+                        self.failed_groups_list.append({"identifier": group.identifier, "reason": reason})
                         await update_group_status(session, group.id, "RESTRICTED", error=reason)
                         await log_broadcast_result(session, self.current_cycle_id, group.id, group.identifier, "FAILED", reason)
-                        failed_details.append(f"• <b>{group.identifier}</b>: {reason}")
 
-                # Anti-ban batch cooldown pause
+                # Batch cooldown & jitter
                 if idx % batch_size == 0 and idx < self.total_targets:
                     logger.info(f"Anti-ban batch cooldown: pausing {batch_cooldown}s after {idx} groups...")
                     await asyncio.sleep(batch_cooldown)
                 elif idx < self.total_targets:
-                    # Random jitter sleep between groups
                     sleep_sec = random.randint(min_delay, max_delay)
                     await asyncio.sleep(sleep_sec)
 
@@ -306,7 +301,7 @@ class SafeBroadcaster:
             duration = int(time.time() - self.start_time)
             mins = duration // 60
             secs = duration % 60
-            final_status = "COMPLETED" if self.current_index >= self.total_targets else "PAUSED"
+            final_status = "COMPLETED" if self.current_index >= self.total_targets else ("STOPPED" if self.should_stop else "PAUSED")
 
             async with AsyncSessionLocal() as session:
                 await finish_cycle(
@@ -319,30 +314,66 @@ class SafeBroadcaster:
                     duration
                 )
 
-            # Build comprehensive report
-            failed_snippet = ""
-            if failed_details:
-                failed_sample = failed_details[:10]
-                failed_snippet = "\n\n⚠️ <b>Sample Failed Groups:</b>\n" + "\n".join(failed_sample)
-                if len(failed_details) > 10:
-                    failed_snippet += f"\n<i>...and {len(failed_details) - 10} more. See detailed logs in /menu.</i>"
-
-            summary_msg = (
-                f"📊 <b>Broadcast Cycle #{self.current_cycle_id} Summary</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"✅ <b>Delivered Successfully:</b> {self.success_count} groups\n"
-                f"❌ <b>Failed to Send:</b> {self.failed_count} groups\n"
-                f"⏳ <b>Slowmode / Skipped:</b> {self.skipped_count} groups\n"
-                f"⏱️ <b>Total Time Taken:</b> {mins}m {secs}s\n"
-                f"🛡️ <b>Account Status:</b> Protected & Safe"
-                f"{failed_snippet}"
-            )
-            await self.notify_admins(summary_msg)
+            # Send Detailed Completion / Stop Breakdown
+            report = self.generate_detailed_summary_report(mins, secs, final_status, sender_badge)
+            await self.notify_admins(report)
 
             self.is_broadcasting = False
             self.is_paused = False
+            self.should_stop = False
+
+        return {
+            "cycle_id": self.current_cycle_id,
+            "status": final_status,
+            "sent": self.success_count,
+            "failed": self.failed_count,
+            "remaining": len(self.remaining_groups_list),
+            "duration_min": mins
+        }
+
+    def generate_detailed_summary_report(self, mins: int, secs: int, status: str, sender: str) -> str:
+        remaining_count = len(self.remaining_groups_list)
+        
+        # Sent samples
+        sent_samples = [f"• <code>{g}</code>" for g in self.sent_groups_list[:6]]
+        sent_text = "\n".join(sent_samples) if sent_samples else "<i>None</i>"
+        if len(self.sent_groups_list) > 6:
+            sent_text += f"\n<i>...and {len(self.sent_groups_list) - 6} more sent successfully.</i>"
+
+        # Failed samples
+        failed_samples = [f"• <b>{f['identifier']}</b>: <code>{f['reason']}</code>" for f in self.failed_groups_list[:6]]
+        failed_text = "\n".join(failed_samples) if failed_samples else "<i>None</i>"
+        if len(self.failed_groups_list) > 6:
+            failed_text += f"\n<i>...and {len(self.failed_groups_list) - 6} more failed.</i>"
+
+        # Remaining samples
+        rem_samples = [f"• <code>{g}</code>" for g in self.remaining_groups_list[:5]]
+        rem_text = "\n".join(rem_samples) if rem_samples else "<i>0 remaining (All processed)</i>"
+        if remaining_count > 5:
+            rem_text += f"\n<i>...and {remaining_count - 5} more pending.</i>"
+
+        status_emoji = "🛑 STOPPED" if status == "STOPPED" else "🎉 COMPLETED"
+
+        report = (
+            f"📊 <b>BROADCAST SUMMARY — CYCLE #{self.current_cycle_id} ({status_emoji})</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📱 <b>Sender Account:</b> {sender}\n"
+            f"⏱️ <b>Time Elapsed:</b> {mins}m {secs}s\n"
+            f"🎯 <b>Total Groups Targeted:</b> {self.total_targets}\n\n"
+            f"📈 <b>Performance Metrics:</b>\n"
+            f"• ✅ <b>Delivered Successfully:</b> <code>{self.success_count} groups</code>\n"
+            f"• ❌ <b>Failed / Banned:</b> <code>{self.failed_count} groups</code>\n"
+            f"• ⏳ <b>Slowmode Skipped:</b> <code>{self.skipped_count} groups</code>\n"
+            f"• ⏸️ <b>Remaining / Unsent:</b> <code>{remaining_count} groups</code>\n\n"
+            f"✅ <b>Delivered Groups Sample:</b>\n{sent_text}\n\n"
+            f"⚠️ <b>Failed Groups & Reasons:</b>\n{failed_text}\n\n"
+            f"📋 <b>Remaining Groups:</b>\n{rem_text}\n\n"
+            "🛡️ <i>Your account remains safe & protected. Full logs stored in /menu.</i>"
+        )
+        return report
 
     def stop_broadcast(self):
+        self.should_stop = True
         self.is_broadcasting = False
         self.is_paused = False
 

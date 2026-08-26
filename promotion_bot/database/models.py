@@ -6,6 +6,23 @@ from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
+class SenderAccount(Base):
+    __tablename__ = "sender_accounts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    phone = Column(String(50), unique=True, nullable=False, index=True)
+    session_string = Column(Text, nullable=False)
+    user_id = Column(BigInteger, nullable=True)
+    username = Column(String(100), nullable=True)
+    first_name = Column(String(100), nullable=True)
+    is_premium = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=False)  # Currently selected account for broadcasting
+    status = Column(String(50), default="ACTIVE")  # ACTIVE, NEED_LOGIN, MUTED, BANNED
+    
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
 class Group(Base):
     __tablename__ = "target_groups"
 
@@ -52,7 +69,7 @@ class BroadcastCycle(Base):
     started_at = Column(DateTime, default=datetime.datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
     
-    # Status: 'RUNNING', 'COMPLETED', 'PAUSED', 'FAILED'
+    # Status: 'RUNNING', 'COMPLETED', 'PAUSED', 'STOPPED', 'FAILED'
     status = Column(String(50), default="RUNNING")
     
     total_targets = Column(Integer, default=0)
@@ -77,7 +94,7 @@ class BroadcastLog(Base):
     error_reason = Column(Text, nullable=True)
     sent_at = Column(DateTime, default=datetime.datetime.utcnow)
 
-    group = relationship("Group", back_populates="logs")
+    group = relationship("Group", back_populates="group_logs", cascade="none") if hasattr(Group, "group_logs") else relationship("Group", back_populates="logs")
     cycle = relationship("BroadcastCycle", back_populates="logs")
 
 

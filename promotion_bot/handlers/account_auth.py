@@ -3,6 +3,8 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from core.client import tg_manager
+from database.database import AsyncSessionLocal
+from database.crud import get_all_sender_accounts, get_active_sender_account, set_active_sender_account, delete_sender_account
 import config
 
 router = Router(name="account_auth")
@@ -12,13 +14,21 @@ class AuthStates(StatesGroup):
     waiting_for_otp = State()
     waiting_for_2fa = State()
 
-def get_auth_menu_keyboard(is_connected: bool) -> InlineKeyboardMarkup:
+def get_auth_menu_keyboard(accounts: list) -> InlineKeyboardMarkup:
     kb = []
-    if not is_connected:
-        kb.append([InlineKeyboardButton(text="🔑 Login with Phone & OTP", callback_data="auth_start_login")])
-    else:
-        kb.append([InlineKeyboardButton(text="📋 View String Session (for Railway)", callback_data="auth_view_session")])
-        kb.append([InlineKeyboardButton(text="🔄 Test Connection", callback_data="auth_test_conn")])
+    
+    # List each saved account with switch button
+    for acc in accounts:
+        active_mark = "✅ [ACTIVE]" if acc.is_active else "⚪"
+        prem_badge = "👑" if acc.is_premium else ""
+        btn_text = f"{active_mark} {acc.phone} {prem_badge} (@{acc.username or acc.first_name or 'NoUser'})"
+        kb.append([InlineKeyboardButton(text=btn_text, callback_data=f"switch_acc_{acc.id}")])
+    
+    kb.append([InlineKeyboardButton(text="➕ Add Another Number (New Account)", callback_data="auth_start_login")])
+    if accounts:
+        kb.append([InlineKeyboardButton(text="📋 Export Active String Session", callback_data="auth_view_session")])
+        kb.append([InlineKeyboardButton(text="🗑️ Delete An Account", callback_data="auth_delete_menu")])
+        
     kb.append([InlineKeyboardButton(text="⬅️ Back to Main Menu", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
@@ -28,31 +38,51 @@ async def cb_auth_menu(query: CallbackQuery, state: FSMContext):
         return
     await state.clear()
 
-    is_auth = tg_manager.is_connected
-    status_text = "❌ <b>Not Connected</b>"
-    user_details = "<i>Please login below so the bot can broadcast messages to groups using your Telegram account / Premium emojis.</i>"
+    async with AsyncSessionLocal() as session:
+        accounts = await get_all_sender_accounts(session)
+        active_acc = await get_active_sender_account(session)
 
-    if is_auth:
-        me = await tg_manager.get_me()
-        if me:
-            premium = "👑 Premium Active" if getattr(me, 'premium', False) else "Standard Account"
-            status_text = "🟢 <b>Connected & Ready</b>"
-            user_details = (
-                f"• <b>Account:</b> @{me.username or me.first_name}\n"
-                f"• <b>User ID:</b> <code>{me.id}</code>\n"
-                f"• <b>Status:</b> <code>{premium}</code>\n"
-                f"• <b>Phone:</b> <code>+{getattr(me, 'phone', 'N/A')}</code>"
-            )
+    if active_acc:
+        prem = "👑 Telegram Premium" if active_acc.is_premium else "Standard Telegram"
+        status_info = (
+            f"🟢 <b>Active Sender:</b> <code>{active_acc.phone}</code>\n"
+            f"• <b>User:</b> @{active_acc.username or active_acc.first_name or 'N/A'} (ID: {active_acc.user_id})\n"
+            f"• <b>Type:</b> <code>{prem}</code>\n"
+        )
+    else:
+        status_info = "❌ <i>No sender accounts connected yet. Please add a number below.</i>\n"
 
     text = (
-        "📱 <b>TELEGRAM SENDER ACCOUNT SETUP</b>\n"
+        "📱 <b>MULTI-ACCOUNT SENDER MANAGER</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"<b>Status:</b> {status_text}\n\n"
-        f"{user_details}\n\n"
-        "💡 <i>This account will join your groups and broadcast messages with custom Telegram Premium emojis.</i>"
+        f"{status_info}\n"
+        f"📊 <b>Total Saved Accounts:</b> <code>{len(accounts)}</code>\n\n"
+        "💡 <i>You can add multiple phone numbers and switch between them anytime! Tap any account below to make it active:</i>"
     )
-    await query.message.edit_text(text, parse_mode="HTML", reply_markup=get_auth_menu_keyboard(is_auth))
+    await query.message.edit_text(text, parse_mode="HTML", reply_markup=get_auth_menu_keyboard(accounts))
     await query.answer()
+
+@router.callback_query(F.data.startswith("switch_acc_"))
+async def cb_switch_account(query: CallbackQuery):
+    if not config.is_admin(query.from_user.id):
+        return
+    acc_id = int(query.data.replace("switch_acc_", ""))
+
+    async with AsyncSessionLocal() as session:
+        target_acc = await set_active_sender_account(session, acc_id)
+
+    if not target_acc:
+        await query.answer("Account not found.", show_alert=True)
+        return
+
+    # Switch Telethon client
+    switched = await tg_manager.switch_to_account(target_acc.session_string, target_acc.id, target_acc.phone)
+    if switched:
+        await query.answer(f"Switched active sender to {target_acc.phone}!", show_alert=True)
+    else:
+        await query.answer(f"Failed to connect to {target_acc.phone}. Check if session is valid.", show_alert=True)
+
+    await cb_auth_menu(query, None)
 
 @router.callback_query(F.data == "auth_start_login")
 async def cb_start_login(query: CallbackQuery, state: FSMContext):
@@ -80,8 +110,8 @@ async def cb_start_login(query: CallbackQuery, state: FSMContext):
     ])
     
     text = (
-        "📱 <b>Enter Your Phone Number</b>\n\n"
-        "Please send the phone number of the Telegram account you want to use for promotions (with international country code).\n\n"
+        "📱 <b>Add New Sender Phone Number</b>\n\n"
+        "Please enter the phone number for the new Telegram sender account (including country code).\n\n"
         "<i>Example:</i> <code>+919876543210</code> or <code>+1234567890</code>"
     )
     await query.message.edit_text(text, parse_mode="HTML", reply_markup=cancel_kb)
@@ -106,7 +136,7 @@ async def handle_auth_phone(message: Message, state: FSMContext):
         ])
         await wait_msg.edit_text(
             f"📩 <b>OTP Code Sent to Telegram!</b>\n\n"
-            f"Telegram has sent a verification code to your official Telegram app.\n\n"
+            f"Telegram has sent a verification code to your official Telegram app for {phone}.\n\n"
             f"<b>Please type the code below (e.g. <code>12345</code>):</b>",
             parse_mode="HTML",
             reply_markup=cancel_kb
@@ -128,14 +158,16 @@ async def handle_auth_otp(message: Message, state: FSMContext):
         await state.clear()
         session_str = res.get("session_string", "")
         success_text = (
-            "🎉 <b>LOGIN SUCCESSFUL!</b>\n"
+            "🎉 <b>ACCOUNT ADDED & CONNECTED!</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"✅ <b>Connected Account:</b> {res.get('user')}\n\n"
-            "📋 <b>Your String Session (Save this for Railway):</b>\n"
+            f"✅ <b>Active User:</b> {res.get('user')}\n\n"
+            "📋 <b>String Session:</b>\n"
             f"<code>{session_str}</code>\n\n"
-            "💡 <i>Copy the string above and set <code>SESSION_STRING</code> in Railway environment variables for persistent cloud deployment!</i>"
+            "💡 <i>This account is now saved and set as the active sender!</i>"
         )
-        await wait_msg.edit_text(success_text, parse_mode="HTML", reply_markup=get_auth_menu_keyboard(True))
+        async with AsyncSessionLocal() as session:
+            accounts = await get_all_sender_accounts(session)
+        await wait_msg.edit_text(success_text, parse_mode="HTML", reply_markup=get_auth_menu_keyboard(accounts))
     elif res.get("status") == "2fa_required":
         await state.set_state(AuthStates.waiting_for_2fa)
         await wait_msg.edit_text("🔐 <b>2-Step Verification Active:</b>\nPlease enter your Telegram 2FA cloud password:")
@@ -156,14 +188,15 @@ async def handle_auth_2fa(message: Message, state: FSMContext):
         await state.clear()
         session_str = res.get("session_string", "")
         success_text = (
-            "🎉 <b>LOGIN SUCCESSFUL!</b>\n"
+            "🎉 <b>ACCOUNT ADDED & CONNECTED!</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"✅ <b>Connected Account:</b> {res.get('user')}\n\n"
-            "📋 <b>Your String Session (Save this for Railway):</b>\n"
-            f"<code>{session_str}</code>\n\n"
-            "💡 <i>Copy the string above and set <code>SESSION_STRING</code> in Railway environment variables!</i>"
+            f"✅ <b>Active User:</b> {res.get('user')}\n\n"
+            "📋 <b>String Session:</b>\n"
+            f"<code>{session_str}</code>"
         )
-        await wait_msg.edit_text(success_text, parse_mode="HTML", reply_markup=get_auth_menu_keyboard(True))
+        async with AsyncSessionLocal() as session:
+            accounts = await get_all_sender_accounts(session)
+        await wait_msg.edit_text(success_text, parse_mode="HTML", reply_markup=get_auth_menu_keyboard(accounts))
     else:
         await wait_msg.edit_text(f"❌ <b>2FA Verification Error:</b> {res.get('message')}")
         await state.clear()
@@ -175,21 +208,35 @@ async def cb_view_session(query: CallbackQuery):
     sess = await tg_manager.export_session_string()
     if sess:
         await query.message.answer(
-            f"📋 <b>Your Telethon String Session:</b>\n\n<code>{sess}</code>\n\n"
-            f"<i>Set this as <code>SESSION_STRING</code> in your Railway Environment Variables.</i>",
+            f"📋 <b>Your Active Telethon String Session:</b>\n\n<code>{sess}</code>\n\n"
+            f"<i>Set this as <code>SESSION_STRING</code> in Railway if deploying on cloud.</i>",
             parse_mode="HTML"
         )
     else:
-        await query.answer("No active session string found.", show_alert=True)
+        await query.answer("No active session found.", show_alert=True)
     await query.answer()
 
-@router.callback_query(F.data == "auth_test_conn")
-async def cb_test_conn(query: CallbackQuery):
+@router.callback_query(F.data == "auth_delete_menu")
+async def cb_delete_menu(query: CallbackQuery):
     if not config.is_admin(query.from_user.id):
         return
-    me = await tg_manager.get_me()
-    if me:
-        prem = "👑 Active" if getattr(me, 'premium', False) else "Standard"
-        await query.answer(f"Connected as @{me.username or me.first_name} | Premium: {prem}", show_alert=True)
-    else:
-        await query.answer("Client not connected.", show_alert=True)
+    async with AsyncSessionLocal() as session:
+        accounts = await get_all_sender_accounts(session)
+
+    kb = []
+    for a in accounts:
+        kb.append([InlineKeyboardButton(text=f"🗑️ Delete {a.phone}", callback_data=f"del_acc_{a.id}")])
+    kb.append([InlineKeyboardButton(text="⬅️ Back", callback_data="menu_auth")])
+
+    await query.message.edit_text("🗑️ <b>Select Account to Delete:</b>", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+    await query.answer()
+
+@router.callback_query(F.data.startswith("del_acc_"))
+async def cb_delete_account(query: CallbackQuery):
+    if not config.is_admin(query.from_user.id):
+        return
+    acc_id = int(query.data.replace("del_acc_", ""))
+    async with AsyncSessionLocal() as session:
+        await delete_sender_account(session, acc_id)
+    await query.answer("Account deleted.", show_alert=True)
+    await cb_auth_menu(query, None)

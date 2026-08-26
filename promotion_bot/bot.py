@@ -21,6 +21,7 @@ from core.scheduler import scheduler
 # Import Handlers
 from handlers import (
     admin_menu,
+    campaign_wizard,
     message_editor,
     group_manager,
     broadcast_ctrl,
@@ -52,7 +53,7 @@ async def on_startup(bot: Bot):
         await seed_default_settings(session)
     logger.info("Database & settings initialized successfully.")
 
-    # Initialize Telethon Client
+    # Initialize Telethon Client (loads active sender account)
     logger.info("Starting Telegram Sender User Client...")
     await tg_manager.start()
 
@@ -81,6 +82,7 @@ async def main():
 
     # Register Handler Routers
     dp.include_router(admin_menu.router)
+    dp.include_router(campaign_wizard.router)
     dp.include_router(message_editor.router)
     dp.include_router(group_manager.router)
     dp.include_router(broadcast_ctrl.router)

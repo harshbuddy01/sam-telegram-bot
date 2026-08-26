@@ -4,6 +4,8 @@ from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.tl.types import User
 import config
+from database.database import AsyncSessionLocal
+from database.crud import get_active_sender_account, add_or_update_sender_account, get_all_sender_accounts
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +15,8 @@ class TelegramClientManager:
     def __init__(self):
         self.client: TelegramClient | None = None
         self.is_connected = False
+        self.active_account_id = None
+        self.active_phone = None
         self.phone = None
         self.phone_code_hash = None
 
@@ -44,15 +48,23 @@ class TelegramClientManager:
             logger.warning("API_ID or API_HASH is not set! Userbot sender cannot start.")
             return False
 
-        if not self.client:
-            self.initialize_client()
+        # Check if we have an active sender account in DB
+        async with AsyncSessionLocal() as session:
+            active_acc = await get_active_sender_account(session)
+            if active_acc and active_acc.session_string:
+                logger.info(f"Loading active sender account from DB: {active_acc.phone}")
+                self.initialize_client(active_acc.session_string)
+                self.active_account_id = active_acc.id
+                self.active_phone = active_acc.phone
+            else:
+                self.initialize_client()
 
         try:
             await self.client.connect()
             self.is_connected = await self.client.is_user_authorized()
             if self.is_connected:
                 me: User = await self.client.get_me()
-                logger.info(f"Userbot connected successfully as @{me.username or me.first_name} (ID: {me.id}, Premium: {me.premium})")
+                logger.info(f"Userbot connected successfully as @{me.username or me.first_name} (ID: {me.id}, Premium: {getattr(me, 'premium', False)})")
                 return True
             else:
                 logger.warning("Userbot client is NOT authorized yet. Please login via Bot menu or generate session string.")
@@ -62,8 +74,30 @@ class TelegramClientManager:
             self.is_connected = False
             return False
 
+    async def switch_to_account(self, session_string: str, account_id: int = None, phone: str = None) -> bool:
+        """
+        Disconnects current client and connects using another saved account session string.
+        """
+        try:
+            if self.client and self.client.is_connected():
+                await self.client.disconnect()
+
+            self.initialize_client(session_string)
+            await self.client.connect()
+            self.is_connected = await self.client.is_user_authorized()
+            if self.is_connected:
+                self.active_account_id = account_id
+                self.active_phone = phone
+                me = await self.client.get_me()
+                logger.info(f"Switched active sender account to @{me.username or me.first_name} ({phone})")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Failed to switch account: {e}")
+            return False
+
     async def get_me(self):
-        if self.client and await self.client.is_user_authorized():
+        if self.client and self.client.is_connected() and await self.client.is_user_authorized():
             return await self.client.get_me()
         return None
 
@@ -102,6 +136,22 @@ class TelegramClientManager:
             self.is_connected = True
             session_str = await self.export_session_string()
             me = await self.client.get_me()
+            
+            # Save account into database
+            async with AsyncSessionLocal() as session:
+                acc = await add_or_update_sender_account(
+                    session=session,
+                    phone=self.phone,
+                    session_string=session_str,
+                    user_id=me.id,
+                    username=me.username,
+                    first_name=me.first_name,
+                    is_premium=getattr(me, 'premium', False) or False,
+                    set_active=True
+                )
+                self.active_account_id = acc.id
+                self.active_phone = acc.phone
+
             return {
                 "status": "ok",
                 "session_string": session_str,
@@ -116,6 +166,22 @@ class TelegramClientManager:
                         self.is_connected = True
                         session_str = await self.export_session_string()
                         me = await self.client.get_me()
+                        
+                        # Save account into database
+                        async with AsyncSessionLocal() as session:
+                            acc = await add_or_update_sender_account(
+                                session=session,
+                                phone=self.phone,
+                                session_string=session_str,
+                                user_id=me.id,
+                                username=me.username,
+                                first_name=me.first_name,
+                                is_premium=getattr(me, 'premium', False) or False,
+                                set_active=True
+                            )
+                            self.active_account_id = acc.id
+                            self.active_phone = acc.phone
+
                         return {
                             "status": "ok",
                             "session_string": session_str,

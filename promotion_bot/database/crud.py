@@ -1,8 +1,88 @@
 import datetime
 from sqlalchemy import select, update, delete, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
-from database.models import Group, PromoMessage, BroadcastCycle, BroadcastLog, BotSetting
+from database.models import Group, PromoMessage, BroadcastCycle, BroadcastLog, BotSetting, SenderAccount
 import config
+
+# ==================== SENDER ACCOUNTS (MULTI-NUMBER) ====================
+
+async def add_or_update_sender_account(
+    session: AsyncSession,
+    phone: str,
+    session_string: str,
+    user_id: int = None,
+    username: str = None,
+    first_name: str = None,
+    is_premium: bool = False,
+    set_active: bool = True
+) -> SenderAccount:
+    clean_phone = phone.strip()
+    result = await session.execute(select(SenderAccount).where(SenderAccount.phone == clean_phone))
+    account = result.scalars().first()
+    
+    if set_active:
+        # Deactivate all other accounts
+        await session.execute(update(SenderAccount).values(is_active=False))
+        
+    if account:
+        account.session_string = session_string
+        account.user_id = user_id
+        account.username = username
+        account.first_name = first_name
+        account.is_premium = is_premium
+        account.is_active = set_active
+        account.status = "ACTIVE"
+        account.updated_at = datetime.datetime.utcnow()
+    else:
+        account = SenderAccount(
+            phone=clean_phone,
+            session_string=session_string,
+            user_id=user_id,
+            username=username,
+            first_name=first_name,
+            is_premium=is_premium,
+            is_active=set_active,
+            status="ACTIVE"
+        )
+        session.add(account)
+        
+    await session.commit()
+    await session.refresh(account)
+    return account
+
+async def get_all_sender_accounts(session: AsyncSession) -> list[SenderAccount]:
+    result = await session.execute(select(SenderAccount).order_by(SenderAccount.id.asc()))
+    return list(result.scalars().all())
+
+async def get_active_sender_account(session: AsyncSession) -> SenderAccount | None:
+    result = await session.execute(select(SenderAccount).where(SenderAccount.is_active == True))
+    acc = result.scalars().first()
+    if not acc:
+        # Fallback to the first account if none marked active
+        result2 = await session.execute(select(SenderAccount).order_by(SenderAccount.id.asc()))
+        acc = result2.scalars().first()
+        if acc:
+            acc.is_active = True
+            await session.commit()
+    return acc
+
+async def set_active_sender_account(session: AsyncSession, account_id: int) -> SenderAccount | None:
+    # Deactivate all
+    await session.execute(update(SenderAccount).values(is_active=False))
+    # Activate target
+    result = await session.execute(select(SenderAccount).where(SenderAccount.id == account_id))
+    acc = result.scalars().first()
+    if acc:
+        acc.is_active = True
+        await session.commit()
+        await session.refresh(acc)
+    return acc
+
+async def delete_sender_account(session: AsyncSession, account_id: int) -> bool:
+    stmt = delete(SenderAccount).where(SenderAccount.id == account_id)
+    await session.execute(stmt)
+    await session.commit()
+    return True
 
 # ==================== GROUP CRUD ====================
 
@@ -34,7 +114,6 @@ async def bulk_add_groups(session: AsyncSession, identifiers: list[str]) -> tupl
         clean = raw.strip()
         if not clean:
             continue
-        # Standardize format: ensure username starts with @ if no link
         if not clean.startswith("http") and not clean.startswith("@") and not clean.startswith("-100") and not clean.lstrip("-").isdigit():
             clean = f"@{clean}"
         
@@ -230,6 +309,19 @@ async def log_broadcast_result(
 async def get_recent_cycles(session: AsyncSession, limit: int = 5) -> list[BroadcastCycle]:
     result = await session.execute(
         select(BroadcastCycle).order_by(desc(BroadcastCycle.id)).limit(limit)
+    )
+    return list(result.scalars().all())
+
+async def get_cycle_by_id(session: AsyncSession, cycle_id: int) -> BroadcastCycle | None:
+    result = await session.execute(select(BroadcastCycle).where(BroadcastCycle.id == cycle_id))
+    return result.scalars().first()
+
+async def get_cycle_sent_logs(session: AsyncSession, cycle_id: int) -> list[BroadcastLog]:
+    result = await session.execute(
+        select(BroadcastLog).where(
+            BroadcastLog.cycle_id == cycle_id,
+            BroadcastLog.status == "SENT"
+        ).order_by(BroadcastLog.id.asc())
     )
     return list(result.scalars().all())
 
