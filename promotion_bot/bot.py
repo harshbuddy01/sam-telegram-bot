@@ -93,16 +93,7 @@ async def main():
     dp.include_router(broadcast.router)
     dp.include_router(scheduler_handler.router)
 
-    # Run startup initialization
-    await on_startup(bot)
-
-    # Delete webhook if any exists
-    try:
-        await bot.delete_webhook(drop_pending_updates=False)
-    except Exception as e:
-        logger.info(f"Webhook check: {e}")
-
-    # Start Railway Web Healthcheck Server
+    # 1. Start Railway Web Healthcheck Server immediately so container never times out
     port = config.PORT
     health_app = await create_healthcheck_app()
     health_runner = web.AppRunner(health_app)
@@ -113,6 +104,18 @@ async def main():
         logger.info(f"Healthcheck server listening on port {port}")
     except Exception as e:
         logger.warning(f"Could not bind web port {port}: {e}")
+
+    # 2. Pass bot instance to manager, broadcaster, and joiner
+    tg_manager.set_bot_instance(bot)
+
+    # 3. Run startup initialization
+    await on_startup(bot)
+
+    # Delete webhook if any exists
+    try:
+        await bot.delete_webhook(drop_pending_updates=False)
+    except Exception as e:
+        logger.info(f"Webhook check: {e}")
 
     logger.info(f"Bot connected as @{(await bot.get_me()).username}. Polling for updates...")
 

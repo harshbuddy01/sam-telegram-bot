@@ -275,40 +275,50 @@ async def sync_telegram_groups(session: AsyncSession, account_id: int, telegram_
     )
     existing_groups = list(existing_result.scalars().all())
     existing_chat_ids = {g.chat_id for g in existing_groups if g.chat_id is not None}
-    existing_idents = {g.identifier.lower() for g in existing_groups}
+    existing_idents = {g.identifier.lower() for g in existing_groups if g.identifier}
 
     added = 0
     for tg in telegram_groups:
         cid = tg["chat_id"]
         uname = tg.get("username")
         ident = f"@{uname}" if uname else str(cid)
+        title = tg.get("title") or ident
 
-        # Check if already present by chat_id or by @username
-        if cid in existing_chat_ids or ident.lower() in existing_idents:
-            # Update chat_id / title if missing
-            matching = next((g for g in existing_groups if g.chat_id == cid or g.identifier.lower() == ident.lower()), None)
+        # Check if already present by chat_id or by @username for this account
+        if cid in existing_chat_ids or (ident and ident.lower() in existing_idents):
+            matching = next((g for g in existing_groups if (g.chat_id is not None and g.chat_id == cid) or (g.identifier and g.identifier.lower() == ident.lower())), None)
             if matching:
                 if not matching.chat_id:
                     matching.chat_id = cid
-                if tg.get("title"):
-                    matching.title = tg["title"]
+                if title:
+                    matching.title = title
                 matching.is_joined = True
                 matching.status = "ACTIVE"
             continue
 
-        g = Group(
-            account_id=account_id,
-            chat_id=cid,
-            title=tg.get("title", ident),
-            identifier=ident,
-            is_joined=True,
-            is_selected=True,
-            status="ACTIVE"
-        )
-        session.add(g)
-        added += 1
+        try:
+            g = Group(
+                account_id=account_id,
+                chat_id=cid,
+                title=title,
+                identifier=ident,
+                is_joined=True,
+                is_selected=True,
+                status="ACTIVE"
+            )
+            session.add(g)
+            await session.flush()
+            added += 1
+            existing_chat_ids.add(cid)
+            existing_idents.add(ident.lower())
+        except Exception:
+            # If there is any collision or conflict, ignore this item and continue
+            continue
 
-    await session.commit()
+    try:
+        await session.commit()
+    except Exception:
+        await session.rollback()
 
     total_result = await session.execute(
         select(func.count(Group.id)).where(Group.account_id == account_id)

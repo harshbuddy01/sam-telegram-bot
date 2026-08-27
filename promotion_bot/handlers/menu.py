@@ -24,6 +24,9 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🚀 Start / Stop", callback_data="sec_broadcast"),
             InlineKeyboardButton(text="⏰ Scheduler", callback_data="sec_scheduler"),
         ],
+        [
+            InlineKeyboardButton(text="🔄 Sync All Groups from Telegram", callback_data="sec_sync_all"),
+        ],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -94,3 +97,47 @@ async def cb_main_menu(query: CallbackQuery, state: FSMContext = None):
         await query.message.edit_text(text, reply_markup=get_main_menu_keyboard(), parse_mode="HTML")
     except Exception:
         await query.message.answer(text, reply_markup=get_main_menu_keyboard(), parse_mode="HTML")
+
+
+@router.callback_query(F.data == "sec_sync_all")
+async def cb_sync_all_groups(query: CallbackQuery):
+    if not config.is_admin(query.from_user.id):
+        return
+    try:
+        await query.answer()
+    except Exception:
+        pass
+
+    try:
+        await query.message.edit_text(
+            "⏳ <b>Syncing All Groups from Telegram API...</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "Fetching joined groups (including archived chats) for all connected numbers.\n"
+            "This takes 10–25 seconds depending on dialog count...",
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+
+    from core.client import tg_manager
+    results = await tg_manager.sync_all_accounts()
+
+    summary_lines = ["✅ <b>Telegram API Sync Results:</b>\n"]
+    for acc_id, res in results.items():
+        phone = res.get("phone", f"#{acc_id}")
+        tot = res.get("total", 0)
+        added = res.get("added", 0)
+        summary_lines.append(f"• <b>{phone}</b>: <code>{tot} total groups</code> (+{added} new)")
+
+    summary_text = "\n".join(summary_lines)
+
+    try:
+        await query.message.answer(summary_text, parse_mode="HTML")
+    except Exception:
+        pass
+
+    dashboard = await build_dashboard_text()
+    try:
+        await query.message.edit_text(dashboard, reply_markup=get_main_menu_keyboard(), parse_mode="HTML")
+    except Exception:
+        await query.message.answer(dashboard, reply_markup=get_main_menu_keyboard(), parse_mode="HTML")

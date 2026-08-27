@@ -31,6 +31,10 @@ class TelegramClientManager:
         self.temp_auth_client: TelegramClient | None = None
         self.phone_code_hash: str | None = None
         self.temp_phone: str | None = None
+        self.bot_instance = None
+
+    def set_bot_instance(self, bot):
+        self.bot_instance = bot
 
     @classmethod
     def get_instance(cls):
@@ -138,16 +142,6 @@ class TelegramClientManager:
                     logger.info(f"Loaded client for {acc.phone} (@{me.username or me.first_name}, ID: {me.id})")
                     if acc.is_active or self.primary_client is None:
                         self.primary_client = client
-
-                    # Auto-sync joined groups from Telegram API on boot
-                    try:
-                        dialog_groups = await self.fetch_joined_groups(acc.id)
-                        if dialog_groups:
-                            async with AsyncSessionLocal() as session:
-                                res = await sync_telegram_groups(session, acc.id, dialog_groups)
-                                logger.info(f"Auto-synced {res['total']} groups for {acc.phone} on startup ({res['added']} newly discovered)")
-                    except Exception as eg:
-                        logger.warning(f"Initial group sync warning for {acc.phone}: {eg}")
                 else:
                     logger.warning(f"Session unauthorized for account #{acc.id} ({acc.phone}). Needs re-login.")
                     async with AsyncSessionLocal() as session:
@@ -156,6 +150,60 @@ class TelegramClientManager:
                 logger.error(f"Error loading client for account #{acc.id}: {e}")
 
         logger.info(f"Telegram connection pool ready: {len(self.clients)} active client(s).")
+        # Run background sync so startup is instant and healthcheck passes immediately
+        asyncio.create_task(self._startup_sync_task())
+
+    async def _startup_sync_task(self):
+        """Runs in background on startup to sync all account groups without blocking boot."""
+        await asyncio.sleep(2)  # Give polling/healthcheck 2s to stabilize
+        logger.info("Starting background auto-sync for all connected accounts...")
+        results = await self.sync_all_accounts()
+        logger.info(f"Background auto-sync completed: {results}")
+
+        if self.bot_instance and config.ADMIN_IDS:
+            msg_lines = ["🔄 <b>Telegram Groups Auto-Sync Finished</b>", "━━━━━━━━━━━━━━━━━━━━"]
+            for acc_id, res in results.items():
+                status_icon = "✅" if res.get("status") == "ok" else "⚠️"
+                msg_lines.append(
+                    f"{status_icon} <b>{res.get('phone', f'Account #{acc_id}')}</b>: "
+                    f"<code>{res.get('total', 0)} groups</code> "
+                    f"(+{res.get('added', 0)} new)"
+                )
+            msg_lines.append("\n👉 <i>Type /menu to view updated group counts.</i>")
+            msg_text = "\n".join(msg_lines)
+            for admin_id in config.ADMIN_IDS:
+                try:
+                    await self.bot_instance.send_message(admin_id, msg_text, parse_mode="HTML")
+                except Exception:
+                    pass
+
+    async def sync_all_accounts(self) -> dict:
+        """Syncs Telegram API groups for all loaded accounts. Returns summary dict."""
+        results = {}
+        async with AsyncSessionLocal() as session:
+            accounts = await get_all_sender_accounts(session)
+
+        for acc in accounts:
+            if acc.id not in self.clients:
+                results[acc.id] = {"phone": acc.phone, "status": "not_connected", "total": 0, "added": 0}
+                continue
+            try:
+                groups = await self.fetch_joined_groups(acc.id)
+                async with AsyncSessionLocal() as session:
+                    res = await sync_telegram_groups(session, acc.id, groups)
+                    results[acc.id] = {
+                        "phone": acc.phone,
+                        "status": "ok",
+                        "total": res["total"],
+                        "added": res["added"],
+                        "existing": res["existing"]
+                    }
+                    logger.info(f"Sync complete for {acc.phone}: {res['total']} total groups ({res['added']} newly added)")
+            except Exception as e:
+                logger.error(f"Sync error for {acc.phone}: {e}")
+                results[acc.id] = {"phone": acc.phone, "status": "error", "error": str(e), "total": 0, "added": 0}
+
+        return results
 
     async def switch_to_account(self, session_string: str, account_id: int = None, phone: str = None) -> bool:
         if account_id and account_id in self.clients:
@@ -191,19 +239,9 @@ class TelegramClientManager:
     # ================= Fetch Joined Groups =================
 
     async def fetch_joined_groups(self, account_id: int) -> list[dict]:
-        """Fetch ONLY actual groups/supergroups the account has joined.
-
-        A dialog qualifies as a group if:
-          - entity is a Channel with megagroup=True or gigagroup=True (supergroup)
-          - OR entity is a Channel that is NOT broadcast-only
-          - OR entity is a basic Chat (not deactivated, not left)
-
-        Strictly EXCLUDES:
-          - Private chats (User entities)
-          - Broadcast-only channels (broadcast=True, megagroup=False, gigagroup=False)
-          - Deactivated or left basic groups
-
-        Returns list of dicts: [{chat_id, title, username, members_count, is_supergroup}]
+        """Fetch all groups and supergroups the account has joined.
+        Checks both main folder (0) and archived folder (1) to find all joined groups.
+        Excludes private chats, bots, and broadcast-only channels.
         """
         try:
             client = await self.get_client_for_account(account_id)
@@ -214,48 +252,75 @@ class TelegramClientManager:
             if not client.is_connected():
                 await client.connect()
 
-            dialogs = await client.get_dialogs(limit=None)
+            dialogs = []
+            # 1. Fetch main dialogs (folder 0)
+            try:
+                main_dialogs = await client.get_dialogs(limit=None, folder=0)
+                dialogs.extend(main_dialogs)
+            except Exception as e:
+                logger.warning(f"get_dialogs(folder=0) fallback for #{account_id}: {e}")
+                main_dialogs = await client.get_dialogs(limit=None)
+                dialogs.extend(main_dialogs)
+
+            # 2. Fetch archived dialogs (folder 1) — where users frequently keep large group lists
+            try:
+                archived_dialogs = await client.get_dialogs(limit=None, folder=1)
+                if archived_dialogs:
+                    dialogs.extend(archived_dialogs)
+                    logger.info(f"Account #{account_id}: found {len(archived_dialogs)} archived dialog(s)")
+            except Exception as e:
+                logger.debug(f"No archived folder or note for #{account_id}: {e}")
+
             groups: list[dict] = []
 
             for dialog in dialogs:
-                # Skip private/bot DM conversations
                 if dialog.is_user:
                     continue
 
                 entity = dialog.entity
+
+                # Skip if already left or deactivated
+                if getattr(entity, "left", False) or getattr(entity, "deactivated", False):
+                    continue
+
+                is_group = False
+                is_supergroup = False
 
                 if isinstance(entity, Channel):
                     is_megagroup = getattr(entity, "megagroup", False)
                     is_gigagroup = getattr(entity, "gigagroup", False)
                     is_broadcast = getattr(entity, "broadcast", False)
 
-                    # Strict rule: skip pure broadcast channels (news/announcement channels)
-                    # Only megagroups/gigagroups and non-broadcast channels qualify
+                    # Pure broadcast channels: skip (cannot post promo messages there)
                     if is_broadcast and not is_megagroup and not is_gigagroup:
-                        continue  # Pure broadcast channel — users cannot post here
+                        continue
 
-                    groups.append({
-                        "chat_id": entity.id,
-                        "title": getattr(entity, "title", "") or dialog.name or "Untitled Group",
-                        "username": getattr(entity, "username", None),
-                        "members_count": getattr(entity, "participants_count", 0) or 0,
-                        "is_supergroup": is_megagroup or is_gigagroup,
-                    })
+                    # Supergroup / Discussion group / Megagroup
+                    is_group = True
+                    is_supergroup = True
 
                 elif isinstance(entity, Chat):
-                    # Legacy basic group — skip if deactivated or already left
-                    if getattr(entity, "deactivated", False) or getattr(entity, "left", False):
-                        continue
+                    # Basic Group
+                    is_group = True
+                    is_supergroup = False
+
+                elif dialog.is_group:
+                    is_group = True
+
+                if is_group:
+                    members = getattr(entity, "participants_count", 0) or 0
+                    username = getattr(entity, "username", None)
+                    title = dialog.name or getattr(entity, "title", "") or f"Group {entity.id}"
+
                     groups.append({
                         "chat_id": entity.id,
-                        "title": getattr(entity, "title", "") or dialog.name or "Untitled Group",
-                        "username": None,
-                        "members_count": getattr(entity, "participants_count", 0) or 0,
-                        "is_supergroup": False,
+                        "title": title,
+                        "username": username,
+                        "members_count": members,
+                        "is_supergroup": is_supergroup,
                     })
-                # Everything else (User, etc.) is already skipped by dialog.is_user above
 
-            # Deduplicate by chat_id (safety net)
+            # Deduplicate by chat_id
             seen_ids: set[int] = set()
             unique_groups: list[dict] = []
             for g in groups:
@@ -265,7 +330,7 @@ class TelegramClientManager:
 
             logger.info(
                 f"fetch_joined_groups: account #{account_id} — "
-                f"found {len(unique_groups)} actual group(s) out of {len(dialogs)} total dialog(s)"
+                f"found {len(unique_groups)} group(s) across {len(dialogs)} dialog(s)"
             )
             return unique_groups
 
