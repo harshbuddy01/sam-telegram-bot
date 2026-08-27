@@ -206,43 +206,62 @@ class TelegramClientManager:
             if not client.is_connected():
                 await client.connect()
 
-            dialogs = await client.get_dialogs()
+            dialogs = await client.get_dialogs(limit=None)
             groups: list[dict] = []
 
             for dialog in dialogs:
+                if dialog.is_user:
+                    continue
+
                 entity = dialog.entity
 
-                # --- small group chats (telethon.tl.types.Chat) ---
-                if isinstance(entity, Chat):
-                    if getattr(entity, "deactivated", False) or getattr(entity, "left", False):
-                        continue
+                if dialog.is_group:
+                    is_supergroup = isinstance(entity, Channel)
+                    members = getattr(entity, "participants_count", 0) or 0
+                    username = getattr(entity, "username", None)
+                    title = dialog.name or getattr(entity, "title", "") or "Untitled Group"
+
                     groups.append({
                         "chat_id": entity.id,
-                        "title": entity.title or "",
-                        "username": None,
-                        "members_count": getattr(entity, "participants_count", 0) or 0,
-                        "is_supergroup": False,
+                        "title": title,
+                        "username": username,
+                        "members_count": members,
+                        "is_supergroup": is_supergroup,
                     })
 
-                # --- supergroups & channels (telethon.tl.types.Channel) ---
                 elif isinstance(entity, Channel):
-                    # Skip broadcast-only channels (where users cannot send messages)
-                    if entity.broadcast and not entity.megagroup:
-                        continue
-                    # Keep megagroups, gigagroups, or any non-broadcast channel
-                    groups.append({
-                        "chat_id": entity.id,
-                        "title": entity.title or "",
-                        "username": entity.username,
-                        "members_count": getattr(entity, "participants_count", 0) or 0,
-                        "is_supergroup": bool(entity.megagroup or getattr(entity, "gigagroup", False)),
-                    })
+                    if not entity.broadcast or getattr(entity, "megagroup", False) or getattr(entity, "gigagroup", False):
+                        groups.append({
+                            "chat_id": entity.id,
+                            "title": getattr(entity, "title", "") or dialog.name or "Untitled Group",
+                            "username": getattr(entity, "username", None),
+                            "members_count": getattr(entity, "participants_count", 0) or 0,
+                            "is_supergroup": True,
+                        })
+
+                elif isinstance(entity, Chat):
+                    if not getattr(entity, "deactivated", False) and not getattr(entity, "left", False):
+                        groups.append({
+                            "chat_id": entity.id,
+                            "title": getattr(entity, "title", "") or dialog.name or "Untitled Group",
+                            "username": None,
+                            "members_count": getattr(entity, "participants_count", 0) or 0,
+                            "is_supergroup": False,
+                        })
+
+            # Deduplicate by chat_id
+            seen_ids = set()
+            unique_groups = []
+            for g in groups:
+                if g["chat_id"] not in seen_ids:
+                    seen_ids.add(g["chat_id"])
+                    unique_groups.append(g)
 
             logger.info(
-                f"fetch_joined_groups: account #{account_id} — found {len(groups)} group(s) "
+                f"fetch_joined_groups: account #{account_id} — found {len(unique_groups)} group(s) "
                 f"out of {len(dialogs)} total dialog(s)"
             )
-            return groups
+            return unique_groups
 
         except Exception as e:
             logger.error(f"fetch_joined_groups failed for account #{account_id}: {e}", exc_info=True)

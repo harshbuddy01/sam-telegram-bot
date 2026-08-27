@@ -43,3 +43,13 @@ async def init_db():
                 await conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} {col_type}"))
             except Exception:
                 pass  # Column already exists
+
+        # If there were previously stored groups with NULL account_id, link them to the primary/first account
+        try:
+            res = await conn.execute(text("SELECT id FROM sender_accounts ORDER BY id ASC LIMIT 1"))
+            first_acc = res.fetchone()
+            if first_acc:
+                first_acc_id = first_acc[0]
+                await conn.execute(text(f"UPDATE target_groups SET account_id = {first_acc_id} WHERE account_id IS NULL"))
+        except Exception:
+            pass
