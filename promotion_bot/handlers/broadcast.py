@@ -122,15 +122,33 @@ async def cb_account_broadcast_detail(query: CallbackQuery, state: FSMContext = 
             [InlineKeyboardButton(text="⬅️ Back to Numbers List", callback_data="sec_broadcast")]
         ]
     else:
+        # ── Auto-sync if this account has 0 groups (never synced yet) ─────────
+        if st["TOTAL"] == 0:
+            try:
+                await query.message.edit_text(
+                    f"⏳ <b>First-time sync for {acc.phone}...</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"Fetching all joined groups directly from Telegram API.\n"
+                    f"This takes 5–20 seconds depending on how many groups you've joined...",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+            tg_groups = await tg_manager.fetch_joined_groups(account_id)
+            async with AsyncSessionLocal() as session:
+                sync_res = await sync_telegram_groups(session, account_id, tg_groups)
+                st = await get_group_stats_for_account(session, account_id)
+                selected = await get_selected_groups(session, account_id)
+
         text = (
             f"🚀 <b>CAMPAIGN LAUNCHER — {acc.phone}</b> ({user_lbl})\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"📝 <b>Promotional Text:</b> <i>{promo.text[:60]}...</i>\n"
             f"🖼️ <b>Media Attached:</b> <code>{promo.media_type.upper()}</code>\n\n"
-            f"🎯 <b>Target Groups Selection:</b>\n"
-            f"• Selected for Next Run: <b>{len(selected)}</b> of <code>{st['ACTIVE']} active</code>\n"
-            f"• Total Saved in DB: <code>{st['TOTAL']}</code>\n\n"
-            f"💡 <i>Tip: Tap <b>🔄 Sync from Telegram API</b> to automatically fetch and add all groups you've ever joined on this account (past & present).</i>"
+            f"🎯 <b>Target Groups:</b>\n"
+            f"• ✅ Active Groups in DB: <b>{st['ACTIVE']}</b>\n"
+            f"• ☑️ Selected for Broadcast: <b>{len(selected)}</b>\n\n"
+            f"💡 <i>Tap <b>🔄 Sync from Telegram API</b> to re-fetch your latest joined groups.</i>"
         )
         kb = [
             [InlineKeyboardButton(text=f"🚀 START BROADCAST ({len(selected)} groups)", callback_data=f"bc_launch_{account_id}")],
