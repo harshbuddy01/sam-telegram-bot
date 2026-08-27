@@ -1,26 +1,36 @@
-import logging
 import asyncio
+import logging
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.tl.types import User, Channel, Chat
-import config
+from telethon.errors import (
+    SessionPasswordNeededError,
+    PhoneCodeInvalidError,
+    PhoneCodeExpiredError,
+    PasswordHashInvalidError
+)
 from database.database import AsyncSessionLocal
-from database.crud import get_active_sender_account, add_or_update_sender_account, get_all_sender_accounts
+from database.crud import (
+    get_all_sender_accounts,
+    get_active_sender_account,
+    add_or_update_sender_account,
+    update_sender_account_status,
+    sync_telegram_groups
+)
+import config
 
 logger = logging.getLogger(__name__)
+
 
 class TelegramClientManager:
     _instance = None
 
     def __init__(self):
-        # Pool of active clients: account_id -> TelegramClient
         self.clients: dict[int, TelegramClient] = {}
-        self.active_account_id = None
-        self.active_phone = None
-        # Isolated client for adding new accounts
+        self.primary_client: TelegramClient | None = None
         self.temp_auth_client: TelegramClient | None = None
-        self.auth_phone = None
-        self.auth_code_hash = None
+        self.phone_code_hash: str | None = None
+        self.temp_phone: str | None = None
 
     @classmethod
     def get_instance(cls):
@@ -30,9 +40,8 @@ class TelegramClientManager:
 
     @property
     def client(self) -> TelegramClient | None:
-        """Returns active sender client, or the first available client in the pool."""
-        if self.active_account_id and self.active_account_id in self.clients:
-            return self.clients[self.active_account_id]
+        if self.primary_client:
+            return self.primary_client
         if self.clients:
             return next(iter(self.clients.values()))
         return None
@@ -48,110 +57,135 @@ class TelegramClientManager:
             config.API_ID,
             config.API_HASH,
             device_model="Desktop",
-            system_version="Linux/macOS",
-            app_version="5.0.1"
+            system_version="Linux",
+            app_version="4.16.8",
+            lang_code="en",
+            system_lang_code="en"
         )
 
     async def get_client_for_account(self, account_id: int) -> TelegramClient | None:
-        """Retrieves or connects a dedicated client instance for a given account_id."""
         if account_id in self.clients:
             c = self.clients[account_id]
             if not c.is_connected():
                 try:
                     await c.connect()
                 except Exception as e:
-                    logger.warning(f"Error reconnecting client for account #{account_id}: {e}")
+                    logger.warning(f"Could not reconnect client for #{account_id}: {e}")
             return c
 
         async with AsyncSessionLocal() as session:
             accounts = await get_all_sender_accounts(session)
             acc = next((a for a in accounts if a.id == account_id), None)
-            if not acc or not acc.session_string:
-                return None
-
-        c = self.create_client_instance(acc.session_string)
-        try:
-            await c.connect()
-            if await c.is_user_authorized():
-                self.clients[account_id] = c
-                return c
-        except Exception as e:
-            logger.error(f"Failed to connect client for {acc.phone}: {e}")
+            if acc and acc.session_string:
+                client = self.create_client_instance(acc.session_string)
+                try:
+                    await client.connect()
+                    if await client.is_user_authorized():
+                        self.clients[acc.id] = client
+                        return client
+                except Exception as e:
+                    logger.error(f"Failed to connect client for #{acc.id} ({acc.phone}): {e}")
         return None
 
     async def ensure_connected(self) -> bool:
-        """Ensures the primary active sender client is connected."""
-        c = self.client
-        if not c:
-            return await self.start()
-        try:
-            if not c.is_connected():
-                await c.connect()
-            return await c.is_user_authorized()
-        except Exception as e:
-            logger.warning(f"Primary reconnection needed: {e}. Reinitializing...")
-            return await self.start()
-
-    async def start(self) -> bool:
-        if not config.API_ID or not config.API_HASH:
-            logger.warning("API_ID or API_HASH is not set! Userbot sender cannot start.")
+        if not self.primary_client:
             return False
+        if not self.primary_client.is_connected():
+            try:
+                await self.primary_client.connect()
+            except Exception as e:
+                logger.error(f"Reconnect failed: {e}")
+                return False
+        return await self.primary_client.is_user_authorized()
 
+    async def start(self):
+        logger.info("Initializing multi-account Telegram connection pool...")
         async with AsyncSessionLocal() as session:
             accounts = await get_all_sender_accounts(session)
-            active_acc = await get_active_sender_account(session)
 
-        if not accounts:
-            logger.info("No sender accounts saved in database yet.")
-            return False
+        if not accounts and config.SESSION_STRING:
+            logger.info("Importing SESSION_STRING from environment variable...")
+            try:
+                temp_c = self.create_client_instance(config.SESSION_STRING)
+                await temp_c.connect()
+                if await temp_c.is_user_authorized():
+                    me = await temp_c.get_me()
+                    async with AsyncSessionLocal() as session:
+                        await add_or_update_sender_account(
+                            session=session,
+                            phone=me.phone or "Unknown",
+                            session_string=config.SESSION_STRING,
+                            user_id=me.id,
+                            username=me.username,
+                            first_name=me.first_name,
+                            is_premium=getattr(me, "premium", False),
+                            set_active=True
+                        )
+                        accounts = await get_all_sender_accounts(session)
+                await temp_c.disconnect()
+            except Exception as e:
+                logger.error(f"Failed to import SESSION_STRING: {e}")
 
-        connected_any = False
         for acc in accounts:
-            if acc.session_string:
-                try:
-                    c = self.create_client_instance(acc.session_string)
-                    await c.connect()
-                    if await c.is_user_authorized():
-                        self.clients[acc.id] = c
-                        connected_any = True
-                        me: User = await c.get_me()
-                        logger.info(f"Loaded client for {acc.phone} (@{me.username or me.first_name}, ID: {me.id})")
-                except Exception as e:
-                    logger.warning(f"Could not connect {acc.phone}: {e}")
+            if not acc.session_string:
+                continue
+            try:
+                client = self.create_client_instance(acc.session_string)
+                await client.connect()
+                if await client.is_user_authorized():
+                    self.clients[acc.id] = client
+                    me = await client.get_me()
+                    logger.info(f"Loaded client for {acc.phone} (@{me.username or me.first_name}, ID: {me.id})")
+                    if acc.is_active or self.primary_client is None:
+                        self.primary_client = client
 
-        if active_acc and active_acc.id in self.clients:
-            self.active_account_id = active_acc.id
-            self.active_phone = active_acc.phone
-        elif self.clients:
-            self.active_account_id = next(iter(self.clients.keys()))
+                    # Auto-sync joined groups from Telegram API on boot
+                    try:
+                        dialog_groups = await self.fetch_joined_groups(acc.id)
+                        if dialog_groups:
+                            async with AsyncSessionLocal() as session:
+                                res = await sync_telegram_groups(session, acc.id, dialog_groups)
+                                logger.info(f"Auto-synced {res['total']} groups for {acc.phone} on startup ({res['added']} newly discovered)")
+                    except Exception as eg:
+                        logger.warning(f"Initial group sync warning for {acc.phone}: {eg}")
+                else:
+                    logger.warning(f"Session unauthorized for account #{acc.id} ({acc.phone}). Needs re-login.")
+                    async with AsyncSessionLocal() as session:
+                        await update_sender_account_status(session, acc.id, "NEED_LOGIN")
+            except Exception as e:
+                logger.error(f"Error loading client for account #{acc.id}: {e}")
 
-        return connected_any
+        logger.info(f"Telegram connection pool ready: {len(self.clients)} active client(s).")
 
     async def switch_to_account(self, session_string: str, account_id: int = None, phone: str = None) -> bool:
-        """Connects or switches the primary active sender account."""
+        if account_id and account_id in self.clients:
+            self.primary_client = self.clients[account_id]
+            logger.info(f"Switched active client in memory to account #{account_id}")
+            return True
+
+        client = self.create_client_instance(session_string)
         try:
-            c = await self.get_client_for_account(account_id)
-            if c and await c.is_user_authorized():
-                self.active_account_id = account_id
-                self.active_phone = phone
-                me = await c.get_me()
-                logger.info(f"Switched primary active sender to @{me.username or me.first_name} ({phone})")
+            await client.connect()
+            if await client.is_user_authorized():
+                self.primary_client = client
+                if account_id:
+                    self.clients[account_id] = client
                 return True
             return False
         except Exception as e:
             logger.error(f"Failed to switch account: {e}")
             return False
 
-    async def get_me(self, account_id: int = None):
-        c = (await self.get_client_for_account(account_id)) if account_id else self.client
-        if c and c.is_connected() and await c.is_user_authorized():
-            return await c.get_me()
+    async def get_me(self, account_id: int = None) -> User | None:
+        client = await self.get_client_for_account(account_id) if account_id else self.client
+        if client and client.is_connected():
+            return await client.get_me()
         return None
 
     async def export_session_string(self, account_id: int = None) -> str:
-        c = (await self.get_client_for_account(account_id)) if account_id else self.client
-        if c and c.session:
-            return StringSession.save(c.session)
+        client = await self.get_client_for_account(account_id) if account_id else self.client
+        if client and isinstance(client.session, StringSession):
+            return client.session.save()
         return ""
 
     # ================= Fetch Joined Groups =================
@@ -180,7 +214,6 @@ class TelegramClientManager:
 
                 # --- small group chats (telethon.tl.types.Chat) ---
                 if isinstance(entity, Chat):
-                    # Skip deactivated / kicked chats
                     if getattr(entity, "deactivated", False) or getattr(entity, "left", False):
                         continue
                     groups.append({
@@ -193,18 +226,16 @@ class TelegramClientManager:
 
                 # --- supergroups & channels (telethon.tl.types.Channel) ---
                 elif isinstance(entity, Channel):
-                    # Skip broadcast-only channels (no megagroup flag)
+                    # Skip broadcast-only channels (where users cannot send messages)
                     if entity.broadcast and not entity.megagroup:
                         continue
-                    # Only keep megagroups / gigagroups (supergroups)
-                    if not entity.megagroup and not getattr(entity, "gigagroup", False):
-                        continue
+                    # Keep megagroups, gigagroups, or any non-broadcast channel
                     groups.append({
                         "chat_id": entity.id,
                         "title": entity.title or "",
                         "username": entity.username,
                         "members_count": getattr(entity, "participants_count", 0) or 0,
-                        "is_supergroup": True,
+                        "is_supergroup": bool(entity.megagroup or getattr(entity, "gigagroup", False)),
                     })
 
             logger.info(
@@ -220,111 +251,88 @@ class TelegramClientManager:
     # ================= Interactive Auth Helper Methods (Isolated) =================
 
     async def send_auth_code(self, phone_number: str) -> dict:
-        self.auth_phone = phone_number.strip()
+        clean_phone = phone_number.strip().replace(" ", "").replace("-", "")
+        self.temp_phone = clean_phone
         try:
-            # Create a separate, isolated client specifically for this login session
             if self.temp_auth_client and self.temp_auth_client.is_connected():
                 await self.temp_auth_client.disconnect()
 
             self.temp_auth_client = TelegramClient(
-                StringSession(""),
+                StringSession(),
                 config.API_ID,
                 config.API_HASH,
                 device_model="Desktop",
-                system_version="Linux/macOS",
-                app_version="5.0.1"
+                system_version="Linux",
+                app_version="4.16.8",
+                lang_code="en",
+                system_lang_code="en"
             )
             await self.temp_auth_client.connect()
-
-            sent_code = await self.temp_auth_client.send_code_request(self.auth_phone)
-            self.auth_code_hash = sent_code.phone_code_hash
-            return {"status": "ok", "phone_code_hash": self.auth_code_hash}
+            sent_code = await self.temp_auth_client.send_code_request(clean_phone)
+            self.phone_code_hash = sent_code.phone_code_hash
+            return {"status": "ok", "message": "Code sent successfully"}
         except Exception as e:
-            logger.error(f"Failed to send code to {phone_number}: {e}")
+            logger.error(f"send_auth_code failed for {clean_phone}: {e}")
             return {"status": "error", "message": str(e)}
 
     async def sign_in_with_code(self, code: str, password_2fa: str = None) -> dict:
-        auth_client = self.temp_auth_client or self.client
-        if not auth_client or not self.auth_phone or not self.auth_code_hash:
-            return {"status": "error", "message": "No active sign in request. Please request OTP first."}
-        
+        if not self.temp_auth_client or not self.temp_auth_client.is_connected():
+            return {"status": "error", "message": "Auth session expired. Please start over."}
+
+        clean_code = code.strip().replace(" ", "").replace("-", "")
+
         try:
-            if not auth_client.is_connected():
-                await auth_client.connect()
-
-            if code:
-                await auth_client.sign_in(
-                    phone=self.auth_phone,
-                    code=code.strip(),
-                    phone_code_hash=self.auth_code_hash
+            if password_2fa:
+                user = await self.temp_auth_client.sign_in(password=password_2fa.strip())
+            else:
+                user = await self.temp_auth_client.sign_in(
+                    phone=self.temp_phone,
+                    code=clean_code,
+                    phone_code_hash=self.phone_code_hash
                 )
-            elif password_2fa:
-                await auth_client.sign_in(password=password_2fa.strip())
 
-            session_str = StringSession.save(auth_client.session)
-            me = await auth_client.get_me()
-            
-            # Save new account into SQLite
+            session_str = self.temp_auth_client.session.save()
             async with AsyncSessionLocal() as session:
-                acc = await add_or_update_sender_account(
+                account = await add_or_update_sender_account(
                     session=session,
-                    phone=self.auth_phone,
+                    phone=self.temp_phone,
                     session_string=session_str,
-                    user_id=me.id,
-                    username=me.username,
-                    first_name=me.first_name,
-                    is_premium=getattr(me, 'premium', False) or False,
+                    user_id=user.id,
+                    username=user.username,
+                    first_name=user.first_name,
+                    is_premium=getattr(user, "premium", False),
                     set_active=True
                 )
 
-            # Switch the main client to this newly added account
-            await self.switch_to_account(session_str, acc.id, acc.phone)
+            self.clients[account.id] = self.temp_auth_client
+            self.primary_client = self.temp_auth_client
+            self.temp_auth_client = None
 
-            # Disconnect the temporary auth client cleanly
-            if self.temp_auth_client and self.temp_auth_client != self.client:
-                try:
-                    await self.temp_auth_client.disconnect()
-                except Exception:
-                    pass
-                self.temp_auth_client = None
+            # Sync groups immediately after successful login
+            try:
+                dialog_groups = await self.fetch_joined_groups(account.id)
+                if dialog_groups:
+                    async with AsyncSessionLocal() as session:
+                        await sync_telegram_groups(session, account.id, dialog_groups)
+            except Exception:
+                pass
 
             return {
                 "status": "ok",
+                "message": "Login successful",
                 "session_string": session_str,
-                "user": f"@{me.username or me.first_name} (ID: {me.id})"
+                "user": f"@{user.username}" if user.username else user.first_name,
+                "account_id": account.id
             }
-        except Exception as e:
-            from telethon.errors import SessionPasswordNeededError
-            if isinstance(e, SessionPasswordNeededError):
-                if password_2fa:
-                    try:
-                        await auth_client.sign_in(password=password_2fa.strip())
-                        session_str = StringSession.save(auth_client.session)
-                        me = await auth_client.get_me()
-                        
-                        async with AsyncSessionLocal() as session:
-                            acc = await add_or_update_sender_account(
-                                session=session,
-                                phone=self.auth_phone,
-                                session_string=session_str,
-                                user_id=me.id,
-                                username=me.username,
-                                first_name=me.first_name,
-                                is_premium=getattr(me, 'premium', False) or False,
-                                set_active=True
-                            )
 
-                        await self.switch_to_account(session_str, acc.id, acc.phone)
-                        return {
-                            "status": "ok",
-                            "session_string": session_str,
-                            "user": f"@{me.username or me.first_name} (ID: {me.id})"
-                        }
-                    except Exception as e2:
-                        return {"status": "error", "message": f"2FA Password failed: {e2}"}
-                else:
-                    return {"status": "2fa_required", "message": "Two-step verification (2FA) password required."}
-            logger.error(f"Sign-in failed: {e}")
+        except SessionPasswordNeededError:
+            return {"status": "2fa_required", "message": "2FA Cloud Password required"}
+        except (PhoneCodeInvalidError, PhoneCodeExpiredError) as e:
+            return {"status": "error", "message": f"Invalid or expired OTP code: {e}"}
+        except PasswordHashInvalidError:
+            return {"status": "error", "message": "Incorrect 2FA password"}
+        except Exception as e:
             return {"status": "error", "message": str(e)}
+
 
 tg_manager = TelegramClientManager.get_instance()

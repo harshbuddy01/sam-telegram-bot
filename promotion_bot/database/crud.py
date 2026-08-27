@@ -159,20 +159,19 @@ def _is_valid_group_identifier(identifier: str) -> bool:
         return True
     if re.match(r'^@[a-zA-Z][a-zA-Z0-9_]{3,31}$', raw):
         return True
-    if re.match(r'^-100\d{7,13}$', raw):
+    if re.match(r'^-100\d{7,13}$', raw) or re.match(r'^-\d{7,13}$', raw) or raw.lstrip("-").isdigit():
         return True
     return False
 
 async def bulk_add_groups_for_account(session: AsyncSession, account_id: int, identifiers: list[str]) -> tuple[int, int]:
     """Import groups linked to a specific phone number account."""
-    now = datetime.datetime.utcnow().isoformat()
     seen = set()
     clean_list = []
     for raw in identifiers:
         clean = raw.strip()
         if not clean:
             continue
-        if not clean.startswith("http") and not clean.startswith("@") and not clean.startswith("-100") and not clean.lstrip("-").isdigit():
+        if not clean.startswith("http") and not clean.startswith("@") and not clean.startswith("-") and not clean.isdigit():
             clean = f"@{clean}"
         if not _is_valid_group_identifier(clean):
             continue
@@ -196,7 +195,7 @@ async def bulk_add_groups_for_account(session: AsyncSession, account_id: int, id
         return 0, existing_count
 
     for ident in new_items:
-        g = Group(account_id=account_id, identifier=ident, title=ident, status="ACTIVE")
+        g = Group(account_id=account_id, identifier=ident, title=ident, is_joined=False, is_selected=True, status="ACTIVE")
         session.add(g)
     await session.commit()
     return len(new_items), existing_count
@@ -270,32 +269,52 @@ async def deselect_all_groups(session: AsyncSession, account_id: int):
     await session.commit()
 
 async def sync_telegram_groups(session: AsyncSession, account_id: int, telegram_groups: list[dict]) -> dict:
-    """Sync real Telegram groups into DB. Returns {added, existing, total}."""
+    """Sync real Telegram groups into DB. Matches by chat_id or identifier. Returns {added, existing, total}."""
     existing_result = await session.execute(
-        select(Group.chat_id).where(Group.account_id == account_id, Group.chat_id.isnot(None))
+        select(Group).where(Group.account_id == account_id)
     )
-    existing_chat_ids = set(existing_result.scalars().all())
+    existing_groups = list(existing_result.scalars().all())
+    existing_chat_ids = {g.chat_id for g in existing_groups if g.chat_id is not None}
+    existing_idents = {g.identifier.lower() for g in existing_groups}
 
     added = 0
     for tg in telegram_groups:
-        if tg["chat_id"] not in existing_chat_ids:
-            ident = f"@{tg['username']}" if tg.get("username") else str(tg["chat_id"])
-            g = Group(
-                account_id=account_id, chat_id=tg["chat_id"],
-                title=tg.get("title", ident), identifier=ident,
-                is_joined=True, is_selected=True, status="ACTIVE"
-            )
-            session.add(g)
-            added += 1
+        cid = tg["chat_id"]
+        uname = tg.get("username")
+        ident = f"@{uname}" if uname else str(cid)
 
-    if added > 0:
-        await session.commit()
+        # Check if already present by chat_id or by @username
+        if cid in existing_chat_ids or ident.lower() in existing_idents:
+            # Update chat_id / title if missing
+            matching = next((g for g in existing_groups if g.chat_id == cid or g.identifier.lower() == ident.lower()), None)
+            if matching:
+                if not matching.chat_id:
+                    matching.chat_id = cid
+                if tg.get("title"):
+                    matching.title = tg["title"]
+                matching.is_joined = True
+                matching.status = "ACTIVE"
+            continue
+
+        g = Group(
+            account_id=account_id,
+            chat_id=cid,
+            title=tg.get("title", ident),
+            identifier=ident,
+            is_joined=True,
+            is_selected=True,
+            status="ACTIVE"
+        )
+        session.add(g)
+        added += 1
+
+    await session.commit()
 
     total_result = await session.execute(
         select(func.count(Group.id)).where(Group.account_id == account_id)
     )
     total = total_result.scalar() or 0
-    return {"added": added, "existing": len(existing_chat_ids), "total": total}
+    return {"added": added, "existing": len(existing_groups), "total": total}
 
 async def update_group_status(
     session: AsyncSession, group_id: int, status: str,
@@ -345,7 +364,7 @@ async def smart_clean_groups_for_account(session: AsyncSession, account_id: int)
     )
     return {"deleted": deleted, "active": active.scalar() or 0}
 
-async def get_groups_paginated(session: AsyncSession, account_id: int, page: int = 1, per_page: int = 20) -> tuple[list[Group], int]:
+async def get_groups_paginated(session: AsyncSession, account_id: int, page: int = 1, per_page: int = 10) -> tuple[list[Group], int]:
     """Returns (groups_on_page, total_pages) for paginated group selection UI."""
     total_result = await session.execute(
         select(func.count(Group.id)).where(
