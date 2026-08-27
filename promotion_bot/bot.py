@@ -17,18 +17,17 @@ from database.crud import seed_default_settings
 from core.client import tg_manager
 from core.broadcaster import broadcaster
 from core.scheduler import scheduler
+from core.joiner import safe_joiner
 
-# Import Handlers
+# Import Clean 6-Section Handlers
 from handlers import (
-    admin_menu,
-    campaign_manager,
-    campaign_wizard,
-    message_editor,
-    group_manager,
-    broadcast_ctrl,
-    stats_report,
+    menu,
     account_auth,
-    settings_menu
+    group_joiner,
+    message_setup,
+    reports,
+    broadcast,
+    scheduler_handler
 )
 
 # Logging configuration
@@ -39,6 +38,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("PromotionBot")
 
+
 async def create_healthcheck_app():
     app = web.Application()
     async def health_handler(request):
@@ -47,36 +47,33 @@ async def create_healthcheck_app():
     app.router.add_get("/health", health_handler)
     return app
 
+
 async def on_startup(bot: Bot):
     logger.info("Initializing Promotion Bot Database...")
     await init_db()
     async with AsyncSessionLocal() as session:
         await seed_default_settings(session)
-        from database.crud import smart_clean_and_purge_groups
-        res = await smart_clean_and_purge_groups(session)
-        if res.get("deleted", 0) > 0:
-            logger.info(f"Smart cleaned {res['deleted']} dead/invalid links from database. {res['active']} active groups ready.")
     logger.info("Database & settings initialized successfully.")
 
-    # Initialize Telethon Client (loads active sender account)
-    logger.info("Starting Telegram Sender User Client...")
+    # Initialize Telethon Client Pool (loads all sender accounts)
+    logger.info("Starting Telegram Sender User Clients...")
     await tg_manager.start()
 
     # Pass bot to broadcaster and joiner for admin alerts
     broadcaster.set_bot_instance(bot)
-    from core.joiner import safe_joiner
     safe_joiner.set_bot_instance(bot)
 
     # Start repeating scheduler
     logger.info("Starting Repeating Broadcast Scheduler...")
     scheduler.start()
 
+
 async def main():
     if not config.BOT_TOKEN or config.BOT_TOKEN == "your_telegram_bot_token_here":
         logger.error("BOT_TOKEN is not configured in .env! Please set your Bot token.")
         return
 
-    logger.info("Starting Telegram Promotion & Anti-Ban Bot...")
+    logger.info("Starting Telegram Promotion & Anti-Ban Bot (6-Section Clean Architecture)...")
 
     session = AiohttpSession(timeout=30.0)
     bot = Bot(
@@ -87,16 +84,14 @@ async def main():
 
     dp = Dispatcher(storage=MemoryStorage())
 
-    # Register Handler Routers
-    dp.include_router(admin_menu.router)
-    dp.include_router(campaign_manager.router)
-    dp.include_router(campaign_wizard.router)
-    dp.include_router(message_editor.router)
-    dp.include_router(group_manager.router)
-    dp.include_router(broadcast_ctrl.router)
-    dp.include_router(stats_report.router)
+    # Register 6-Section Clean Routers
+    dp.include_router(menu.router)
     dp.include_router(account_auth.router)
-    dp.include_router(settings_menu.router)
+    dp.include_router(group_joiner.router)
+    dp.include_router(message_setup.router)
+    dp.include_router(reports.router)
+    dp.include_router(broadcast.router)
+    dp.include_router(scheduler_handler.router)
 
     # Run startup initialization
     await on_startup(bot)
@@ -151,6 +146,7 @@ async def main():
         if tg_manager.client and tg_manager.client.is_connected():
             await tg_manager.client.disconnect()
         logger.info("Promotion Bot stopped cleanly.")
+
 
 if __name__ == "__main__":
     try:

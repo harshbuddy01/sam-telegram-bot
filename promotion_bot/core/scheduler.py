@@ -2,10 +2,11 @@ import asyncio
 import logging
 from core.broadcaster import broadcaster
 from database.database import AsyncSessionLocal
-from database.crud import get_setting
+from database.crud import get_or_create_account_promo, get_all_sender_accounts, get_setting
 import config
 
 logger = logging.getLogger(__name__)
+
 
 class PromotionScheduler:
     def __init__(self):
@@ -18,31 +19,41 @@ class PromotionScheduler:
             try:
                 async with AsyncSessionLocal() as session:
                     is_enabled = await get_setting(session, "broadcast_enabled", "true")
-                    interval_hours_str = await get_setting(session, "interval_hours", str(config.DEFAULT_INTERVAL_HOURS))
-                    
-                try:
-                    interval_hours = float(interval_hours_str)
-                except ValueError:
-                    interval_hours = 2.0
+                    accounts = await get_all_sender_accounts(session)
 
-                if is_enabled.lower() == "true":
-                    logger.info(f"Triggering scheduled broadcast round (Interval: {interval_hours}h)...")
-                    # Run the round asynchronously
-                    asyncio.create_task(broadcaster.execute_broadcast_round(trigger_type="SCHEDULED"))
-                else:
-                    logger.info("Broadcast is paused in settings. Skipping this interval.")
+                if is_enabled.lower() != "true":
+                    logger.info("Broadcast is paused globally. Skipping this interval.")
+                    await self._sleep_interval(7200)
+                    continue
 
-                # Sleep for interval
-                sleep_seconds = int(interval_hours * 3600)
-                logger.info(f"Scheduler sleeping for {interval_hours} hours ({sleep_seconds}s) until next round...")
-                
-                # Check cancellation in smaller chunks
-                for _ in range(sleep_seconds // 10):
-                    if not self.is_running:
-                        break
-                    await asyncio.sleep(10)
-                if self.is_running and (sleep_seconds % 10) > 0:
-                    await asyncio.sleep(sleep_seconds % 10)
+                # Check each account's individual interval and enabled state
+                for acc in accounts:
+                    if acc.status != "ACTIVE":
+                        continue
+
+                    async with AsyncSessionLocal() as session:
+                        promo = await get_or_create_account_promo(session, acc.id, acc.phone)
+
+                    if not promo.is_enabled:
+                        continue
+
+                    interval_hours = promo.interval_hours or 2.0
+
+                    # Check if enough time has passed since last run
+                    import datetime
+                    now = datetime.datetime.utcnow()
+                    if promo.last_run_at:
+                        elapsed = (now - promo.last_run_at).total_seconds()
+                        if elapsed < (interval_hours * 3600):
+                            continue
+
+                    logger.info(f"Triggering scheduled broadcast for {acc.phone} (Interval: {interval_hours}h)...")
+                    asyncio.create_task(
+                        broadcaster.start_account_broadcast(acc.id, trigger_type="SCHEDULED")
+                    )
+
+                # Check every 60 seconds for due accounts
+                await self._sleep_interval(60)
 
             except asyncio.CancelledError:
                 logger.info("Scheduler task cancelled.")
@@ -50,6 +61,15 @@ class PromotionScheduler:
             except Exception as e:
                 logger.error(f"Error in scheduler loop: {e}", exc_info=True)
                 await asyncio.sleep(60)
+
+    async def _sleep_interval(self, seconds: int):
+        """Sleep in small chunks so we can stop quickly."""
+        for _ in range(seconds // 10):
+            if not self.is_running:
+                break
+            await asyncio.sleep(10)
+        if self.is_running and (seconds % 10) > 0:
+            await asyncio.sleep(seconds % 10)
 
     def start(self):
         if not self.is_running:
@@ -63,5 +83,6 @@ class PromotionScheduler:
             if self.task:
                 self.task.cancel()
             logger.info("Promotion Scheduler stopped.")
+
 
 scheduler = PromotionScheduler()

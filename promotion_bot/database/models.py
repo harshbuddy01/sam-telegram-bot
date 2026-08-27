@@ -6,6 +6,7 @@ from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
+
 class SenderAccount(Base):
     __tablename__ = "sender_accounts"
 
@@ -16,35 +17,60 @@ class SenderAccount(Base):
     username = Column(String(100), nullable=True)
     first_name = Column(String(100), nullable=True)
     is_premium = Column(Boolean, default=False)
-    is_active = Column(Boolean, default=False)  # Currently selected account for broadcasting
+    is_active = Column(Boolean, default=False)
     status = Column(String(50), default="ACTIVE")  # ACTIVE, NEED_LOGIN, MUTED, BANNED
-    
+
+    # Anti-ban: daily join tracking
+    joins_today = Column(Integer, default=0)
+    last_join_reset = Column(DateTime, default=datetime.datetime.utcnow)
+
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    promos = relationship("PromoMessage", back_populates="account", cascade="all, delete-orphan")
+    groups = relationship("Group", back_populates="account", cascade="all, delete-orphan")
+    join_logs = relationship("JoinLog", back_populates="account", cascade="all, delete-orphan")
 
 
 class Group(Base):
     __tablename__ = "target_groups"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    account_id = Column(Integer, ForeignKey("sender_accounts.id", ondelete="CASCADE"), nullable=True, index=True)
     chat_id = Column(BigInteger, nullable=True, index=True)
     title = Column(String(255), nullable=True)
-    identifier = Column(String(255), unique=True, nullable=False, index=True)  # @username, invite link, or chat_id
+    identifier = Column(String(255), nullable=False, index=True)  # @username, invite link, or chat_id
     is_joined = Column(Boolean, default=False)
-    
+    is_selected = Column(Boolean, default=True)  # For group selection before broadcast
+
     # Status: 'ACTIVE', 'SLOWMODE', 'MUTED', 'BANNED', 'INVALID_LINK', 'RESTRICTED'
     status = Column(String(50), default="ACTIVE", index=True)
-    
+
     last_sent_at = Column(DateTime, nullable=True)
     last_error = Column(Text, nullable=True)
     failure_count = Column(Integer, default=0)
     consecutive_failures = Column(Integer, default=0)
     slowmode_seconds = Column(Integer, default=0)
-    
+
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
+    account = relationship("SenderAccount", back_populates="groups")
     logs = relationship("BroadcastLog", back_populates="group", cascade="all, delete-orphan")
+
+
+class JoinLog(Base):
+    """Tracks every group join attempt per account for join reports."""
+    __tablename__ = "join_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    account_id = Column(Integer, ForeignKey("sender_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    identifier = Column(String(255), nullable=False)
+    status = Column(String(50), nullable=False)  # JOINED, FAILED, ALREADY_MEMBER, FLOOD_WAIT
+    error_reason = Column(Text, nullable=True)
+    joined_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    account = relationship("SenderAccount", back_populates="join_logs")
 
 
 class PromoMessage(Base):
@@ -62,11 +88,11 @@ class PromoMessage(Base):
     status = Column(String(50), default="IDLE")  # 'IDLE', 'RUNNING', 'PAUSED', 'STOPPED'
     is_active = Column(Boolean, default=True)
     last_run_at = Column(DateTime, nullable=True)
-    
+
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
-    account = relationship("SenderAccount", backref="promos")
+    account = relationship("SenderAccount", back_populates="promos")
 
 
 class BroadcastCycle(Base):
@@ -77,10 +103,7 @@ class BroadcastCycle(Base):
     account_phone = Column(String(50), nullable=True)
     started_at = Column(DateTime, default=datetime.datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
-    
-    # Status: 'RUNNING', 'COMPLETED', 'PAUSED', 'STOPPED', 'FAILED'
     status = Column(String(50), default="RUNNING")
-    
     total_targets = Column(Integer, default=0)
     success_count = Column(Integer, default=0)
     failed_count = Column(Integer, default=0)
@@ -95,15 +118,13 @@ class BroadcastLog(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     cycle_id = Column(Integer, ForeignKey("broadcast_cycles.id", ondelete="CASCADE"), nullable=True)
-    group_id = Column(Integer, ForeignKey("target_groups.id", ondelete="CASCADE"), nullable=True)
+    group_id = Column(Integer, ForeignKey("target_groups.id", ondelete="SET NULL"), nullable=True)
     group_identifier = Column(String(255), nullable=False)
-    
-    # Status: 'SENT', 'FAILED', 'SLOWMODE', 'SKIPPED'
-    status = Column(String(50), nullable=False)
+    status = Column(String(50), nullable=False)  # 'SENT', 'FAILED', 'SLOWMODE', 'SKIPPED'
     error_reason = Column(Text, nullable=True)
     sent_at = Column(DateTime, default=datetime.datetime.utcnow)
 
-    group = relationship("Group", back_populates="group_logs", cascade="none") if hasattr(Group, "group_logs") else relationship("Group", back_populates="logs")
+    group = relationship("Group", back_populates="logs")
     cycle = relationship("BroadcastCycle", back_populates="logs")
 
 

@@ -2,10 +2,10 @@ import re
 import datetime
 from sqlalchemy import select, update, delete, func, desc, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from database.models import Group, PromoMessage, BroadcastCycle, BroadcastLog, BotSetting, SenderAccount
+from database.models import Group, PromoMessage, BroadcastCycle, BroadcastLog, BotSetting, SenderAccount, JoinLog
 import config
 
-# ==================== SENDER ACCOUNTS (MULTI-NUMBER) ====================
+# ==================== SENDER ACCOUNTS ====================
 
 async def add_or_update_sender_account(
     session: AsyncSession,
@@ -20,33 +20,27 @@ async def add_or_update_sender_account(
     clean_phone = phone.strip()
     result = await session.execute(select(SenderAccount).where(SenderAccount.phone == clean_phone))
     account = result.scalars().first()
-    
+
     if set_active:
-        # Deactivate all other accounts
         await session.execute(update(SenderAccount).values(is_active=False))
-        
+
     if account:
         account.session_string = session_string
-        account.user_id = user_id
-        account.username = username
-        account.first_name = first_name
+        if user_id: account.user_id = user_id
+        if username: account.username = username
+        if first_name: account.first_name = first_name
         account.is_premium = is_premium
         account.is_active = set_active
         account.status = "ACTIVE"
         account.updated_at = datetime.datetime.utcnow()
     else:
         account = SenderAccount(
-            phone=clean_phone,
-            session_string=session_string,
-            user_id=user_id,
-            username=username,
-            first_name=first_name,
-            is_premium=is_premium,
-            is_active=set_active,
-            status="ACTIVE"
+            phone=clean_phone, session_string=session_string,
+            user_id=user_id, username=username, first_name=first_name,
+            is_premium=is_premium, is_active=set_active, status="ACTIVE"
         )
         session.add(account)
-        
+
     await session.commit()
     await session.refresh(account)
     return account
@@ -59,7 +53,6 @@ async def get_active_sender_account(session: AsyncSession) -> SenderAccount | No
     result = await session.execute(select(SenderAccount).where(SenderAccount.is_active == True))
     acc = result.scalars().first()
     if not acc:
-        # Fallback to the first account if none marked active
         result2 = await session.execute(select(SenderAccount).order_by(SenderAccount.id.asc()))
         acc = result2.scalars().first()
         if acc:
@@ -68,9 +61,7 @@ async def get_active_sender_account(session: AsyncSession) -> SenderAccount | No
     return acc
 
 async def set_active_sender_account(session: AsyncSession, account_id: int) -> SenderAccount | None:
-    # Deactivate all
     await session.execute(update(SenderAccount).values(is_active=False))
-    # Activate target
     result = await session.execute(select(SenderAccount).where(SenderAccount.id == account_id))
     acc = result.scalars().first()
     if acc:
@@ -84,181 +75,66 @@ async def update_sender_account_status(session: AsyncSession, account_id: int, s
     await session.commit()
 
 async def delete_sender_account(session: AsyncSession, account_id: int) -> bool:
-    stmt = delete(SenderAccount).where(SenderAccount.id == account_id)
-    await session.execute(stmt)
+    await session.execute(delete(SenderAccount).where(SenderAccount.id == account_id))
     await session.commit()
     return True
 
-# ==================== GROUP CRUD ====================
+# ==================== DAILY JOIN LIMIT TRACKING ====================
 
-async def add_or_get_group(session: AsyncSession, identifier: str, title: str = None, chat_id: int = None) -> tuple[Group, bool]:
-    clean_id = identifier.strip()
-    result = await session.execute(select(Group).where(Group.identifier == clean_id))
-    group = result.scalars().first()
-    if group:
-        if title: group.title = title
-        if chat_id: group.chat_id = chat_id
+async def check_daily_join_limit(session: AsyncSession, account_id: int) -> dict:
+    """Returns {'allowed': bool, 'used': int, 'limit': int, 'remaining': int}."""
+    result = await session.execute(select(SenderAccount).where(SenderAccount.id == account_id))
+    acc = result.scalars().first()
+    if not acc:
+        return {"allowed": False, "used": 0, "limit": config.MAX_JOINS_PER_DAY, "remaining": 0}
+
+    now = datetime.datetime.utcnow()
+    reset_date = acc.last_join_reset or now
+    if (now - reset_date).total_seconds() > 86400:
+        acc.joins_today = 0
+        acc.last_join_reset = now
         await session.commit()
-        return group, False
-    
-    group = Group(
-        identifier=clean_id,
-        title=title or clean_id,
-        chat_id=chat_id,
-        status="ACTIVE"
-    )
-    session.add(group)
-    await session.commit()
-    await session.refresh(group)
-    return group, True
 
-def _is_valid_group_identifier(raw: str) -> bool:
-    """
-    Returns True only for valid group identifiers:
-    - t.me/username or t.me/+hash (invite links)
-    - @username (4–32 alphanumeric chars + underscore, ASCII only)
-    - Negative chat IDs like -1001234567890
-    """
-    import re
-    # Valid invite link
-    if re.match(r'https?://t\.me/(\+|joinchat/)[a-zA-Z0-9_-]{4,}', raw):
-        return True
-    # Valid t.me/username
-    if re.match(r'https?://t\.me/[a-zA-Z][a-zA-Z0-9_]{3,31}$', raw):
-        return True
-    # Valid @username (ASCII letters/digits/underscore, 4-32 chars)
-    if re.match(r'^@[a-zA-Z][a-zA-Z0-9_]{3,31}$', raw):
-        return True
-    # Valid numeric chat ID (starts with -100)
-    if re.match(r'^-100\d{7,13}$', raw):
-        return True
-    return False
+    used = acc.joins_today or 0
+    remaining = max(0, config.MAX_JOINS_PER_DAY - used)
+    return {"allowed": remaining > 0, "used": used, "limit": config.MAX_JOINS_PER_DAY, "remaining": remaining}
 
-async def bulk_add_groups(session: AsyncSession, identifiers: list[str]) -> tuple[int, int]:
-    now = datetime.datetime.utcnow().isoformat()
+async def increment_daily_joins(session: AsyncSession, account_id: int):
+    result = await session.execute(select(SenderAccount).where(SenderAccount.id == account_id))
+    acc = result.scalars().first()
+    if acc:
+        acc.joins_today = (acc.joins_today or 0) + 1
+        await session.commit()
 
-    # Step 1: Clean, normalize, validate and deduplicate ALL identifiers in Python
-    seen_in_batch = set()
-    clean_list = []
-    for raw in identifiers:
-        clean = raw.strip()
-        if not clean:
-            continue
-        # Normalize: add @ prefix if no prefix
-        if not clean.startswith("http") and not clean.startswith("@") and not clean.startswith("-100") and not clean.lstrip("-").isdigit():
-            clean = f"@{clean}"
-        # Strict validation — skip garbage entries like @-, @گروه, @and, etc.
-        if not _is_valid_group_identifier(clean):
-            continue
-        if clean not in seen_in_batch:
-            seen_in_batch.add(clean)
-            clean_list.append(clean)
+# ==================== JOIN LOGS ====================
 
-    if not clean_list:
-        return 0, 0
-
-    # Step 2: Fetch existing identifiers in ONE bulk query
-    existing_result = await session.execute(select(Group.identifier))
-    existing_db_set = set(existing_result.scalars().all())
-
-    # Step 3: Split into new vs existing
-    new_items = [c for c in clean_list if c not in existing_db_set]
-    existing_count = len(clean_list) - len(new_items)
-
-    if not new_items:
-        return 0, existing_count
-
-    # Step 4: INSERT OR IGNORE using raw SQL (bypasses ORM autoflush entirely)
-    # 100% safe — even if somehow a duplicate sneaks through, SQLite silently ignores it
-    await session.execute(
-        text(
-            "INSERT OR IGNORE INTO target_groups "
-            "(identifier, title, is_joined, status, failure_count, consecutive_failures, slowmode_seconds, created_at, updated_at) "
-            "VALUES (:identifier, :title, 0, 'ACTIVE', 0, 0, 0, :now, :now)"
-        ),
-        [{"identifier": c, "title": c, "now": now} for c in new_items]
-    )
+async def log_join_attempt(session: AsyncSession, account_id: int, identifier: str, status: str, error: str = None):
+    log = JoinLog(account_id=account_id, identifier=identifier, status=status, error_reason=error)
+    session.add(log)
     await session.commit()
 
-    return len(new_items), existing_count
-
-
-async def get_unjoined_groups(session: AsyncSession) -> list[Group]:
+async def get_join_report(session: AsyncSession, account_id: int) -> dict:
+    """Aggregate join stats for an account."""
     result = await session.execute(
-        select(Group).where(
-            Group.is_joined == False,
-            Group.status.in_(["ACTIVE", "SLOWMODE"])
-        ).order_by(Group.id.asc())
+        select(JoinLog.status, func.count(JoinLog.id))
+        .where(JoinLog.account_id == account_id)
+        .group_by(JoinLog.status)
     )
-    return list(result.scalars().all())
-
-async def get_active_groups(session: AsyncSession) -> list[Group]:
-    result = await session.execute(
-        select(Group).where(Group.status.in_(["ACTIVE", "SLOWMODE"])).order_by(Group.last_sent_at.asc().nullsfirst(), Group.id.asc())
-    )
-    return list(result.scalars().all())
-
-async def get_all_groups(session: AsyncSession) -> list[Group]:
-    result = await session.execute(select(Group).order_by(Group.id.asc()))
-    return list(result.scalars().all())
-
-async def get_groups_by_status(session: AsyncSession, status: str) -> list[Group]:
-    result = await session.execute(select(Group).where(Group.status == status).order_by(Group.id.asc()))
-    return list(result.scalars().all())
-
-async def get_group_stats(session: AsyncSession) -> dict:
-    result = await session.execute(
-        select(Group.status, func.count(Group.id)).group_by(Group.status)
-    )
-    stats = {"TOTAL": 0, "ACTIVE": 0, "SLOWMODE": 0, "BANNED": 0, "RESTRICTED": 0, "INVALID_LINK": 0, "MUTED": 0}
-    total = 0
+    stats = {"JOINED": 0, "FAILED": 0, "ALREADY_MEMBER": 0, "FLOOD_WAIT": 0, "TOTAL": 0}
     for status, count in result.all():
         stats[status] = count
-        total += count
-    stats["TOTAL"] = total
+        stats["TOTAL"] += count
     return stats
 
-async def update_group_status(
-    session: AsyncSession, 
-    group_id: int, 
-    status: str, 
-    error: str = None, 
-    is_success: bool = False,
-    slowmode_sec: int = 0
-):
-    stmt = select(Group).where(Group.id == group_id)
-    result = await session.execute(stmt)
-    group = result.scalars().first()
-    if not group:
-        return
-    
-    group.status = status
-    group.last_error = error
-    group.updated_at = datetime.datetime.utcnow()
-    
-    if is_success:
-        group.last_sent_at = datetime.datetime.utcnow()
-        group.consecutive_failures = 0
-        group.slowmode_seconds = 0
-    else:
-        group.failure_count += 1
-        group.consecutive_failures += 1
-        if slowmode_sec > 0:
-            group.slowmode_seconds = slowmode_sec
-            
-    await session.commit()
+async def get_join_logs(session: AsyncSession, account_id: int, limit: int = 50, status_filter: str = None):
+    q = select(JoinLog).where(JoinLog.account_id == account_id)
+    if status_filter:
+        q = q.where(JoinLog.status == status_filter)
+    q = q.order_by(JoinLog.joined_at.desc()).limit(limit)
+    result = await session.execute(q)
+    return list(result.scalars().all())
 
-async def delete_group(session: AsyncSession, group_id: int) -> bool:
-    stmt = delete(Group).where(Group.id == group_id)
-    await session.execute(stmt)
-    await session.commit()
-    return True
-
-async def delete_all_groups_by_status(session: AsyncSession, status: str) -> int:
-    stmt = delete(Group).where(Group.status == status)
-    result = await session.execute(stmt)
-    await session.commit()
-    return result.rowcount
+# ==================== GROUP CRUD (PER-ACCOUNT) ====================
 
 KNOWN_BAD_WORDS = {
     "comments", "twitter", "discord", "crypto", "telegram", "card", "dealer",
@@ -274,127 +150,240 @@ def _is_valid_group_identifier(identifier: str) -> bool:
     if not identifier or not isinstance(identifier, str):
         return False
     raw = identifier.strip()
-    
-    # Exclude common single dictionary words
     clean_name = raw.lstrip("@").lower()
     if clean_name in KNOWN_BAD_WORDS:
         return False
-
-    # Valid t.me/joinchat/... or t.me/+hash
     if re.match(r'https?://t\.me/(joinchat/|\+)[a-zA-Z0-9_\-]+$', raw):
         return True
-    # Valid t.me/username (at least 4 chars)
     if re.match(r'https?://t\.me/[a-zA-Z][a-zA-Z0-9_]{3,31}$', raw):
         return True
-    # Valid @username (at least 4 chars)
     if re.match(r'^@[a-zA-Z][a-zA-Z0-9_]{3,31}$', raw):
         return True
-    # Valid numeric chat ID (starts with -100)
     if re.match(r'^-100\d{7,13}$', raw):
         return True
     return False
 
-async def purge_invalid_identifiers(session: AsyncSession) -> int:
-    result = await session.execute(select(Group))
-    groups = result.scalars().all()
-    deleted_count = 0
-    for g in groups:
-        clean_name = g.identifier.strip().lstrip("@").lower()
-        if not _is_valid_group_identifier(g.identifier) or clean_name in KNOWN_BAD_WORDS:
-            await session.delete(g)
-            deleted_count += 1
-    if deleted_count > 0:
-        await session.commit()
-    return deleted_count
+async def bulk_add_groups_for_account(session: AsyncSession, account_id: int, identifiers: list[str]) -> tuple[int, int]:
+    """Import groups linked to a specific phone number account."""
+    now = datetime.datetime.utcnow().isoformat()
+    seen = set()
+    clean_list = []
+    for raw in identifiers:
+        clean = raw.strip()
+        if not clean:
+            continue
+        if not clean.startswith("http") and not clean.startswith("@") and not clean.startswith("-100") and not clean.lstrip("-").isdigit():
+            clean = f"@{clean}"
+        if not _is_valid_group_identifier(clean):
+            continue
+        if clean not in seen:
+            seen.add(clean)
+            clean_list.append(clean)
 
-async def smart_clean_and_purge_groups(session: AsyncSession) -> dict:
-    """Purges all dead/invalid/banned/user-profile groups and resets active groups."""
-    result = await session.execute(select(Group))
-    groups = result.scalars().all()
-    deleted_count = 0
-    for g in groups:
-        clean_name = g.identifier.strip().lstrip("@").lower()
-        is_bad_status = g.status in ["INVALID_LINK", "BANNED"]
-        is_invalid_syntax = not _is_valid_group_identifier(g.identifier)
-        is_known_bad = clean_name in KNOWN_BAD_WORDS
-        is_user_cast_error = g.last_error and "Cannot cast InputPeerUser" in g.last_error
-        is_not_found = g.last_error and ("No user has" in g.last_error or "Nobody is using this username" in g.last_error)
+    if not clean_list:
+        return 0, 0
 
-        if is_bad_status or is_invalid_syntax or is_known_bad or is_user_cast_error or is_not_found:
-            await session.delete(g)
-            deleted_count += 1
-        elif g.status in ["RESTRICTED", "SLOWMODE"]:
-            g.status = "ACTIVE"
-            g.consecutive_failures = 0
-            g.last_error = None
-
-    if deleted_count > 0:
-        await session.commit()
-
-    active_count = len(await get_active_groups(session))
-    return {"deleted": deleted_count, "active": active_count}
-
-async def reset_all_group_statuses(session: AsyncSession) -> int:
-    stmt = update(Group).values(status="ACTIVE", consecutive_failures=0, last_error=None)
-    result = await session.execute(stmt)
-    await session.commit()
-    return result.rowcount
-
-# ==================== PROMO MESSAGE & MULTI-ACCOUNT CAMPAIGNS ====================
-
-async def get_active_promo_message(session: AsyncSession) -> PromoMessage:
-    result = await session.execute(
-        select(PromoMessage).where(PromoMessage.account_id == None, PromoMessage.is_active == True).order_by(PromoMessage.id.desc())
+    # Check existing for this account
+    existing_result = await session.execute(
+        select(Group.identifier).where(Group.account_id == account_id)
     )
-    promo = result.scalars().first()
-    if not promo:
-        default_text = (
-            "🔥 <b>PREMIUM SERVICES & ACCOUNTS AVAILABLE!</b> 🔥\n\n"
-            "✨ High Quality • Instant Delivery • 24/7 Support\n"
-            "💎 Netflix, Prime Video, Claude Pro, ChatGPT & more!\n\n"
-            "👉 <b>Order Now:</b> @SamStoreAd_Bot\n"
-            "🌐 <b>Official Channel:</b> @SamStoreServices"
-        )
-        promo = PromoMessage(title="Default Promo Template", text=default_text, media_type="none", is_active=True)
-        session.add(promo)
+    existing_set = set(existing_result.scalars().all())
+
+    new_items = [c for c in clean_list if c not in existing_set]
+    existing_count = len(clean_list) - len(new_items)
+
+    if not new_items:
+        return 0, existing_count
+
+    for ident in new_items:
+        g = Group(account_id=account_id, identifier=ident, title=ident, status="ACTIVE")
+        session.add(g)
+    await session.commit()
+    return len(new_items), existing_count
+
+async def get_groups_for_account(session: AsyncSession, account_id: int) -> list[Group]:
+    result = await session.execute(
+        select(Group).where(Group.account_id == account_id).order_by(Group.id.asc())
+    )
+    return list(result.scalars().all())
+
+async def get_unjoined_groups_for_account(session: AsyncSession, account_id: int) -> list[Group]:
+    result = await session.execute(
+        select(Group).where(
+            Group.account_id == account_id,
+            Group.is_joined == False,
+            Group.status.in_(["ACTIVE", "SLOWMODE"])
+        ).order_by(Group.id.asc())
+    )
+    return list(result.scalars().all())
+
+async def get_active_groups_for_account(session: AsyncSession, account_id: int) -> list[Group]:
+    result = await session.execute(
+        select(Group).where(
+            Group.account_id == account_id,
+            Group.status.in_(["ACTIVE", "SLOWMODE"])
+        ).order_by(Group.last_sent_at.asc().nullsfirst(), Group.id.asc())
+    )
+    return list(result.scalars().all())
+
+async def get_selected_groups(session: AsyncSession, account_id: int) -> list[Group]:
+    result = await session.execute(
+        select(Group).where(
+            Group.account_id == account_id,
+            Group.is_selected == True,
+            Group.status.in_(["ACTIVE", "SLOWMODE"])
+        ).order_by(Group.id.asc())
+    )
+    return list(result.scalars().all())
+
+async def get_group_stats_for_account(session: AsyncSession, account_id: int) -> dict:
+    result = await session.execute(
+        select(Group.status, func.count(Group.id))
+        .where(Group.account_id == account_id)
+        .group_by(Group.status)
+    )
+    stats = {"TOTAL": 0, "ACTIVE": 0, "SLOWMODE": 0, "BANNED": 0, "RESTRICTED": 0, "INVALID_LINK": 0}
+    for status, count in result.all():
+        stats[status] = count
+        stats["TOTAL"] += count
+    return stats
+
+async def toggle_group_selection(session: AsyncSession, group_id: int) -> bool:
+    result = await session.execute(select(Group).where(Group.id == group_id))
+    g = result.scalars().first()
+    if g:
+        g.is_selected = not g.is_selected
         await session.commit()
-        await session.refresh(promo)
-    return promo
+        return g.is_selected
+    return False
+
+async def select_all_groups(session: AsyncSession, account_id: int):
+    await session.execute(
+        update(Group).where(Group.account_id == account_id).values(is_selected=True)
+    )
+    await session.commit()
+
+async def deselect_all_groups(session: AsyncSession, account_id: int):
+    await session.execute(
+        update(Group).where(Group.account_id == account_id).values(is_selected=False)
+    )
+    await session.commit()
+
+async def sync_telegram_groups(session: AsyncSession, account_id: int, telegram_groups: list[dict]) -> dict:
+    """Sync real Telegram groups into DB. Returns {added, existing, total}."""
+    existing_result = await session.execute(
+        select(Group.chat_id).where(Group.account_id == account_id, Group.chat_id.isnot(None))
+    )
+    existing_chat_ids = set(existing_result.scalars().all())
+
+    added = 0
+    for tg in telegram_groups:
+        if tg["chat_id"] not in existing_chat_ids:
+            ident = f"@{tg['username']}" if tg.get("username") else str(tg["chat_id"])
+            g = Group(
+                account_id=account_id, chat_id=tg["chat_id"],
+                title=tg.get("title", ident), identifier=ident,
+                is_joined=True, is_selected=True, status="ACTIVE"
+            )
+            session.add(g)
+            added += 1
+
+    if added > 0:
+        await session.commit()
+
+    total_result = await session.execute(
+        select(func.count(Group.id)).where(Group.account_id == account_id)
+    )
+    total = total_result.scalar() or 0
+    return {"added": added, "existing": len(existing_chat_ids), "total": total}
+
+async def update_group_status(
+    session: AsyncSession, group_id: int, status: str,
+    error: str = None, is_success: bool = False, slowmode_sec: int = 0
+):
+    result = await session.execute(select(Group).where(Group.id == group_id))
+    group = result.scalars().first()
+    if not group:
+        return
+    group.status = status
+    group.last_error = error
+    group.updated_at = datetime.datetime.utcnow()
+    if is_success:
+        group.last_sent_at = datetime.datetime.utcnow()
+        group.consecutive_failures = 0
+        group.failure_count = max(0, (group.failure_count or 0))
+    else:
+        group.failure_count = (group.failure_count or 0) + 1
+        group.consecutive_failures = (group.consecutive_failures or 0) + 1
+    if slowmode_sec:
+        group.slowmode_seconds = slowmode_sec
+    await session.commit()
+
+async def delete_group(session: AsyncSession, group_id: int):
+    await session.execute(delete(Group).where(Group.id == group_id))
+    await session.commit()
+
+async def smart_clean_groups_for_account(session: AsyncSession, account_id: int) -> dict:
+    """Purges dead/invalid groups for a specific account."""
+    result = await session.execute(select(Group).where(Group.account_id == account_id))
+    groups = result.scalars().all()
+    deleted = 0
+    for g in groups:
+        clean_name = g.identifier.strip().lstrip("@").lower()
+        is_bad = g.status in ["INVALID_LINK", "BANNED"]
+        is_invalid = not _is_valid_group_identifier(g.identifier)
+        is_known_bad = clean_name in KNOWN_BAD_WORDS
+        is_cast_err = g.last_error and "Cannot cast InputPeerUser" in g.last_error
+        is_not_found = g.last_error and ("No user has" in g.last_error or "Nobody is using" in g.last_error)
+        if is_bad or is_invalid or is_known_bad or is_cast_err or is_not_found:
+            await session.delete(g)
+            deleted += 1
+    if deleted:
+        await session.commit()
+    active = await session.execute(
+        select(func.count(Group.id)).where(Group.account_id == account_id, Group.status == "ACTIVE")
+    )
+    return {"deleted": deleted, "active": active.scalar() or 0}
+
+async def get_groups_paginated(session: AsyncSession, account_id: int, page: int = 1, per_page: int = 20) -> tuple[list[Group], int]:
+    """Returns (groups_on_page, total_pages) for paginated group selection UI."""
+    total_result = await session.execute(
+        select(func.count(Group.id)).where(
+            Group.account_id == account_id,
+            Group.status.in_(["ACTIVE", "SLOWMODE"])
+        )
+    )
+    total = total_result.scalar() or 0
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    offset = (page - 1) * per_page
+    result = await session.execute(
+        select(Group).where(
+            Group.account_id == account_id,
+            Group.status.in_(["ACTIVE", "SLOWMODE"])
+        ).order_by(Group.id.asc()).limit(per_page).offset(offset)
+    )
+    return list(result.scalars().all()), total_pages
+
+# ==================== PROMO MESSAGE (PER-ACCOUNT) ====================
 
 async def get_or_create_account_promo(session: AsyncSession, account_id: int, phone: str = None) -> PromoMessage:
-    result = await session.execute(
-        select(PromoMessage).where(PromoMessage.account_id == account_id)
-    )
+    result = await session.execute(select(PromoMessage).where(PromoMessage.account_id == account_id))
     promo = result.scalars().first()
     if not promo:
-        global_promo = await get_active_promo_message(session)
-        title = f"Campaign ({phone or f'Account #{account_id}'})"
+        title = f"Campaign ({phone})" if phone else f"Campaign (Account #{account_id})"
         promo = PromoMessage(
-            account_id=account_id,
-            title=title,
-            text=global_promo.text,
-            media_type=global_promo.media_type,
-            media_file_id=global_promo.media_file_id,
-            media_path=global_promo.media_path,
-            interval_hours=2.0,
-            is_enabled=True,
-            status="IDLE",
-            is_active=True
+            account_id=account_id, title=title,
+            text="Your promotional message here. Edit this in ✏️ Message Setup.",
+            media_type="none", interval_hours=2.0, is_enabled=True
         )
         session.add(promo)
         await session.commit()
         await session.refresh(promo)
     return promo
 
-async def update_account_promo(
-    session: AsyncSession,
-    account_id: int,
-    text: str,
-    media_type: str = "none",
-    media_file_id: str = None,
-    media_path: str = None,
-    phone: str = None
-) -> PromoMessage:
+async def update_account_promo(session: AsyncSession, account_id: int, text: str,
+                               media_type: str = "none", media_file_id: str = None,
+                               media_path: str = None, phone: str = None):
     promo = await get_or_create_account_promo(session, account_id, phone)
     promo.text = text
     promo.media_type = media_type
@@ -402,162 +391,110 @@ async def update_account_promo(
     promo.media_path = media_path
     promo.updated_at = datetime.datetime.utcnow()
     await session.commit()
-    await session.refresh(promo)
-    return promo
 
 async def set_account_interval(session: AsyncSession, account_id: int, interval_hours: float):
     promo = await get_or_create_account_promo(session, account_id)
-    promo.interval_hours = float(interval_hours)
-    promo.updated_at = datetime.datetime.utcnow()
+    promo.interval_hours = interval_hours
     await session.commit()
 
-async def set_account_campaign_status(session: AsyncSession, account_id: int, status: str):
+async def set_account_campaign_enabled(session: AsyncSession, account_id: int, enabled: bool):
     promo = await get_or_create_account_promo(session, account_id)
-    promo.status = status
-    promo.updated_at = datetime.datetime.utcnow()
+    promo.is_enabled = enabled
     await session.commit()
 
-async def get_all_account_campaigns(session: AsyncSession) -> list[tuple[SenderAccount, PromoMessage]]:
-    accounts = await get_all_sender_accounts(session)
-    pairs = []
-    for acc in accounts:
-        promo = await get_or_create_account_promo(session, acc.id, acc.phone)
-        pairs.append((acc, promo))
-    return pairs
-
-async def update_promo_message(
-    session: AsyncSession,
-    text: str,
-    media_type: str = "none",
-    media_file_id: str = None,
-    media_path: str = None
-) -> PromoMessage:
-    promo = await get_active_promo_message(session)
-    promo.text = text
-    promo.media_type = media_type
-    promo.media_file_id = media_file_id
-    promo.media_path = media_path
-    promo.updated_at = datetime.datetime.utcnow()
-    await session.commit()
-    await session.refresh(promo)
-    return promo
-
-# ==================== BROADCAST CYCLE & LOG CRUD ====================
+# ==================== BROADCAST CYCLES & LOGS ====================
 
 async def create_cycle(session: AsyncSession, total_targets: int, account_id: int = None, account_phone: str = None) -> BroadcastCycle:
     cycle = BroadcastCycle(
-        account_id=account_id,
-        account_phone=account_phone,
-        started_at=datetime.datetime.utcnow(),
-        status="RUNNING",
-        total_targets=total_targets,
-        success_count=0,
-        failed_count=0,
-        skipped_count=0
+        account_id=account_id, account_phone=account_phone,
+        total_targets=total_targets, status="RUNNING"
     )
     session.add(cycle)
     await session.commit()
     await session.refresh(cycle)
     return cycle
 
-async def finish_cycle(
-    session: AsyncSession,
-    cycle_id: int,
-    status: str,
-    success: int,
-    failed: int,
-    skipped: int,
-    duration: int
-):
-    stmt = select(BroadcastCycle).where(BroadcastCycle.id == cycle_id)
-    result = await session.execute(stmt)
+async def finish_cycle(session: AsyncSession, cycle_id: int, status: str,
+                       success: int, failed: int, skipped: int, duration: int):
+    result = await session.execute(select(BroadcastCycle).where(BroadcastCycle.id == cycle_id))
     cycle = result.scalars().first()
     if cycle:
-        cycle.completed_at = datetime.datetime.utcnow()
         cycle.status = status
         cycle.success_count = success
         cycle.failed_count = failed
         cycle.skipped_count = skipped
         cycle.duration_seconds = duration
+        cycle.completed_at = datetime.datetime.utcnow()
         await session.commit()
 
-async def log_broadcast_result(
-    session: AsyncSession,
-    cycle_id: int,
-    group_id: int,
-    group_identifier: str,
-    status: str,
-    error_reason: str = None
-):
+async def log_broadcast_result(session: AsyncSession, cycle_id: int, group_id: int,
+                               group_identifier: str, status: str, error_reason: str = None):
     log = BroadcastLog(
-        cycle_id=cycle_id,
-        group_id=group_id,
-        group_identifier=group_identifier,
-        status=status,
-        error_reason=error_reason,
-        sent_at=datetime.datetime.utcnow()
+        cycle_id=cycle_id, group_id=group_id,
+        group_identifier=group_identifier, status=status, error_reason=error_reason
     )
     session.add(log)
     await session.commit()
 
-async def get_recent_cycles(session: AsyncSession, limit: int = 5) -> list[BroadcastCycle]:
-    result = await session.execute(
-        select(BroadcastCycle).order_by(desc(BroadcastCycle.id)).limit(limit)
-    )
+async def get_recent_cycles(session: AsyncSession, limit: int = 5, account_id: int = None):
+    q = select(BroadcastCycle)
+    if account_id:
+        q = q.where(BroadcastCycle.account_id == account_id)
+    q = q.order_by(BroadcastCycle.started_at.desc()).limit(limit)
+    result = await session.execute(q)
     return list(result.scalars().all())
 
 async def get_cycle_by_id(session: AsyncSession, cycle_id: int) -> BroadcastCycle | None:
     result = await session.execute(select(BroadcastCycle).where(BroadcastCycle.id == cycle_id))
     return result.scalars().first()
 
-async def get_cycle_sent_logs(session: AsyncSession, cycle_id: int) -> list[BroadcastLog]:
+async def get_cycle_failed_logs(session: AsyncSession, cycle_id: int):
     result = await session.execute(
         select(BroadcastLog).where(
-            BroadcastLog.cycle_id == cycle_id,
-            BroadcastLog.status == "SENT"
-        ).order_by(BroadcastLog.id.asc())
+            BroadcastLog.cycle_id == cycle_id, BroadcastLog.status == "FAILED"
+        ).order_by(BroadcastLog.sent_at.asc())
     )
     return list(result.scalars().all())
 
-async def get_cycle_failed_logs(session: AsyncSession, cycle_id: int) -> list[BroadcastLog]:
+async def get_cycle_sent_logs(session: AsyncSession, cycle_id: int):
     result = await session.execute(
         select(BroadcastLog).where(
-            BroadcastLog.cycle_id == cycle_id,
-            BroadcastLog.status.in_(["FAILED", "SLOWMODE", "SKIPPED"])
-        ).order_by(BroadcastLog.id.asc())
+            BroadcastLog.cycle_id == cycle_id, BroadcastLog.status == "SENT"
+        ).order_by(BroadcastLog.sent_at.asc())
     )
     return list(result.scalars().all())
 
-# ==================== SETTINGS CRUD ====================
+# ==================== BOT SETTINGS ====================
 
 async def get_setting(session: AsyncSession, key: str, default: str = None) -> str:
     result = await session.execute(select(BotSetting).where(BotSetting.key == key))
-    setting = result.scalars().first()
-    return setting.value if setting else default
+    s = result.scalars().first()
+    return s.value if s else default
 
 async def set_setting(session: AsyncSession, key: str, value: str, description: str = None):
     result = await session.execute(select(BotSetting).where(BotSetting.key == key))
-    setting = result.scalars().first()
-    if setting:
-        setting.value = str(value)
-        if description: setting.description = description
+    s = result.scalars().first()
+    if s:
+        s.value = value
+        if description:
+            s.description = description
     else:
-        setting = BotSetting(key=key, value=str(value), description=description)
-        session.add(setting)
+        s = BotSetting(key=key, value=value, description=description)
+        session.add(s)
     await session.commit()
 
 async def seed_default_settings(session: AsyncSession):
     defaults = {
-        "broadcast_enabled": "true",
-        "interval_hours": str(config.DEFAULT_INTERVAL_HOURS),
-        "min_delay_sec": str(config.MIN_DELAY_PER_GROUP),
-        "max_delay_sec": str(config.MAX_DELAY_PER_GROUP),
-        "batch_size": str(config.BATCH_SIZE),
-        "batch_cooldown_sec": str(config.BATCH_COOLDOWN),
-        "spintax_enabled": "true"
+        "broadcast_enabled": ("true", "Master broadcast toggle"),
+        "interval_hours": (str(config.DEFAULT_INTERVAL_HOURS), "Global broadcast interval"),
+        "min_delay_sec": (str(config.MIN_DELAY_PER_GROUP), "Min delay between messages"),
+        "max_delay_sec": (str(config.MAX_DELAY_PER_GROUP), "Max delay between messages"),
+        "batch_size": (str(config.BATCH_SIZE), "Messages per batch"),
+        "batch_cooldown_sec": (str(config.BATCH_COOLDOWN), "Cooldown between batches"),
+        "spintax_enabled": ("true", "Spintax text rotation"),
+        "anti_hash_enabled": ("true", "Zero-width anti-hash jitter"),
     }
-    for k, v in defaults.items():
-        res = await session.execute(select(BotSetting).where(BotSetting.key == k))
-        if not res.scalars().first():
-            session.add(BotSetting(key=k, value=v))
-    await session.commit()
+    for key, (value, desc) in defaults.items():
+        existing = await get_setting(session, key)
+        if existing is None:
+            await set_setting(session, key, value, desc)

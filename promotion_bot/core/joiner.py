@@ -1,225 +1,244 @@
-import re
 import asyncio
+import re
 import random
 import logging
 from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.tl.functions.messages import ImportChatInviteRequest
 from telethon.errors import (
-    UserAlreadyParticipantError,
-    InviteHashExpiredError,
-    InviteHashInvalidError,
-    ChannelsTooMuchError,
-    FloodWaitError,
-    ChannelPrivateError,
-    ChannelInvalidError,
-    ChatAdminRequiredError,
-    UsernameInvalidError,
-    UsernameNotOccupiedError,
-    UserBannedInChannelError
+    FloodWaitError, ChannelPrivateError, UserAlreadyParticipantError,
+    InviteHashExpiredError, PeerFloodError, UserBannedInChannelError
 )
 from core.client import tg_manager
 from database.database import AsyncSessionLocal
-from database.crud import update_group_status, get_unjoined_groups
-from sqlalchemy import update
-from database.models import Group
+from database.crud import (
+    get_unjoined_groups_for_account,
+    update_group_status,
+    check_daily_join_limit,
+    increment_daily_joins,
+    log_join_attempt
+)
 import config
 
 logger = logging.getLogger(__name__)
 
-INVITE_HASH_REGEX = re.compile(r'(?:t\.me/joinchat/|t\.me/\+|telegram\.me/\+|telegram\.dog/\+)([a-zA-Z0-9_-]+)')
-USERNAME_REGEX = re.compile(r'(?:t\.me/|telegram\.me/|@)([a-zA-Z0-9_]{4,32})')
 
 def extract_group_identifier(raw_input: str) -> dict:
     raw = raw_input.strip()
-    
-    # Check for invite hash
-    invite_match = INVITE_HASH_REGEX.search(raw)
+    invite_match = re.match(r'https?://t\.me/(joinchat/|\+)([a-zA-Z0-9_\-]+)', raw)
     if invite_match:
-        return {"type": "invite_hash", "value": invite_match.group(1), "raw": raw}
-    
-    # Check for username / t.me/username
-    username_match = USERNAME_REGEX.search(raw)
+        return {"type": "invite_hash", "value": invite_match.group(2)}
+    username_match = re.match(r'https?://t\.me/([a-zA-Z][a-zA-Z0-9_]{3,31})$', raw)
     if username_match:
-        return {"type": "username", "value": username_match.group(1), "raw": f"@{username_match.group(1)}"}
-    
-    # Check if raw chat ID
-    if raw.startswith("-100") or (raw.startswith("-") and raw[1:].isdigit()):
-        try:
-            return {"type": "chat_id", "value": int(raw), "raw": raw}
-        except ValueError:
-            pass
-            
-    return {"type": "raw", "value": raw, "raw": raw}
+        return {"type": "username", "value": username_match.group(1)}
+    if raw.startswith("@"):
+        return {"type": "username", "value": raw.lstrip("@")}
+    if raw.startswith("-100") and raw.lstrip("-").isdigit():
+        return {"type": "chat_id", "value": int(raw)}
+    return {"type": "raw", "value": raw}
+
 
 class SafeGroupJoiner:
     def __init__(self):
         self.is_running = False
         self.should_stop = False
-        self.bot_instance = None
         self._lock = asyncio.Lock()
+        self.bot_instance = None
 
     def set_bot_instance(self, bot):
         self.bot_instance = bot
 
-    async def mark_group_joined(self, group_id: int):
-        if not group_id:
-            return
-        async with AsyncSessionLocal() as session:
-            await session.execute(update(Group).where(Group.id == group_id).values(is_joined=True, status="ACTIVE"))
-            await session.commit()
-
-    async def join_single_group(self, identifier: str, group_db_id: int = None) -> dict:
-        is_conn = await tg_manager.ensure_connected()
-        client = tg_manager.client
-        if not client or not is_conn:
-            return {"status": "error", "reason": "Userbot client is not connected."}
+    async def join_single_group(self, identifier: str, account_id: int, group_db_id: int = None) -> dict:
+        client = await tg_manager.get_client_for_account(account_id)
+        if not client:
+            return {"status": "error", "reason": "Client not connected for this account"}
 
         parsed = extract_group_identifier(identifier)
-        item_type = parsed["type"]
-        val = parsed["value"]
-
-        if item_type == "raw":
-            logger.warning(f"Invalid group identifier format: {identifier}")
-            if group_db_id:
-                async with AsyncSessionLocal() as session:
-                    await update_group_status(session, group_db_id, "INVALID_LINK", error="Invalid format or unsupported non-English characters")
-            return {"status": "error", "reason": "Invalid format or unsupported characters"}
 
         try:
-            if item_type == "invite_hash":
-                logger.info(f"Joining private group with hash: {val}")
+            if parsed["type"] == "invite_hash":
                 try:
-                    await client(ImportChatInviteRequest(val))
+                    res = await client(ImportChatInviteRequest(parsed["value"]))
+                    if group_db_id:
+                        async with AsyncSessionLocal() as session:
+                            await update_group_status(session, group_db_id, "ACTIVE", is_success=True)
+                    return {"status": "ok", "reason": "Joined via invite link"}
                 except UserAlreadyParticipantError:
-                    pass
-                    
-            elif item_type == "username":
-                logger.info(f"Joining public group @{val}")
+                    if group_db_id:
+                        async with AsyncSessionLocal() as session:
+                            await update_group_status(session, group_db_id, "ACTIVE", is_success=True)
+                    return {"status": "already_member", "reason": "Already a member"}
+                except InviteHashExpiredError:
+                    if group_db_id:
+                        async with AsyncSessionLocal() as session:
+                            await update_group_status(session, group_db_id, "INVALID_LINK", error="Invite link expired")
+                    return {"status": "error", "reason": "Invite link expired or invalid"}
+
+            elif parsed["type"] == "username":
                 try:
-                    await client(JoinChannelRequest(val))
+                    entity = await client.get_entity(parsed["value"])
+                    await client(JoinChannelRequest(entity))
+                    if group_db_id:
+                        async with AsyncSessionLocal() as session:
+                            await update_group_status(session, group_db_id, "ACTIVE", is_success=True)
+                    return {"status": "ok", "reason": "Joined via username"}
                 except UserAlreadyParticipantError:
-                    pass
-                    
-            elif item_type == "chat_id":
+                    if group_db_id:
+                        async with AsyncSessionLocal() as session:
+                            await update_group_status(session, group_db_id, "ACTIVE", is_success=True)
+                    return {"status": "already_member", "reason": "Already a member"}
+
+            elif parsed["type"] == "chat_id":
+                entity = await client.get_entity(parsed["value"])
+                await client(JoinChannelRequest(entity))
+                if group_db_id:
+                    async with AsyncSessionLocal() as session:
+                        await update_group_status(session, group_db_id, "ACTIVE", is_success=True)
+                return {"status": "ok", "reason": "Joined via chat ID"}
+
+            else:
                 try:
-                    await client.get_entity(val)
+                    entity = await client.get_entity(parsed["value"])
+                    await client(JoinChannelRequest(entity))
+                    if group_db_id:
+                        async with AsyncSessionLocal() as session:
+                            await update_group_status(session, group_db_id, "ACTIVE", is_success=True)
+                    return {"status": "ok", "reason": "Joined"}
                 except Exception as e:
                     if group_db_id:
                         async with AsyncSessionLocal() as session:
-                            await update_group_status(session, group_db_id, "INVALID_LINK", error=f"Could not find chat ID: {e}")
-                    return {"status": "error", "reason": f"Could not find chat ID: {e}"}
-
-            if group_db_id:
-                await self.mark_group_joined(group_db_id)
-
-            return {"status": "ok", "reason": "Successfully joined / Verified", "joined": True}
+                            await update_group_status(session, group_db_id, "RESTRICTED", error=str(e))
+                    return {"status": "error", "reason": str(e)}
 
         except FloodWaitError as e:
-            logger.warning(f"Telegram FloodWait triggered while joining: wait {e.seconds}s")
-            return {"status": "flood_wait", "seconds": e.seconds, "reason": f"Telegram FloodWait: {e.seconds}s"}
-            
-        except (InviteHashExpiredError, InviteHashInvalidError):
-            logger.warning(f"Invite link is invalid or expired: {identifier}")
-            if group_db_id:
-                async with AsyncSessionLocal() as session:
-                    await update_group_status(session, group_db_id, "INVALID_LINK", error="Invite link expired or revoked")
-            return {"status": "error", "reason": "Invite link expired or revoked"}
+            return {"status": "flood_wait", "reason": f"FloodWait: {e.seconds}s", "seconds": e.seconds}
 
-        except (UsernameInvalidError, UsernameNotOccupiedError, ChannelInvalidError, ValueError, TypeError) as e:
-            logger.warning(f"Group {identifier} is invalid or is a private user profile: {e}")
+        except PeerFloodError:
+            return {"status": "peer_flood", "reason": "Telegram PeerFlood triggered"}
+
+        except ChannelPrivateError:
             if group_db_id:
                 async with AsyncSessionLocal() as session:
-                    await update_group_status(session, group_db_id, "INVALID_LINK", error=f"Target is not a channel/group: {e}")
-            return {"status": "error", "reason": f"Target is a user account or does not exist: {e}"}
-            
-        except ChannelsTooMuchError:
-            logger.error("Telegram limit reached: User account is in maximum number of channels/groups.")
-            return {"status": "error", "reason": "Maximum channels/groups limit reached on Telegram account"}
-            
-        except (ChannelPrivateError, UserBannedInChannelError):
+                    await update_group_status(session, group_db_id, "BANNED", error="Channel is private or banned")
+            return {"status": "error", "reason": "Channel is private or account is banned"}
+
+        except UserBannedInChannelError:
             if group_db_id:
                 async with AsyncSessionLocal() as session:
-                    await update_group_status(session, group_db_id, "BANNED", error="Channel is private or account is banned")
-            return {"status": "error", "reason": "Channel is private or account is banned from this group"}
-            
+                    await update_group_status(session, group_db_id, "BANNED", error="Account banned in this group")
+            return {"status": "error", "reason": "Account is banned in this group"}
+
         except Exception as e:
-            logger.error(f"Error joining group {identifier}: {e}")
+            logger.error(f"Error joining {identifier}: {e}")
             if group_db_id:
                 async with AsyncSessionLocal() as session:
                     await update_group_status(session, group_db_id, "RESTRICTED", error=str(e))
             return {"status": "error", "reason": str(e)}
 
-    async def resume_or_start_auto_join(self, progress_callback=None) -> dict:
-        """
-        Fetches all unjoined groups from DB and joins them safely with anti-ban delays.
-        Resumes automatically where it was previously stopped.
-        """
-        # Prevent two instances from running at the same time
+    async def auto_join_for_account(self, account_id: int, progress_callback=None) -> dict:
         if self._lock.locked() or self.is_running:
             return {"status": "already_running"}
 
         async with self._lock:
             async with AsyncSessionLocal() as session:
-                unjoined_groups = await get_unjoined_groups(session)
+                unjoined = await get_unjoined_groups_for_account(session, account_id)
 
-            if not unjoined_groups:
-                logger.info("All target groups are already joined and verified.")
-                return {"total": 0, "joined": 0, "failed": 0, "status": "all_joined"}
+            if not unjoined:
+                return {"total": 0, "joined": 0, "failed": 0, "already_member": 0, "status": "all_joined"}
 
             self.is_running = True
             self.should_stop = False
-            total = len(unjoined_groups)
+            total = len(unjoined)
             joined = 0
             failed = 0
+            already_member = 0
+            session_joins = 0  # Track joins in this session for session limit
 
-            logger.info(f"Resuming Safe Auto-Joiner for {total} unjoined groups...")
+            logger.info(f"Starting auto-join for account #{account_id}: {total} groups")
 
-        for idx, grp in enumerate(unjoined_groups, 1):
-            if self.should_stop or not self.is_running:
-                logger.info("Auto-joiner paused/stopped by admin.")
-                break
+            for idx, grp in enumerate(unjoined, 1):
+                if self.should_stop or not self.is_running:
+                    logger.info("Auto-joiner stopped by admin.")
+                    break
 
-            res = await self.join_single_group(grp.identifier, grp.id)
-            if res.get("status") == "ok":
-                joined += 1
-                logger.info(f"✅ Joined ({joined} done, {idx}/{total}): {grp.identifier}")
-            elif res.get("status") == "flood_wait":
-                wait_sec = res.get("seconds", 60)
-                logger.info(f"FloodWait: sleeping {wait_sec}s...")
-                await asyncio.sleep(wait_sec + 5)
-                # Retry once
-                res2 = await self.join_single_group(grp.identifier, grp.id)
-                if res2.get("status") == "ok":
-                    joined += 1
-                    logger.info(f"✅ Joined after FloodWait ({joined} done, {idx}/{total}): {grp.identifier}")
-                else:
-                    failed += 1
-                    logger.info(f"❌ Failed ({failed} failed, {idx}/{total}): {grp.identifier} — {res2.get('reason')}")
-            else:
-                failed += 1
-                logger.info(f"❌ Failed ({failed} failed, {idx}/{total}): {grp.identifier} — {res.get('reason')}")
+                # Check daily limit
+                async with AsyncSessionLocal() as session:
+                    limit_info = await check_daily_join_limit(session, account_id)
+                if not limit_info["allowed"]:
+                    logger.info(f"Daily join limit reached ({limit_info['used']}/{limit_info['limit']}). Stopping.")
+                    break
 
-            if progress_callback:
-                try:
-                    await progress_callback(idx, total, joined, failed, grp.identifier)
-                except Exception:
-                    pass
+                # Check session limit
+                if session_joins >= config.MAX_JOINS_PER_SESSION:
+                    logger.info(f"Session limit ({config.MAX_JOINS_PER_SESSION}) reached. Pausing {config.SESSION_JOIN_COOLDOWN}s...")
+                    if progress_callback:
+                        try:
+                            await progress_callback(idx, total, joined, failed, f"⏳ Session limit reached. Pausing {config.SESSION_JOIN_COOLDOWN // 60}min...")
+                        except Exception:
+                            pass
+                    await asyncio.sleep(config.SESSION_JOIN_COOLDOWN)
+                    session_joins = 0
 
-            # Anti-ban sleep between joins: 20-45s for successful joins, 2s fast skip for invalid/failed
-            if idx < total and not self.should_stop:
-                if res.get("status") == "ok":
-                    delay = random.randint(config.MIN_JOIN_DELAY, config.MAX_JOIN_DELAY)
-                    logger.info(f"⏳ Anti-ban cooldown: {delay}s before joining group {idx+1}/{total}...")
-                else:
-                    delay = 2
-                await asyncio.sleep(delay)
+                res = await self.join_single_group(grp.identifier, account_id, grp.id)
+                status = res.get("status")
 
-        self.is_running = False
-        self.should_stop = False
-        return {"total": total, "joined": joined, "failed": failed, "status": "completed"}
+                async with AsyncSessionLocal() as session:
+                    if status == "ok":
+                        joined += 1
+                        session_joins += 1
+                        await increment_daily_joins(session, account_id)
+                        await log_join_attempt(session, account_id, grp.identifier, "JOINED")
+                        grp.is_joined = True
+                        logger.info(f"✅ Joined ({joined}/{total}): {grp.identifier}")
+                    elif status == "already_member":
+                        already_member += 1
+                        await log_join_attempt(session, account_id, grp.identifier, "ALREADY_MEMBER")
+                        grp.is_joined = True
+                    elif status == "flood_wait":
+                        wait_sec = res.get("seconds", 60)
+                        await log_join_attempt(session, account_id, grp.identifier, "FLOOD_WAIT", f"Wait {wait_sec}s")
+                        logger.info(f"FloodWait: sleeping {wait_sec}s...")
+                        await asyncio.sleep(wait_sec + 10)
+                        # Retry once
+                        res2 = await self.join_single_group(grp.identifier, account_id, grp.id)
+                        if res2.get("status") == "ok":
+                            joined += 1
+                            session_joins += 1
+                            await increment_daily_joins(session, account_id)
+                            await log_join_attempt(session, account_id, grp.identifier, "JOINED")
+                        else:
+                            failed += 1
+                            await log_join_attempt(session, account_id, grp.identifier, "FAILED", res2.get("reason"))
+                    elif status == "peer_flood":
+                        await log_join_attempt(session, account_id, grp.identifier, "FAILED", "PeerFlood")
+                        logger.info("PeerFlood detected. Stopping joiner for safety.")
+                        break
+                    else:
+                        failed += 1
+                        await log_join_attempt(session, account_id, grp.identifier, "FAILED", res.get("reason"))
+                        logger.info(f"❌ Failed ({idx}/{total}): {grp.identifier} — {res.get('reason')}")
+
+                if progress_callback:
+                    try:
+                        await progress_callback(idx, total, joined, failed, grp.identifier)
+                    except Exception:
+                        pass
+
+                # Anti-ban delay
+                if idx < total and not self.should_stop:
+                    if status in ("ok", "already_member"):
+                        delay = random.randint(config.MIN_JOIN_DELAY, config.MAX_JOIN_DELAY)
+                        logger.info(f"⏳ Anti-ban cooldown: {delay}s")
+                    else:
+                        delay = 2
+                    await asyncio.sleep(delay)
+
+            self.is_running = False
+            self.should_stop = False
+            return {"total": total, "joined": joined, "failed": failed, "already_member": already_member, "status": "completed"}
 
     def stop_joiner(self):
         self.should_stop = True
         self.is_running = False
+
 
 safe_joiner = SafeGroupJoiner()

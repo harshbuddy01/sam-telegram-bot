@@ -1,9 +1,12 @@
 import asyncio
 import random
 import time
-import datetime
 import logging
+
 from telethon import TelegramClient
+from telethon.tl.types import Channel
+from telethon.tl.functions.channels import JoinChannelRequest
+from telethon.tl.functions.messages import ImportChatInviteRequest
 from telethon.errors import (
     FloodWaitError,
     ChatWriteForbiddenError,
@@ -16,15 +19,17 @@ from telethon.errors import (
     AuthKeyUnregisteredError,
     SessionRevokedError,
     UserDeactivatedError,
-    UserDeactivatedBanError
+    UserDeactivatedBanError,
+    UserAlreadyParticipantError,
 )
+
 from core.client import tg_manager
+from core.joiner import extract_group_identifier
 from utils.spintax import prepare_broadcast_message
 from utils.premium_emojis import parse_shortcodes_to_tg_emoji
 from database.database import AsyncSessionLocal
 from database.crud import (
-    get_active_groups,
-    get_active_promo_message,
+    get_selected_groups,
     get_or_create_account_promo,
     get_all_sender_accounts,
     get_active_sender_account,
@@ -34,11 +39,12 @@ from database.crud import (
     create_cycle,
     finish_cycle,
     log_broadcast_result,
-    get_setting
+    get_setting,
 )
 import config
 
 logger = logging.getLogger(__name__)
+
 
 class SafeBroadcaster:
     def __init__(self):
@@ -70,7 +76,7 @@ class SafeBroadcaster:
                     chat_id=admin_id,
                     text=text,
                     parse_mode="HTML",
-                    disable_web_page_preview=True
+                    disable_web_page_preview=True,
                 )
             except Exception as e:
                 logger.warning(f"Failed to notify admin {admin_id}: {e}")
@@ -92,7 +98,7 @@ class SafeBroadcaster:
         total = w.get("total_targets", 0)
         curr = w.get("current_index", 0)
         remaining = max(0, total - curr)
-        
+
         return {
             "is_running": True,
             "is_paused": w.get("is_paused", False),
@@ -106,7 +112,7 @@ class SafeBroadcaster:
             "skipped_count": w.get("skipped_count", 0),
             "remaining_count": remaining,
             "elapsed_seconds": elapsed,
-            "progress_percent": round((curr / max(total, 1)) * 100, 1)
+            "progress_percent": round((curr / max(total, 1)) * 100, 1),
         }
 
     def get_all_workers_status(self) -> list[dict]:
@@ -122,13 +128,15 @@ class SafeBroadcaster:
                 "total_targets": w.get("total_targets", 0),
                 "success_count": w.get("success_count", 0),
                 "failed_count": w.get("failed_count", 0),
-                "progress_percent": round((w.get("current_index", 0) / max(w.get("total_targets", 1), 1)) * 100, 1)
+                "progress_percent": round(
+                    (w.get("current_index", 0) / max(w.get("total_targets", 1), 1)) * 100, 1
+                ),
             })
         return results
 
     async def send_to_single_group(self, client: TelegramClient, group, promo) -> dict:
         identifier = group.identifier
-        
+
         # Prepare unique anti-hash Spintax variation
         message_text = prepare_broadcast_message(promo.text, apply_spintax=True, apply_jitter=True)
         message_text = parse_shortcodes_to_tg_emoji(message_text)
@@ -136,37 +144,34 @@ class SafeBroadcaster:
         try:
             # Resolve entity (with auto-join support for unjoined groups)
             entity = None
-            if str(identifier).startswith("-100") or (str(identifier).startswith("-") and str(identifier)[1:].isdigit()):
+            if str(identifier).startswith("-100") or (
+                str(identifier).startswith("-") and str(identifier)[1:].isdigit()
+            ):
                 entity = await client.get_entity(int(identifier))
             elif identifier.startswith("@"):
                 try:
                     entity = await client.get_entity(identifier)
                 except Exception:
-                    from telethon.tl.functions.channels import JoinChannelRequest
                     try:
                         await client(JoinChannelRequest(identifier.lstrip("@")))
                         entity = await client.get_entity(identifier)
                     except Exception as ej:
                         return {"status": "error", "reason": f"Could not find or join group: {ej}"}
             else:
-                from core.joiner import extract_group_identifier
                 parsed = extract_group_identifier(identifier)
                 if parsed["type"] == "username":
                     try:
                         entity = await client.get_entity(parsed["value"])
                     except Exception:
-                        from telethon.tl.functions.channels import JoinChannelRequest
                         try:
                             await client(JoinChannelRequest(parsed["value"]))
                             entity = await client.get_entity(parsed["value"])
                         except Exception as ej:
                             return {"status": "error", "reason": f"Could not resolve group: {ej}"}
                 elif parsed["type"] == "invite_hash":
-                    from telethon.tl.functions.messages import ImportChatInviteRequest
-                    from telethon.errors import UserAlreadyParticipantError
                     try:
                         res = await client(ImportChatInviteRequest(parsed["value"]))
-                        if hasattr(res, 'chats') and res.chats:
+                        if hasattr(res, "chats") and res.chats:
                             entity = res.chats[0]
                     except UserAlreadyParticipantError:
                         entity = await client.get_entity(identifier)
@@ -182,11 +187,7 @@ class SafeBroadcaster:
                 return {"status": "error", "reason": "Could not locate group entity on Telegram"}
 
             # Check if it's a broadcast-only channel
-            from telethon.tl.types import Channel
-            from telethon.tl.functions.channels import JoinChannelRequest
-            from telethon.errors import UserAlreadyParticipantError
-
-            if isinstance(entity, Channel) and getattr(entity, 'broadcast', False):
+            if isinstance(entity, Channel) and getattr(entity, "broadcast", False):
                 return {"status": "forbidden", "reason": "Target is a Broadcast Channel (Admin post only)"}
 
             # Ensure membership before sending
@@ -201,21 +202,21 @@ class SafeBroadcaster:
                     entity,
                     file=promo.media_path,
                     caption=message_text,
-                    parse_mode="html"
+                    parse_mode="html",
                 )
             elif promo.media_type == "video" and promo.media_path:
                 await client.send_file(
                     entity,
                     file=promo.media_path,
                     caption=message_text,
-                    parse_mode="html"
+                    parse_mode="html",
                 )
             else:
                 await client.send_message(
                     entity,
                     message_text,
                     parse_mode="html",
-                    link_preview=True
+                    link_preview=True,
                 )
 
             return {"status": "ok", "reason": "Sent successfully"}
@@ -225,7 +226,6 @@ class SafeBroadcaster:
 
         except ChatWriteForbiddenError:
             try:
-                from telethon.tl.functions.channels import JoinChannelRequest
                 await client(JoinChannelRequest(entity))
                 if promo.media_type == "photo" and promo.media_path:
                     await client.send_file(entity, file=promo.media_path, caption=message_text, parse_mode="html")
@@ -267,8 +267,22 @@ class SafeBroadcaster:
 
     # ==================== MULTI-ACCOUNT WORKER RUNNER ====================
 
-    async def start_account_broadcast(self, account_id: int, trigger_type: str = "MANUAL_ADMIN") -> dict:
-        """Launches an independent broadcast worker for a specific phone account."""
+    async def start_account_broadcast(
+        self,
+        account_id: int,
+        trigger_type: str = "MANUAL_ADMIN",
+        selected_group_ids: list[int] | None = None,
+    ) -> dict:
+        """Launches an independent broadcast worker for a specific phone account.
+
+        Args:
+            account_id: DB id of the sender account.
+            trigger_type: Label for what initiated the broadcast.
+            selected_group_ids: Optional list of Group.id values to broadcast to.
+                If provided, only those specific groups are targeted.
+                If None, all selected groups for the account are fetched via
+                ``get_selected_groups()``.
+        """
         if self.is_account_broadcasting(account_id):
             return {"status": "already_running"}
 
@@ -282,7 +296,21 @@ class SafeBroadcaster:
             if not acc:
                 return {"status": "account_not_found"}
 
-            target_groups = await get_active_groups(session)
+            # Fetch target groups — either explicit IDs or all selected for account
+            if selected_group_ids is not None:
+                from sqlalchemy import select as sa_select
+                from database.models import Group
+                result = await session.execute(
+                    sa_select(Group).where(
+                        Group.id.in_(selected_group_ids),
+                        Group.account_id == account_id,
+                        Group.status.in_(["ACTIVE", "SLOWMODE"]),
+                    ).order_by(Group.id.asc())
+                )
+                target_groups = list(result.scalars().all())
+            else:
+                target_groups = await get_selected_groups(session, account_id)
+
             if not target_groups:
                 return {"status": "no_groups"}
 
@@ -311,7 +339,7 @@ class SafeBroadcaster:
             "start_time": time.time(),
             "sent_groups_list": [],
             "failed_groups_list": [],
-            "remaining_groups_list": [g.identifier for g in target_groups]
+            "remaining_groups_list": [g.identifier for g in target_groups],
         }
         self.workers[account_id] = worker_state
 
@@ -326,11 +354,17 @@ class SafeBroadcaster:
         await self.notify_admins(start_msg)
 
         asyncio.create_task(
-            self._run_worker_loop(account_id, client, promo, target_groups, min_delay, max_delay, batch_size, batch_cooldown)
+            self._run_worker_loop(
+                account_id, client, promo, target_groups,
+                min_delay, max_delay, batch_size, batch_cooldown,
+            )
         )
         return {"status": "started", "cycle_id": cycle_id, "phone": acc.phone}
 
-    async def _run_worker_loop(self, account_id, client, promo, target_groups, min_delay, max_delay, batch_size, batch_cooldown):
+    async def _run_worker_loop(
+        self, account_id, client, promo, target_groups,
+        min_delay, max_delay, batch_size, batch_cooldown,
+    ):
         w = self.workers.get(account_id)
         if not w:
             return
@@ -361,15 +395,19 @@ class SafeBroadcaster:
                         w["sent_groups_list"].append(group.identifier)
                         await update_group_status(session, group.id, "ACTIVE", is_success=True)
                         await log_broadcast_result(session, cycle_id, group.id, group.identifier, "SENT")
+
                     elif status == "slowmode":
                         w["skipped_count"] += 1
                         sec = res.get("seconds", 60)
                         w["failed_groups_list"].append({"identifier": group.identifier, "reason": f"Slowmode ({sec}s)"})
                         await update_group_status(session, group.id, "SLOWMODE", error=reason, slowmode_sec=sec)
                         await log_broadcast_result(session, cycle_id, group.id, group.identifier, "SLOWMODE", reason)
+
                     elif status == "flood_wait":
                         wait_seconds = res.get("seconds", 60)
-                        await self.notify_admins(f"⏳ <b>Telegram FloodWait ({w['account_phone']}):</b> Pausing {wait_seconds}s...")
+                        await self.notify_admins(
+                            f"⏳ <b>Telegram FloodWait ({w['account_phone']}):</b> Pausing {wait_seconds}s..."
+                        )
                         await asyncio.sleep(wait_seconds + 5)
                         res2 = await self.send_to_single_group(client, group, promo)
                         if res2.get("status") == "ok":
@@ -382,6 +420,7 @@ class SafeBroadcaster:
                             w["failed_groups_list"].append({"identifier": group.identifier, "reason": res2.get("reason")})
                             await update_group_status(session, group.id, "RESTRICTED", error=res2.get("reason"))
                             await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", res2.get("reason"))
+
                     elif status == "logged_out":
                         await update_sender_account_status(session, account_id, "NEED_LOGIN")
                         await self.notify_admins(
@@ -389,10 +428,15 @@ class SafeBroadcaster:
                             "Please re-login via /menu ➡️ 📱 Phone Numbers & OTP."
                         )
                         break
+
                     elif status == "peer_flood":
                         w["failed_count"] += 1
-                        w["failed_groups_list"].append({"identifier": group.identifier, "reason": "Telegram Search Rate Limit (PeerFlood)"})
-                        await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", "Telegram PeerFlood")
+                        w["failed_groups_list"].append(
+                            {"identifier": group.identifier, "reason": "Telegram Search Rate Limit (PeerFlood)"}
+                        )
+                        await log_broadcast_result(
+                            session, cycle_id, group.id, group.identifier, "FAILED", "Telegram PeerFlood"
+                        )
                         # Alert admin ONCE and safely stop worker to protect account from ban
                         await self.notify_admins(
                             f"🛡️ <b>Telegram Search Rate Limit Active ({w['account_phone']})</b>\n"
@@ -400,17 +444,28 @@ class SafeBroadcaster:
                             "Worker paused safely. Please allow ~15 minutes before re-launching."
                         )
                         break
+
                     elif status in ["forbidden", "banned", "private"]:
                         w["failed_count"] += 1
                         w["failed_groups_list"].append({"identifier": group.identifier, "reason": reason})
                         await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", reason)
                         # Automatically remove from DB so we never waste time on this unpostable group again
                         await delete_group(session, group.id)
+
                     else:
                         w["failed_count"] += 1
                         w["failed_groups_list"].append({"identifier": group.identifier, "reason": reason})
                         await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", reason)
-                        if any(err in reason for err in ["Cannot cast InputPeerUser", "No user has", "Nobody is using", "Could not find or join", "expired or invalid"]):
+                        if any(
+                            err in reason
+                            for err in [
+                                "Cannot cast InputPeerUser",
+                                "No user has",
+                                "Nobody is using",
+                                "Could not find or join",
+                                "expired or invalid",
+                            ]
+                        ):
                             await delete_group(session, group.id)
                         else:
                             await update_group_status(session, group.id, "RESTRICTED", error=reason)
@@ -434,7 +489,11 @@ class SafeBroadcaster:
             duration = int(time.time() - w["start_time"])
             mins = duration // 60
             secs = duration % 60
-            final_status = "COMPLETED" if w["current_index"] >= w["total_targets"] else ("STOPPED" if w["should_stop"] else "PAUSED")
+            final_status = (
+                "COMPLETED"
+                if w["current_index"] >= w["total_targets"]
+                else ("STOPPED" if w["should_stop"] else "PAUSED")
+            )
 
             async with AsyncSessionLocal() as session:
                 await finish_cycle(
@@ -444,7 +503,7 @@ class SafeBroadcaster:
                     w["success_count"],
                     w["failed_count"],
                     w["skipped_count"],
-                    duration
+                    duration,
                 )
 
             report = self._generate_worker_summary(w, mins, secs, final_status)
@@ -461,7 +520,10 @@ class SafeBroadcaster:
         if len(w["sent_groups_list"]) > 5:
             sent_text += f"\n<i>...and {len(w['sent_groups_list']) - 5} more sent.</i>"
 
-        failed_samples = [f"• <b>{f['identifier']}</b>: <code>{f['reason']}</code>" for f in w["failed_groups_list"][:5]]
+        failed_samples = [
+            f"• <b>{f['identifier']}</b>: <code>{f['reason']}</code>"
+            for f in w["failed_groups_list"][:5]
+        ]
         failed_text = "\n".join(failed_samples) if failed_samples else "<i>None</i>"
         if len(w["failed_groups_list"]) > 5:
             failed_text += f"\n<i>...and {len(w['failed_groups_list']) - 5} more failed.</i>"
@@ -536,5 +598,5 @@ class SafeBroadcaster:
         """Default scheduled trigger: runs all connected accounts in parallel."""
         return await self.start_all_campaigns(trigger_type=trigger_type)
 
-broadcaster = SafeBroadcaster()
 
+broadcaster = SafeBroadcaster()

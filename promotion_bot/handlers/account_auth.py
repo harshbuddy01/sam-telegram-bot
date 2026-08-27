@@ -32,7 +32,7 @@ def get_auth_menu_keyboard(accounts: list) -> InlineKeyboardMarkup:
     kb.append([InlineKeyboardButton(text="⬅️ Back to Main Menu", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
-@router.callback_query(F.data == "menu_auth")
+@router.callback_query((F.data == "menu_auth") | (F.data == "sec_auth"))
 async def cb_auth_menu(query: CallbackQuery, state: FSMContext = None):
     if not config.is_admin(query.from_user.id):
         return

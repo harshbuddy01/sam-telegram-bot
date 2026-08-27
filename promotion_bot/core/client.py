@@ -2,7 +2,7 @@ import logging
 import asyncio
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-from telethon.tl.types import User
+from telethon.tl.types import User, Channel, Chat
 import config
 from database.database import AsyncSessionLocal
 from database.crud import get_active_sender_account, add_or_update_sender_account, get_all_sender_accounts
@@ -153,6 +153,69 @@ class TelegramClientManager:
         if c and c.session:
             return StringSession.save(c.session)
         return ""
+
+    # ================= Fetch Joined Groups =================
+
+    async def fetch_joined_groups(self, account_id: int) -> list[dict]:
+        """Fetch all groups and supergroups the account has joined.
+
+        Returns a list of dicts:
+            [{chat_id, title, username, members_count, is_supergroup}, ...]
+        Excludes private chats, broadcast-only channels, and bot conversations.
+        """
+        try:
+            client = await self.get_client_for_account(account_id)
+            if not client:
+                logger.warning(f"fetch_joined_groups: no client for account #{account_id}")
+                return []
+
+            if not client.is_connected():
+                await client.connect()
+
+            dialogs = await client.get_dialogs()
+            groups: list[dict] = []
+
+            for dialog in dialogs:
+                entity = dialog.entity
+
+                # --- small group chats (telethon.tl.types.Chat) ---
+                if isinstance(entity, Chat):
+                    # Skip deactivated / kicked chats
+                    if getattr(entity, "deactivated", False) or getattr(entity, "left", False):
+                        continue
+                    groups.append({
+                        "chat_id": entity.id,
+                        "title": entity.title or "",
+                        "username": None,
+                        "members_count": getattr(entity, "participants_count", 0) or 0,
+                        "is_supergroup": False,
+                    })
+
+                # --- supergroups & channels (telethon.tl.types.Channel) ---
+                elif isinstance(entity, Channel):
+                    # Skip broadcast-only channels (no megagroup flag)
+                    if entity.broadcast and not entity.megagroup:
+                        continue
+                    # Only keep megagroups / gigagroups (supergroups)
+                    if not entity.megagroup and not getattr(entity, "gigagroup", False):
+                        continue
+                    groups.append({
+                        "chat_id": entity.id,
+                        "title": entity.title or "",
+                        "username": entity.username,
+                        "members_count": getattr(entity, "participants_count", 0) or 0,
+                        "is_supergroup": True,
+                    })
+
+            logger.info(
+                f"fetch_joined_groups: account #{account_id} — found {len(groups)} group(s) "
+                f"out of {len(dialogs)} total dialog(s)"
+            )
+            return groups
+
+        except Exception as e:
+            logger.error(f"fetch_joined_groups failed for account #{account_id}: {e}", exc_info=True)
+            return []
 
     # ================= Interactive Auth Helper Methods (Isolated) =================
 
