@@ -155,6 +155,9 @@ async def cb_edit_text_start(query: CallbackQuery, state: FSMContext):
         await query.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
 
 
+from utils.emoji_extractor import extract_html_with_premium_emojis
+
+
 @router.message(MessageStates.waiting_for_text)
 async def handle_new_text_input(message: Message, state: FSMContext):
     if not config.is_admin(message.from_user.id):
@@ -164,7 +167,8 @@ async def handle_new_text_input(message: Message, state: FSMContext):
     account_id = data.get("target_account_id")
     await state.clear()
 
-    new_text = message.text or message.caption or ""
+    # Extract HTML preserving native Telegram Premium custom emojis and text formatting
+    new_text = extract_html_with_premium_emojis(message)
     if not new_text.strip():
         await message.answer("⚠️ Message cannot be empty. Please try again.")
         return
@@ -176,7 +180,8 @@ async def handle_new_text_input(message: Message, state: FSMContext):
         "✅ <b>PROMO MESSAGE UPDATED SUCCESSFULLY!</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"📝 <b>New Text Preview:</b>\n"
-        f"<blockquote>{html.escape(new_text.strip())}</blockquote>"
+        f"{new_text.strip()}\n\n"
+        "💡 <i>Native Telegram Premium animated emojis & formatting have been preserved!</i>"
     )
     kb = [
         [InlineKeyboardButton(text="👁️ Live Preview", callback_data=f"msg_preview_{account_id}")],
@@ -203,7 +208,7 @@ async def cb_edit_media_start(query: CallbackQuery, state: FSMContext):
         "📷 <b>UPLOAD MEDIA (PHOTO OR VIDEO)</b>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "Send the Photo or Video you want attached to your promotional broadcast.\n\n"
-        "💡 <i>If you include a caption with your photo/video, it will also be saved as your ad text!</i>"
+        "💡 <i>If you include a caption with your photo/video (including Premium emojis), it will also be saved as your ad text!</i>"
     )
     kb = [[InlineKeyboardButton(text="❌ Cancel", callback_data=f"msg_acc_{account_id}")]]
     try:
@@ -226,7 +231,7 @@ async def handle_new_media_input(message: Message, state: FSMContext, bot: Bot):
     media_type = "none"
     media_file_id = None
     media_path = None
-    caption_text = message.caption
+    caption_text = extract_html_with_premium_emojis(message)
 
     if message.photo:
         media_type = "photo"
