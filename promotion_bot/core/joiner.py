@@ -223,14 +223,22 @@ class SafeGroupJoiner:
                     except Exception:
                         pass
 
-                # Anti-ban delay
+                # Anti-ban delay & batch cooldown
                 if idx < total and not self.should_stop:
-                    if status in ("ok", "already_member"):
+                    if joined > 0 and joined % 15 == 0 and status in ("ok", "already_member"):
+                        logger.info(f"⏳ Anti-ban batch cooldown (15 joins): pausing 300s (5min)...")
+                        if progress_callback:
+                            try:
+                                await progress_callback(idx, total, joined, failed, "⏳ Anti-ban batch cooldown: pausing 5min...")
+                            except Exception:
+                                pass
+                        await asyncio.sleep(300)
+                    elif status in ("ok", "already_member"):
                         delay = random.randint(config.MIN_JOIN_DELAY, config.MAX_JOIN_DELAY)
                         logger.info(f"⏳ Anti-ban cooldown: {delay}s")
+                        await asyncio.sleep(delay)
                     else:
-                        delay = 2
-                    await asyncio.sleep(delay)
+                        await asyncio.sleep(2)
 
             self.is_running = False
             self.should_stop = False
