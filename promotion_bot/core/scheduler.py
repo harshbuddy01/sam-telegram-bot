@@ -39,13 +39,24 @@ class PromotionScheduler:
 
                     interval_hours = promo.interval_hours or 2.0
 
-                    # Check if enough time has passed since last run
+                    # Check if enough time has passed since last run.
+                    # If last_run_at is NULL (never ran or bot just started),
+                    # treat it as "just ran now" — wait a full interval before first auto-fire.
+                    # This prevents campaigns from auto-starting immediately on bot restart.
                     import datetime
                     now = datetime.datetime.utcnow()
-                    if promo.last_run_at:
-                        elapsed = (now - promo.last_run_at).total_seconds()
-                        if elapsed < (interval_hours * 3600):
-                            continue
+                    if not promo.last_run_at:
+                        # Mark it as "started now" so timer begins from this moment
+                        async with AsyncSessionLocal() as session:
+                            from database.crud import get_or_create_account_promo as _get_promo
+                            p = await _get_promo(session, acc.id, acc.phone)
+                            p.last_run_at = now
+                            await session.commit()
+                        continue  # Skip this cycle — wait full interval from now
+
+                    elapsed = (now - promo.last_run_at).total_seconds()
+                    if elapsed < (interval_hours * 3600):
+                        continue
 
                     logger.info(f"Triggering scheduled broadcast for {acc.phone} (Interval: {interval_hours}h)...")
                     asyncio.create_task(

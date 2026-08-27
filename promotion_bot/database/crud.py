@@ -389,11 +389,14 @@ async def get_or_create_account_promo(session: AsyncSession, account_id: int, ph
     result = await session.execute(select(PromoMessage).where(PromoMessage.account_id == account_id))
     promo = result.scalars().first()
     if not promo:
+        import datetime
         title = f"Campaign ({phone})" if phone else f"Campaign (Account #{account_id})"
         promo = PromoMessage(
             account_id=account_id, title=title,
             text="Your promotional message here. Edit this in ✏️ Message Setup.",
-            media_type="none", interval_hours=2.0, is_enabled=True
+            media_type="none", interval_hours=2.0,
+            is_enabled=False,                              # OFF by default — user must enable in ⏰ Scheduler
+            last_run_at=datetime.datetime.utcnow()         # Start timer from now so it doesn't fire instantly
         )
         session.add(promo)
         await session.commit()
