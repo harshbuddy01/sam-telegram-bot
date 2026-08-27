@@ -191,11 +191,19 @@ class TelegramClientManager:
     # ================= Fetch Joined Groups =================
 
     async def fetch_joined_groups(self, account_id: int) -> list[dict]:
-        """Fetch all groups and supergroups the account has joined.
+        """Fetch ONLY actual groups/supergroups the account has joined.
 
-        Returns a list of dicts:
-            [{chat_id, title, username, members_count, is_supergroup}, ...]
-        Excludes private chats, broadcast-only channels, and bot conversations.
+        A dialog qualifies as a group if:
+          - entity is a Channel with megagroup=True or gigagroup=True (supergroup)
+          - OR entity is a Channel that is NOT broadcast-only
+          - OR entity is a basic Chat (not deactivated, not left)
+
+        Strictly EXCLUDES:
+          - Private chats (User entities)
+          - Broadcast-only channels (broadcast=True, megagroup=False, gigagroup=False)
+          - Deactivated or left basic groups
+
+        Returns list of dicts: [{chat_id, title, username, members_count, is_supergroup}]
         """
         try:
             client = await self.get_client_for_account(account_id)
@@ -210,56 +218,54 @@ class TelegramClientManager:
             groups: list[dict] = []
 
             for dialog in dialogs:
+                # Skip private/bot DM conversations
                 if dialog.is_user:
                     continue
 
                 entity = dialog.entity
 
-                if dialog.is_group:
-                    is_supergroup = isinstance(entity, Channel)
-                    members = getattr(entity, "participants_count", 0) or 0
-                    username = getattr(entity, "username", None)
-                    title = dialog.name or getattr(entity, "title", "") or "Untitled Group"
+                if isinstance(entity, Channel):
+                    is_megagroup = getattr(entity, "megagroup", False)
+                    is_gigagroup = getattr(entity, "gigagroup", False)
+                    is_broadcast = getattr(entity, "broadcast", False)
+
+                    # Strict rule: skip pure broadcast channels (news/announcement channels)
+                    # Only megagroups/gigagroups and non-broadcast channels qualify
+                    if is_broadcast and not is_megagroup and not is_gigagroup:
+                        continue  # Pure broadcast channel — users cannot post here
 
                     groups.append({
                         "chat_id": entity.id,
-                        "title": title,
-                        "username": username,
-                        "members_count": members,
-                        "is_supergroup": is_supergroup,
+                        "title": getattr(entity, "title", "") or dialog.name or "Untitled Group",
+                        "username": getattr(entity, "username", None),
+                        "members_count": getattr(entity, "participants_count", 0) or 0,
+                        "is_supergroup": is_megagroup or is_gigagroup,
                     })
 
-                elif isinstance(entity, Channel):
-                    if not entity.broadcast or getattr(entity, "megagroup", False) or getattr(entity, "gigagroup", False):
-                        groups.append({
-                            "chat_id": entity.id,
-                            "title": getattr(entity, "title", "") or dialog.name or "Untitled Group",
-                            "username": getattr(entity, "username", None),
-                            "members_count": getattr(entity, "participants_count", 0) or 0,
-                            "is_supergroup": True,
-                        })
-
                 elif isinstance(entity, Chat):
-                    if not getattr(entity, "deactivated", False) and not getattr(entity, "left", False):
-                        groups.append({
-                            "chat_id": entity.id,
-                            "title": getattr(entity, "title", "") or dialog.name or "Untitled Group",
-                            "username": None,
-                            "members_count": getattr(entity, "participants_count", 0) or 0,
-                            "is_supergroup": False,
-                        })
+                    # Legacy basic group — skip if deactivated or already left
+                    if getattr(entity, "deactivated", False) or getattr(entity, "left", False):
+                        continue
+                    groups.append({
+                        "chat_id": entity.id,
+                        "title": getattr(entity, "title", "") or dialog.name or "Untitled Group",
+                        "username": None,
+                        "members_count": getattr(entity, "participants_count", 0) or 0,
+                        "is_supergroup": False,
+                    })
+                # Everything else (User, etc.) is already skipped by dialog.is_user above
 
-            # Deduplicate by chat_id
-            seen_ids = set()
-            unique_groups = []
+            # Deduplicate by chat_id (safety net)
+            seen_ids: set[int] = set()
+            unique_groups: list[dict] = []
             for g in groups:
                 if g["chat_id"] not in seen_ids:
                     seen_ids.add(g["chat_id"])
                     unique_groups.append(g)
 
             logger.info(
-                f"fetch_joined_groups: account #{account_id} — found {len(unique_groups)} group(s) "
-                f"out of {len(dialogs)} total dialog(s)"
+                f"fetch_joined_groups: account #{account_id} — "
+                f"found {len(unique_groups)} actual group(s) out of {len(dialogs)} total dialog(s)"
             )
             return unique_groups
 
