@@ -1,3 +1,5 @@
+import os
+import re
 import asyncio
 import random
 import time
@@ -264,28 +266,46 @@ class SafeBroadcaster:
                 except (UserAlreadyParticipantError, Exception):
                     pass
 
-            # Send message with media if attached
-            if promo.media_type == "photo" and promo.media_path:
-                await client.send_file(
-                    entity,
-                    file=promo.media_path,
-                    caption=message_text,
-                    parse_mode="html",
-                )
-            elif promo.media_type == "video" and promo.media_path:
-                await client.send_file(
-                    entity,
-                    file=promo.media_path,
-                    caption=message_text,
-                    parse_mode="html",
-                )
-            else:
-                await client.send_message(
-                    entity,
-                    message_text,
-                    parse_mode="html",
-                    link_preview=True,
-                )
+            # Send message with media if attached and file exists
+            has_media = (
+                promo.media_type in ("photo", "video")
+                and promo.media_path
+                and os.path.exists(promo.media_path)
+            )
+
+            try:
+                if has_media:
+                    await client.send_file(
+                        entity,
+                        file=promo.media_path,
+                        caption=message_text,
+                        parse_mode="html",
+                    )
+                else:
+                    await client.send_message(
+                        entity,
+                        message_text,
+                        parse_mode="html",
+                        link_preview=True,
+                    )
+            except Exception as e_html:
+                # If HTML parsing or entity formatting fails, retry as clean plain text
+                plain_msg = re.sub(r'<[^>]+>', '', message_text)
+                try:
+                    if has_media:
+                        await client.send_file(
+                            entity,
+                            file=promo.media_path,
+                            caption=plain_msg,
+                        )
+                    else:
+                        await client.send_message(
+                            entity,
+                            plain_msg,
+                            link_preview=True,
+                        )
+                except Exception as e_plain:
+                    return {"status": "error", "reason": str(e_plain)}
 
             return {"status": "ok", "reason": "Sent successfully"}
 
@@ -295,9 +315,7 @@ class SafeBroadcaster:
         except ChatWriteForbiddenError:
             try:
                 await client(JoinChannelRequest(entity))
-                if promo.media_type == "photo" and promo.media_path:
-                    await client.send_file(entity, file=promo.media_path, caption=message_text, parse_mode="html")
-                elif promo.media_type == "video" and promo.media_path:
+                if has_media:
                     await client.send_file(entity, file=promo.media_path, caption=message_text, parse_mode="html")
                 else:
                     await client.send_message(entity, message_text, parse_mode="html", link_preview=True)
