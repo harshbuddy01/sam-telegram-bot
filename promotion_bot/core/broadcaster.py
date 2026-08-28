@@ -534,6 +534,21 @@ class SafeBroadcaster:
                     elif status == "flood_wait":
                         wait_seconds = res.get("seconds", 60)
                         logger.warning(f"[{w['account_phone']}] ⚠️ ({idx}/{w['total_targets']}) FLOODWAIT: {group.identifier} ({wait_seconds}s)")
+
+                        # If wait is longer than 5 minutes (e.g. 15 hours daily quota), don't freeze worker!
+                        if wait_seconds > 300:
+                            hours = round(wait_seconds / 3600, 1)
+                            logger.warning(f"[{w['account_phone']}] 🛑 Telegram daily quota reached ({w['success_count']} delivered). Cooldown: {hours}h.")
+                            await self.notify_admins(
+                                f"⏳ <b>Daily Telegram Quota Reached ({w['account_phone']})</b>\n"
+                                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                f"🎉 Successfully delivered to <b>{w['success_count']} groups</b>!\n\n"
+                                f"Telegram has set a cooldown of <b>{hours} hours</b> before this number can post to more groups.\n\n"
+                                f"🛑 <i>Campaign ended cleanly to protect your account. You can switch to another phone number in the meantime!</i>"
+                            )
+                            w["failed_groups_list"].append({"identifier": group.identifier, "reason": f"Daily limit reached ({hours}h cooldown)"})
+                            break
+
                         await self.notify_admins(
                             f"⏳ <b>Telegram FloodWait ({w['account_phone']}):</b> Pausing {wait_seconds}s..."
                         )
