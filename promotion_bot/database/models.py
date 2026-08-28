@@ -88,6 +88,7 @@ class PromoMessage(Base):
     status = Column(String(50), default="IDLE")  # 'IDLE', 'RUNNING', 'PAUSED', 'STOPPED'
     is_active = Column(Boolean, default=True)
     last_run_at = Column(DateTime, nullable=True)
+    saved_msg_id = Column(Integer, nullable=True)
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

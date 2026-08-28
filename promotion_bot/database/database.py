@@ -32,6 +32,7 @@ async def init_db():
             ("promo_messages", "is_enabled",     "BOOLEAN DEFAULT 0"),
             ("promo_messages", "status",         "VARCHAR(50) DEFAULT 'IDLE'"),
             ("promo_messages", "last_run_at",    "DATETIME"),
+            ("promo_messages", "saved_msg_id",   "INTEGER"),
             ("broadcast_cycles", "account_id",   "INTEGER"),
             ("broadcast_cycles", "account_phone","VARCHAR(50)"),
             ("target_groups",  "account_id",     "INTEGER"),

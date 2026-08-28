@@ -266,61 +266,88 @@ class SafeBroadcaster:
                 except (UserAlreadyParticipantError, Exception):
                     pass
 
-            # Send message with media if attached and file exists
-            has_media = (
-                promo.media_type in ("photo", "video")
-                and promo.media_path
-                and os.path.exists(promo.media_path)
-            )
+            sent = False
+            if getattr(promo, "saved_msg_id", None):
+                try:
+                    saved_msg = await client.get_messages("me", ids=promo.saved_msg_id)
+                    if saved_msg:
+                        await client.send_message(entity, saved_msg)
+                        sent = True
+                except (
+                    SlowModeWaitError,
+                    ChatWriteForbiddenError,
+                    UserBannedInChannelError,
+                    ChatSendMediaForbiddenError,
+                    ChannelPrivateError,
+                    ChatAdminRequiredError,
+                    PeerFloodError,
+                    FloodWaitError,
+                    AuthKeyUnregisteredError,
+                    SessionRevokedError,
+                    UserDeactivatedError,
+                    UserDeactivatedBanError,
+                ):
+                    raise
+                except Exception as e_saved:
+                    logger.warning(f"Could not send Saved Message (id={promo.saved_msg_id}): {e_saved}. Falling back to standard send.")
+                    sent = False
 
-            try:
-                if has_media:
-                    await client.send_file(
-                        entity,
-                        file=promo.media_path,
-                        caption=message_text,
-                        parse_mode="html",
-                    )
-                else:
-                    await client.send_message(
-                        entity,
-                        message_text,
-                        parse_mode="html",
-                        link_preview=True,
-                    )
-            except (
-                SlowModeWaitError,
-                ChatWriteForbiddenError,
-                UserBannedInChannelError,
-                ChatSendMediaForbiddenError,
-                ChannelPrivateError,
-                ChatAdminRequiredError,
-                PeerFloodError,
-                FloodWaitError,
-                AuthKeyUnregisteredError,
-                SessionRevokedError,
-                UserDeactivatedError,
-                UserDeactivatedBanError,
-            ):
-                raise
-            except Exception as e_html:
-                # If HTML parsing or entity formatting fails, retry as clean plain text
-                plain_msg = re.sub(r'<[^>]+>', '', message_text)
+            if not sent:
+                # Send message with media if attached and file exists
+                has_media = (
+                    promo.media_type in ("photo", "video")
+                    and promo.media_path
+                    and os.path.exists(promo.media_path)
+                )
+
                 try:
                     if has_media:
                         await client.send_file(
                             entity,
                             file=promo.media_path,
-                            caption=plain_msg,
+                            caption=message_text,
+                            parse_mode="html",
                         )
                     else:
                         await client.send_message(
                             entity,
-                            plain_msg,
+                            message_text,
+                            parse_mode="html",
                             link_preview=True,
                         )
-                except Exception as e_plain:
-                    return {"status": "error", "reason": str(e_plain)}
+                except (
+                    SlowModeWaitError,
+                    ChatWriteForbiddenError,
+                    UserBannedInChannelError,
+                    ChatSendMediaForbiddenError,
+                    ChannelPrivateError,
+                    ChatAdminRequiredError,
+                    PeerFloodError,
+                    FloodWaitError,
+                    AuthKeyUnregisteredError,
+                    SessionRevokedError,
+                    UserDeactivatedError,
+                    UserDeactivatedBanError,
+                ):
+                    raise
+                except Exception as e_html:
+                    # If HTML parsing or entity formatting fails, retry as clean plain text
+                    plain_msg = re.sub(r'<[^>]+>', '', message_text)
+                    try:
+                        if has_media:
+                            await client.send_file(
+                                entity,
+                                file=promo.media_path,
+                                caption=plain_msg,
+                            )
+                        else:
+                            await client.send_message(
+                                entity,
+                                plain_msg,
+                                link_preview=True,
+                            )
+                    except Exception as e_plain:
+                        return {"status": "error", "reason": str(e_plain)}
 
             return {"status": "ok", "reason": "Sent successfully"}
 

@@ -13,6 +13,7 @@ from database.crud import (
 )
 from utils.spintax import prepare_broadcast_message
 from utils.premium_emojis import parse_shortcodes_to_tg_emoji
+from core.client import tg_manager
 import config
 
 router = Router()
@@ -112,16 +113,22 @@ async def cb_message_account_editor(query: CallbackQuery, state: FSMContext = No
     user_lbl = html.escape(f"@{acc.username}" if acc.username else (acc.first_name or ""))
     media_info = f"<code>{promo.media_type.upper()}</code>" if promo.media_type != "none" else "<i>None (Text Only)</i>"
 
+    source_info = f"<code>Saved Messages (ID: {promo.saved_msg_id})</code>" if getattr(promo, "saved_msg_id", None) else "<i>Custom Text Editor</i>"
+
     text = (
         f"✏️ <b>AD PROMO EDITOR — {acc.phone}</b> ({user_lbl})\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📌 <b>Ad Source:</b> {source_info}\n"
         f"🖼️ <b>Attached Media:</b> {media_info}\n\n"
         f"📝 <b>Current Message Template:</b>\n"
         f"<blockquote>{html.escape(promo.text)}</blockquote>\n\n"
-        "💡 <i>HTML tags and Spintax variation syntax <code>{{option1|option2}}</code> are fully supported.</i>"
+        "💡 <i>Tip: Send your ad with custom animated emojis to Saved Messages in Telegram, then tap <b>📥 Pull from Saved Messages</b> below!</i>"
     )
 
     kb = [
+        [
+            InlineKeyboardButton(text="📥 Pull from Saved Messages", callback_data=f"msg_sync_saved_{account_id}")
+        ],
         [
             InlineKeyboardButton(text="✏️ Edit Text", callback_data=f"msg_edit_text_{account_id}"),
             InlineKeyboardButton(text="📷 Set Photo/Video", callback_data=f"msg_edit_media_{account_id}")
@@ -430,3 +437,92 @@ async def cb_emoji_help(query: CallbackQuery):
         await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
     except Exception:
         await query.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("msg_sync_saved_"))
+async def cb_sync_saved_messages(query: CallbackQuery):
+    if not config.is_admin(query.from_user.id):
+        return
+    try:
+        await query.answer()
+    except Exception:
+        pass
+
+    account_id = int(query.data.split("_")[3])
+
+    client = await tg_manager.get_client_for_account(account_id)
+    if not client or not await client.is_user_authorized():
+        await query.message.answer(
+            "❌ <b>Account Not Connected!</b>\n"
+            "This sender account is not authorized. Please check 📱 Add Numbers.",
+            parse_mode="HTML"
+        )
+        return
+
+    try:
+        await query.message.answer(
+            "⏳ <b>Reading Saved Messages...</b>\n"
+            "Fetching the latest message from this account's Saved Messages (<code>'me'</code>).",
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+
+    try:
+        # Fetch latest message with content from Saved Messages ('me')
+        messages = await client.get_messages("me", limit=5)
+        saved_msg = next((m for m in messages if m.message or m.media), None)
+
+        if not saved_msg:
+            await query.message.answer(
+                "⚠️ <b>No Messages Found in Saved Messages!</b>\n\n"
+                "Please open Telegram on this phone, go to <b>Saved Messages</b>, and send/paste your promotional ad with text, custom emojis, or photo/video.\n\n"
+                "Then tap <b>📥 Pull from Saved Messages</b> again!",
+                parse_mode="HTML"
+            )
+            return
+
+        saved_text = saved_msg.message or ""
+        media_type = "none"
+        media_path = None
+
+        # Download media locally if photo or video
+        if saved_msg.media:
+            os.makedirs(config.MEDIA_STORAGE_PATH, exist_ok=True)
+            if getattr(saved_msg, "photo", None):
+                media_type = "photo"
+                dest_file = os.path.join(config.MEDIA_STORAGE_PATH, f"promo_{account_id}_saved.jpg")
+                media_path = await client.download_media(saved_msg, file=dest_file)
+            elif getattr(saved_msg, "video", None):
+                media_type = "video"
+                dest_file = os.path.join(config.MEDIA_STORAGE_PATH, f"promo_{account_id}_saved.mp4")
+                media_path = await client.download_media(saved_msg, file=dest_file)
+
+        async with AsyncSessionLocal() as session:
+            await update_account_promo(
+                session,
+                account_id,
+                text=saved_text,
+                media_type=media_type,
+                media_path=media_path,
+                saved_msg_id=saved_msg.id
+            )
+
+        preview_snippet = html.escape(saved_text[:250]) + ("..." if len(saved_text) > 250 else "")
+        confirm_text = (
+            f"✅ <b>Successfully Synced from Saved Messages!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📌 <b>Saved Message ID:</b> <code>{saved_msg.id}</code>\n"
+            f"🖼️ <b>Media Type:</b> <code>{media_type.upper()}</code>\n"
+            f"📝 <b>Text Preview:</b>\n"
+            f"<blockquote>{preview_snippet}</blockquote>\n\n"
+            f"✨ <i>All native custom emojis, stickers, fonts, and media will be preserved during broadcasts!</i>"
+        )
+        kb = [[InlineKeyboardButton(text="⬅️ Return to Message Editor", callback_data=f"msg_acc_{account_id}")]]
+        await query.message.answer(confirm_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+
+    except Exception as e:
+        await query.message.answer(
+            f"❌ <b>Error syncing from Saved Messages:</b> <code>{html.escape(str(e))}</code>",
+            parse_mode="HTML"
+        )

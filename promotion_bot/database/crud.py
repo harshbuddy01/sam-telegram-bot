@@ -434,12 +434,15 @@ async def get_or_create_account_promo(session: AsyncSession, account_id: int, ph
 
 async def update_account_promo(session: AsyncSession, account_id: int, text: str,
                                media_type: str = "none", media_file_id: str = None,
-                               media_path: str = None, phone: str = None):
+                               media_path: str = None, phone: str = None,
+                               saved_msg_id: int = None):
     promo = await get_or_create_account_promo(session, account_id, phone)
     promo.text = text
     promo.media_type = media_type
     promo.media_file_id = media_file_id
     promo.media_path = media_path
+    if saved_msg_id is not None:
+        promo.saved_msg_id = saved_msg_id
     promo.updated_at = datetime.datetime.utcnow()
     await session.commit()
 
