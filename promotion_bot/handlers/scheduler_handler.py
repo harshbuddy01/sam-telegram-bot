@@ -36,6 +36,20 @@ async def _safe_send_message(query: CallbackQuery, text: str, kb: list, is_edit:
             pass
 
 
+def format_interval_label(hours: float | None) -> str:
+    if hours is None:
+        return "2 Hours"
+    if hours < 1.0:
+        mins = int(round(hours * 60))
+        return f"{mins} Minutes" if mins != 1 else "1 Minute"
+    elif hours == 1.0:
+        return "1 Hour"
+    elif hours == int(hours):
+        return f"{int(hours)} Hours"
+    else:
+        return f"{hours:.1f} Hours"
+
+
 @router.callback_query(F.data == "sec_scheduler")
 async def cb_scheduler_menu(query: CallbackQuery, state: FSMContext = None):
     if not config.is_admin(query.from_user.id):
@@ -77,17 +91,19 @@ async def cb_scheduler_menu(query: CallbackQuery, state: FSMContext = None):
             p = promos_map[acc.id]
             enabled_badge = "🟢 ON" if p.is_enabled else "⚪ OFF"
             user_lbl = html.escape(f"@{acc.username}" if acc.username else (acc.first_name or ""))
+            int_lbl = format_interval_label(p.interval_hours)
             text += (
                 f"• <b>{acc.phone}</b> ({user_lbl})\n"
-                f"   └ ⏱️ Interval: <b>Every {p.interval_hours} hours</b> | State: <b>{enabled_badge}</b>\n"
+                f"   └ ⏱️ Repeat: <b>Every {int_lbl}</b> | State: <b>{enabled_badge}</b>\n"
             )
 
     kb = []
     for acc in accounts:
         p = promos_map[acc.id]
+        int_lbl = format_interval_label(p.interval_hours)
         kb.append([
             InlineKeyboardButton(
-                text=f"⏱️ Change Interval: {acc.phone} ({p.interval_hours}h)",
+                text=f"⏱️ Set Interval: {acc.phone} ({int_lbl})",
                 callback_data=f"sched_acc_{acc.id}"
             )
         ])
@@ -125,24 +141,30 @@ async def cb_edit_account_interval(query: CallbackQuery):
         promo = await get_or_create_account_promo(session, account_id, acc.phone)
 
     user_lbl = html.escape(f"@{acc.username}" if acc.username else (acc.first_name or ""))
+    int_lbl = format_interval_label(promo.interval_hours)
     text = (
-        f"⏱️ <b>SET INTERVAL — {acc.phone}</b> ({user_lbl})\n"
+        f"⏱️ <b>SET REPEAT INTERVAL — {acc.phone}</b> ({user_lbl})\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"Current Repeat Interval: <b>Every {promo.interval_hours} Hours</b>\n"
+        f"Current Repeat Interval: <b>Every {int_lbl}</b>\n"
         f"Auto-Broadcast Enabled: <b>{'🟢 YES' if promo.is_enabled else '⚪ NO'}</b>\n\n"
-        "Select how frequently the bot should automatically broadcast to all selected groups:"
+        "Select how frequently the bot should repeat the broadcast campaign after it finishes:"
     )
 
     kb = [
         [
-            InlineKeyboardButton(text="30 Min", callback_data=f"sched_set_{account_id}_0.5"),
-            InlineKeyboardButton(text="1 Hour", callback_data=f"sched_set_{account_id}_1.0"),
-            InlineKeyboardButton(text="2 Hours", callback_data=f"sched_set_{account_id}_2.0")
+            InlineKeyboardButton(text="⚡ 2 Min", callback_data=f"sched_set_{account_id}_0.0333"),
+            InlineKeyboardButton(text="⚡ 5 Min", callback_data=f"sched_set_{account_id}_0.0833"),
+            InlineKeyboardButton(text="⚡ 10 Min", callback_data=f"sched_set_{account_id}_0.1667")
         ],
         [
+            InlineKeyboardButton(text="⚡ 15 Min", callback_data=f"sched_set_{account_id}_0.25"),
+            InlineKeyboardButton(text="30 Min", callback_data=f"sched_set_{account_id}_0.5"),
+            InlineKeyboardButton(text="1 Hour", callback_data=f"sched_set_{account_id}_1.0")
+        ],
+        [
+            InlineKeyboardButton(text="2 Hours", callback_data=f"sched_set_{account_id}_2.0"),
             InlineKeyboardButton(text="4 Hours", callback_data=f"sched_set_{account_id}_4.0"),
-            InlineKeyboardButton(text="6 Hours", callback_data=f"sched_set_{account_id}_6.0"),
-            InlineKeyboardButton(text="12 Hours", callback_data=f"sched_set_{account_id}_12.0")
+            InlineKeyboardButton(text="6 Hours", callback_data=f"sched_set_{account_id}_6.0")
         ],
         [
             InlineKeyboardButton(
@@ -167,8 +189,9 @@ async def cb_save_interval(query: CallbackQuery):
     async with AsyncSessionLocal() as session:
         await set_account_interval(session, account_id, hours)
 
+    int_lbl = format_interval_label(hours)
     try:
-        await query.answer(f"✅ Interval set to {hours} hours!", show_alert=True)
+        await query.answer(f"✅ Repeat interval set to every {int_lbl}!", show_alert=True)
     except Exception:
         pass
     await cb_scheduler_menu(query)

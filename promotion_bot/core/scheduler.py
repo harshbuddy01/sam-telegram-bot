@@ -31,6 +31,11 @@ class PromotionScheduler:
                     if acc.status != "ACTIVE":
                         continue
 
+                    # If this account is already actively broadcasting, do not interrupt or double-trigger
+                    if broadcaster.is_account_broadcasting(acc.id):
+                        logger.debug(f"Scheduler: {acc.phone} is currently broadcasting. Skipping trigger.")
+                        continue
+
                     # Always fetch a FRESH promo from DB — never use stale object
                     async with AsyncSessionLocal() as session:
                         promo = await get_or_create_account_promo(session, acc.id, acc.phone)
@@ -53,7 +58,8 @@ class PromotionScheduler:
                             continue
 
                         elapsed_seconds = (now - promo.last_run_at).total_seconds()
-                        due_in = (interval_hours * 3600) - elapsed_seconds
+                        interval_seconds = interval_hours * 3600
+                        due_in = interval_seconds - elapsed_seconds
 
                         if due_in > 0:
                             logger.debug(
@@ -62,17 +68,21 @@ class PromotionScheduler:
                             )
                             continue
 
+                        # Mark last_run_at NOW so next loop tick does not re-fire
+                        promo.last_run_at = now
+                        await session.commit()
+
                     # Time has elapsed — fire the broadcast
                     logger.info(
-                        f"Scheduler: Triggering broadcast for {acc.phone} "
+                        f"Scheduler: Triggering scheduled broadcast for {acc.phone} "
                         f"(interval={interval_hours}h, elapsed={elapsed_seconds:.0f}s)"
                     )
                     asyncio.create_task(
                         broadcaster.start_account_broadcast(acc.id, trigger_type="SCHEDULED")
                     )
 
-                # Poll every 60 seconds
-                await self._sleep_interval(60)
+                # Poll every 15 seconds to support fast intervals (2 min, 5 min)
+                await self._sleep_interval(15)
 
             except asyncio.CancelledError:
                 logger.info("Scheduler task cancelled.")

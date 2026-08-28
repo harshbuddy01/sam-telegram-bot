@@ -1,6 +1,7 @@
 import asyncio
 import random
 import time
+import datetime
 import logging
 
 from telethon import TelegramClient
@@ -134,7 +135,9 @@ class SafeBroadcaster:
             })
         return results
 
-    async def send_to_single_group(self, client: TelegramClient, group, promo) -> dict:
+    async def send_to_single_group(
+        self, client: TelegramClient, group, promo, dialog_entities: dict | None = None
+    ) -> dict:
         identifier = group.identifier
 
         # Prepare unique anti-hash Spintax variation
@@ -142,68 +145,110 @@ class SafeBroadcaster:
         message_text = parse_shortcodes_to_tg_emoji(message_text)
 
         try:
-            # Resolve entity (with auto-join support for unjoined groups)
             entity = None
-            raw_id = str(identifier).strip()
 
-            # Case 1: Already a proper negative Telegram ID (-100... supergroup or -... basic group)
-            if raw_id.startswith("-100") or (raw_id.startswith("-") and raw_id[1:].isdigit()):
-                try:
-                    entity = await client.get_entity(int(raw_id))
-                except Exception as e_id:
-                    return {"status": "error", "reason": f"Could not resolve chat ID {raw_id}: {e_id}"}
+            # ── PRIORITY 1: Instant RAM lookup from pre-cached dialogs ──────────
+            # Completely avoids ResolveUsernameRequest and bypasses username flood waits!
+            if dialog_entities:
+                cid = getattr(group, "chat_id", None)
+                if cid:
+                    entity = (
+                        dialog_entities.get(cid)
+                        or dialog_entities.get(abs(cid))
+                        or dialog_entities.get(int(f"-100{abs(cid)}"))
+                        or dialog_entities.get(-abs(cid))
+                    )
+                if not entity and identifier:
+                    clean_id = str(identifier).strip().lower()
+                    entity = dialog_entities.get(clean_id) or dialog_entities.get(clean_id.lstrip("@"))
+                    if not entity and clean_id.lstrip("-").isdigit():
+                        int_id = int(clean_id)
+                        entity = dialog_entities.get(int_id) or dialog_entities.get(abs(int_id))
 
-            # Case 2: Plain positive integer — could be stored chat_id without -100 prefix
-            elif raw_id.isdigit():
-                # Try as supergroup first (prepend -100), then as basic group (negate)
-                resolved = False
-                for try_id in [int(f"-100{raw_id}"), -int(raw_id)]:
+            # ── PRIORITY 2: Resolve by chat_id if not in dialog_entities ─────────
+            if not entity and getattr(group, "chat_id", None):
+                cid = group.chat_id
+                for try_id in [int(f"-100{abs(cid)}"), cid, -abs(cid), abs(cid)]:
                     try:
                         entity = await client.get_entity(try_id)
-                        resolved = True
-                        break
+                        if entity:
+                            break
                     except Exception:
                         continue
-                if not resolved:
-                    return {"status": "error", "reason": f"Could not find any entity for ID '{raw_id}'"}
 
-            # Case 3: @username
-            elif raw_id.startswith("@"):
-                try:
-                    entity = await client.get_entity(raw_id)
-                except Exception:
+            # ── PRIORITY 3: Fallback to identifier string resolution ─────────────
+            if not entity:
+                raw_id = str(identifier).strip()
+
+                # Case 1: Already a proper negative Telegram ID (-100... or -...)
+                if raw_id.startswith("-100") or (raw_id.startswith("-") and raw_id[1:].isdigit()):
                     try:
-                        await client(JoinChannelRequest(raw_id.lstrip("@")))
+                        entity = await client.get_entity(int(raw_id))
+                    except Exception as e_id:
+                        return {"status": "error", "reason": f"Could not resolve chat ID {raw_id}: {e_id}"}
+
+                # Case 2: Plain positive integer
+                elif raw_id.isdigit():
+                    resolved = False
+                    for try_id in [int(f"-100{raw_id}"), -int(raw_id)]:
+                        try:
+                            entity = await client.get_entity(try_id)
+                            resolved = True
+                            break
+                        except Exception:
+                            continue
+                    if not resolved:
+                        return {"status": "error", "reason": f"Could not find any entity for ID '{raw_id}'"}
+
+                # Case 3: @username
+                elif raw_id.startswith("@"):
+                    try:
                         entity = await client.get_entity(raw_id)
-                    except Exception as ej:
-                        return {"status": "error", "reason": f"Could not find or join group: {ej}"}
-
-            # Case 4: invite link / username without @
-            else:
-                parsed = extract_group_identifier(identifier)
-                if parsed["type"] == "username":
-                    try:
-                        entity = await client.get_entity(parsed["value"])
+                    except FloodWaitError as efw:
+                        return {"status": "flood_wait", "reason": f"Username lookup FloodWait: {efw.seconds}s", "seconds": efw.seconds}
                     except Exception:
                         try:
-                            await client(JoinChannelRequest(parsed["value"]))
-                            entity = await client.get_entity(parsed["value"])
+                            await client(JoinChannelRequest(raw_id.lstrip("@")))
+                            entity = await client.get_entity(raw_id)
+                        except FloodWaitError as efw:
+                            return {"status": "flood_wait", "reason": f"Join FloodWait: {efw.seconds}s", "seconds": efw.seconds}
                         except Exception as ej:
-                            return {"status": "error", "reason": f"Could not resolve group: {ej}"}
-                elif parsed["type"] == "invite_hash":
-                    try:
-                        res = await client(ImportChatInviteRequest(parsed["value"]))
-                        if hasattr(res, "chats") and res.chats:
-                            entity = res.chats[0]
-                    except UserAlreadyParticipantError:
-                        entity = await client.get_entity(identifier)
-                    except Exception as e_inv:
-                        return {"status": "error", "reason": f"Private invite link expired or invalid: {e_inv}"}
+                            return {"status": "error", "reason": f"Could not find or join group: {ej}"}
+
+                # Case 4: invite link / username without @
                 else:
-                    try:
-                        entity = await client.get_entity(identifier)
-                    except Exception as e_raw:
-                        return {"status": "error", "reason": f"Could not resolve entity: {e_raw}"}
+                    parsed = extract_group_identifier(identifier)
+                    if parsed["type"] == "username":
+                        try:
+                            entity = await client.get_entity(parsed["value"])
+                        except FloodWaitError as efw:
+                            return {"status": "flood_wait", "reason": f"Username FloodWait: {efw.seconds}s", "seconds": efw.seconds}
+                        except Exception:
+                            try:
+                                await client(JoinChannelRequest(parsed["value"]))
+                                entity = await client.get_entity(parsed["value"])
+                            except FloodWaitError as efw:
+                                return {"status": "flood_wait", "reason": f"Join FloodWait: {efw.seconds}s", "seconds": efw.seconds}
+                            except Exception as ej:
+                                return {"status": "error", "reason": f"Could not resolve group: {ej}"}
+                    elif parsed["type"] == "invite_hash":
+                        try:
+                            res = await client(ImportChatInviteRequest(parsed["value"]))
+                            if hasattr(res, "chats") and res.chats:
+                                entity = res.chats[0]
+                        except UserAlreadyParticipantError:
+                            entity = await client.get_entity(identifier)
+                        except FloodWaitError as efw:
+                            return {"status": "flood_wait", "reason": f"Invite FloodWait: {efw.seconds}s", "seconds": efw.seconds}
+                        except Exception as e_inv:
+                            return {"status": "error", "reason": f"Private invite link expired or invalid: {e_inv}"}
+                    else:
+                        try:
+                            entity = await client.get_entity(identifier)
+                        except FloodWaitError as efw:
+                            return {"status": "flood_wait", "reason": f"Entity FloodWait: {efw.seconds}s", "seconds": efw.seconds}
+                        except Exception as e_raw:
+                            return {"status": "error", "reason": f"Could not resolve entity: {e_raw}"}
 
             if not entity:
                 return {"status": "error", "reason": "Could not locate group entity on Telegram"}
@@ -212,11 +257,12 @@ class SafeBroadcaster:
             if isinstance(entity, Channel) and getattr(entity, "broadcast", False):
                 return {"status": "forbidden", "reason": "Target is a Broadcast Channel (Admin post only)"}
 
-            # Ensure membership before sending
-            try:
-                await client(JoinChannelRequest(entity))
-            except (UserAlreadyParticipantError, Exception):
-                pass
+            # Only attempt JoinChannelRequest if group was NOT already joined
+            if not getattr(group, "is_joined", False):
+                try:
+                    await client(JoinChannelRequest(entity))
+                except (UserAlreadyParticipantError, Exception):
+                    pass
 
             # Send message with media if attached
             if promo.media_type == "photo" and promo.media_path:
@@ -394,6 +440,28 @@ class SafeBroadcaster:
         sender_badge = w["sender_badge"]
         cycle_id = w["cycle_id"]
 
+        # Pre-cache dialogs into Telethon in-memory cache so all chat IDs resolve locally in 0ms without hitting Telegram API
+        dialog_entities = {}
+        try:
+            logger.info(f"Pre-caching dialogs for {w['account_phone']}...")
+            dialogs = await client.get_dialogs(limit=None)
+            for d in dialogs:
+                if d.is_user:
+                    continue
+                ent = d.entity
+                dialog_entities[d.id] = ent
+                dialog_entities[abs(d.id)] = ent
+                raw_cid = str(d.id).replace("-100", "").lstrip("-")
+                if raw_cid.isdigit():
+                    dialog_entities[int(raw_cid)] = ent
+                uname = getattr(ent, "username", None)
+                if uname:
+                    dialog_entities[f"@{uname.lower()}"] = ent
+                    dialog_entities[uname.lower()] = ent
+            logger.info(f"Pre-cached {len(dialogs)} dialogs for {w['account_phone']} ({len(dialog_entities)} keys in RAM)")
+        except Exception as e_dlg:
+            logger.warning(f"Could not pre-cache dialogs for {w['account_phone']}: {e_dlg}")
+
         try:
             for idx, group in enumerate(target_groups, 1):
                 while w.get("is_paused") and not w.get("should_stop"):
@@ -407,7 +475,7 @@ class SafeBroadcaster:
                 if group.identifier in w["remaining_groups_list"]:
                     w["remaining_groups_list"].remove(group.identifier)
 
-                res = await self.send_to_single_group(client, group, promo)
+                res = await self.send_to_single_group(client, group, promo, dialog_entities=dialog_entities)
                 status = res.get("status")
                 reason = res.get("reason", "Unknown")
 
@@ -431,7 +499,7 @@ class SafeBroadcaster:
                             f"⏳ <b>Telegram FloodWait ({w['account_phone']}):</b> Pausing {wait_seconds}s..."
                         )
                         await asyncio.sleep(wait_seconds + 5)
-                        res2 = await self.send_to_single_group(client, group, promo)
+                        res2 = await self.send_to_single_group(client, group, promo, dialog_entities=dialog_entities)
                         if res2.get("status") == "ok":
                             w["success_count"] += 1
                             w["sent_groups_list"].append(group.identifier)
@@ -479,14 +547,14 @@ class SafeBroadcaster:
                         w["failed_count"] += 1
                         w["failed_groups_list"].append({"identifier": group.identifier, "reason": reason})
                         await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", reason)
-                        # Only permanently delete groups that are truly unresolvable
-                        if any(
+                        # Only permanently delete groups that are truly dead (NEVER on rate limits or floodwaits)
+                        is_rate_limited = "wait" in reason.lower() or "flood" in reason.lower()
+                        if not is_rate_limited and any(
                             err in reason
                             for err in [
                                 "Cannot cast InputPeerUser",
                                 "No user has",
                                 "Nobody is using",
-                                "Could not find or join",
                                 "expired or invalid",
                                 "Could not find any entity for ID",
                             ]
@@ -530,6 +598,13 @@ class SafeBroadcaster:
                     w["skipped_count"],
                     duration,
                 )
+                try:
+                    promo_db = await get_or_create_account_promo(session, account_id)
+                    promo_db.last_run_at = datetime.datetime.utcnow()
+                    await session.commit()
+                    logger.info(f"Broadcast ended for {w['account_phone']}: updated last_run_at=NOW.")
+                except Exception as ex_p:
+                    logger.warning(f"Could not update last_run_at for {w['account_phone']}: {ex_p}")
 
             report = self._generate_worker_summary(w, mins, secs, final_status)
             await self.notify_admins(report)

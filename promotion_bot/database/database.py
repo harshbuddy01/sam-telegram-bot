@@ -72,6 +72,16 @@ async def init_db():
         except Exception as ex:
             logger.warning(f"Could not sanitize promo_messages text: {ex}")
 
+        # ── FIX: Restore any groups falsely restricted by ResolveUsernameRequest flood wait ─
+        try:
+            await conn.execute(text("""
+                UPDATE target_groups 
+                SET status = 'ACTIVE', last_error = NULL, failure_count = 0, consecutive_failures = 0
+                WHERE last_error LIKE '%ResolveUsernameRequest%'
+            """))
+        except Exception as ex:
+            logger.warning(f"Could not restore groups: {ex}")
+
         # ── SAFE table rebuild: remove UNIQUE constraint on target_groups.identifier
         # The old schema had identifier UNIQUE globally — this crashes multi-account sync.
         # We rebuild ONLY if UNIQUE is detected AND target_groups_clean does NOT yet exist.
