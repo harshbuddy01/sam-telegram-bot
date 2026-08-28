@@ -47,17 +47,18 @@ async def init_db():
             except Exception:
                 pass  # Column already exists — safe to ignore
 
-        # ── FIX: Stamp last_run_at for all existing promo rows with NULL ────────
-        # Rows created by the OLD code had is_enabled=1 and last_run_at=NULL.
-        # This causes the scheduler to fire immediately on boot.
-        # We stamp them with NOW so they must wait one full interval before auto-firing.
+        # ── FIX: Force-disable scheduler for ALL existing accounts ────────────
+        # Old code created promo_messages with is_enabled=1 as default.
+        # SQLite ALTER TABLE DEFAULT only affects NEW rows, not existing ones.
+        # So we must explicitly UPDATE all existing rows to turn scheduler OFF.
+        # Users must go to ⏰ Scheduler and tap "Enable" to re-activate per account.
         try:
             now_str = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
             await conn.execute(text(
-                f"UPDATE promo_messages SET last_run_at = '{now_str}' WHERE last_run_at IS NULL"
-            ))
+                "UPDATE promo_messages SET is_enabled = 0, last_run_at = :now WHERE 1=1"
+            ), {"now": now_str})
         except Exception as ex:
-            logger.warning(f"Could not stamp last_run_at: {ex}")
+            logger.warning(f"Could not update promo_messages scheduler state: {ex}")
 
         # ── SAFE table rebuild: remove UNIQUE constraint on target_groups.identifier
         # The old schema had identifier UNIQUE globally — this crashes multi-account sync.

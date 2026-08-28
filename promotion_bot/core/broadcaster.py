@@ -144,19 +144,41 @@ class SafeBroadcaster:
         try:
             # Resolve entity (with auto-join support for unjoined groups)
             entity = None
-            if str(identifier).startswith("-100") or (
-                str(identifier).startswith("-") and str(identifier)[1:].isdigit()
-            ):
-                entity = await client.get_entity(int(identifier))
-            elif identifier.startswith("@"):
+            raw_id = str(identifier).strip()
+
+            # Case 1: Already a proper negative Telegram ID (-100... supergroup or -... basic group)
+            if raw_id.startswith("-100") or (raw_id.startswith("-") and raw_id[1:].isdigit()):
                 try:
-                    entity = await client.get_entity(identifier)
+                    entity = await client.get_entity(int(raw_id))
+                except Exception as e_id:
+                    return {"status": "error", "reason": f"Could not resolve chat ID {raw_id}: {e_id}"}
+
+            # Case 2: Plain positive integer — could be stored chat_id without -100 prefix
+            elif raw_id.isdigit():
+                # Try as supergroup first (prepend -100), then as basic group (negate)
+                resolved = False
+                for try_id in [int(f"-100{raw_id}"), -int(raw_id)]:
+                    try:
+                        entity = await client.get_entity(try_id)
+                        resolved = True
+                        break
+                    except Exception:
+                        continue
+                if not resolved:
+                    return {"status": "error", "reason": f"Could not find any entity for ID '{raw_id}'"}
+
+            # Case 3: @username
+            elif raw_id.startswith("@"):
+                try:
+                    entity = await client.get_entity(raw_id)
                 except Exception:
                     try:
-                        await client(JoinChannelRequest(identifier.lstrip("@")))
-                        entity = await client.get_entity(identifier)
+                        await client(JoinChannelRequest(raw_id.lstrip("@")))
+                        entity = await client.get_entity(raw_id)
                     except Exception as ej:
                         return {"status": "error", "reason": f"Could not find or join group: {ej}"}
+
+            # Case 4: invite link / username without @
             else:
                 parsed = extract_group_identifier(identifier)
                 if parsed["type"] == "username":
@@ -449,13 +471,15 @@ class SafeBroadcaster:
                         w["failed_count"] += 1
                         w["failed_groups_list"].append({"identifier": group.identifier, "reason": reason})
                         await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", reason)
-                        # Automatically remove from DB so we never waste time on this unpostable group again
-                        await delete_group(session, group.id)
+                        # Mark as BANNED — don't delete so user can review the list
+                        # Groups marked BANNED are auto-skipped in future broadcasts
+                        await update_group_status(session, group.id, "BANNED", error=reason)
 
                     else:
                         w["failed_count"] += 1
                         w["failed_groups_list"].append({"identifier": group.identifier, "reason": reason})
                         await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", reason)
+                        # Only permanently delete groups that are truly unresolvable
                         if any(
                             err in reason
                             for err in [
@@ -464,6 +488,7 @@ class SafeBroadcaster:
                                 "Nobody is using",
                                 "Could not find or join",
                                 "expired or invalid",
+                                "Could not find any entity for ID",
                             ]
                         ):
                             await delete_group(session, group.id)
