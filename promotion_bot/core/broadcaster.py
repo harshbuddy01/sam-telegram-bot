@@ -500,6 +500,7 @@ class SafeBroadcaster:
                 async with AsyncSessionLocal() as session:
                     if status == "ok":
                         w["success_count"] += 1
+                        logger.info(f"[{w['account_phone']}] ✅ ({idx}/{w['total_targets']}) SENT: {group.identifier} ({group.title or ''})")
                         w["sent_groups_list"].append(group.identifier)
                         await update_group_status(session, group.id, "ACTIVE", is_success=True)
                         await log_broadcast_result(session, cycle_id, group.id, group.identifier, "SENT")
@@ -507,12 +508,14 @@ class SafeBroadcaster:
                     elif status == "slowmode":
                         w["skipped_count"] += 1
                         sec = res.get("seconds", 60)
+                        logger.info(f"[{w['account_phone']}] ⏳ ({idx}/{w['total_targets']}) SLOWMODE: {group.identifier} ({sec}s)")
                         w["failed_groups_list"].append({"identifier": group.identifier, "reason": f"Slowmode ({sec}s)"})
                         await update_group_status(session, group.id, "SLOWMODE", error=reason, slowmode_sec=sec)
                         await log_broadcast_result(session, cycle_id, group.id, group.identifier, "SLOWMODE", reason)
 
                     elif status == "flood_wait":
                         wait_seconds = res.get("seconds", 60)
+                        logger.warning(f"[{w['account_phone']}] ⚠️ ({idx}/{w['total_targets']}) FLOODWAIT: {group.identifier} ({wait_seconds}s)")
                         await self.notify_admins(
                             f"⏳ <b>Telegram FloodWait ({w['account_phone']}):</b> Pausing {wait_seconds}s..."
                         )
@@ -520,16 +523,19 @@ class SafeBroadcaster:
                         res2 = await self.send_to_single_group(client, group, promo, dialog_entities=dialog_entities)
                         if res2.get("status") == "ok":
                             w["success_count"] += 1
+                            logger.info(f"[{w['account_phone']}] ✅ ({idx}/{w['total_targets']}) SENT after FloodWait: {group.identifier}")
                             w["sent_groups_list"].append(group.identifier)
                             await update_group_status(session, group.id, "ACTIVE", is_success=True)
                             await log_broadcast_result(session, cycle_id, group.id, group.identifier, "SENT")
                         else:
                             w["failed_count"] += 1
+                            logger.warning(f"[{w['account_phone']}] ❌ ({idx}/{w['total_targets']}) FAILED after FloodWait: {group.identifier} - {res2.get('reason')}")
                             w["failed_groups_list"].append({"identifier": group.identifier, "reason": res2.get("reason")})
                             await update_group_status(session, group.id, "RESTRICTED", error=res2.get("reason"))
                             await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", res2.get("reason"))
 
                     elif status == "logged_out":
+                        logger.error(f"[{w['account_phone']}] ❌ SESSION REVOKED/LOGGED OUT on Telegram!")
                         await update_sender_account_status(session, account_id, "NEED_LOGIN")
                         await self.notify_admins(
                             f"⚠️ <b>Account Logged Out:</b> {w['account_phone']} session was terminated on Telegram.\n"
@@ -539,6 +545,7 @@ class SafeBroadcaster:
 
                     elif status == "peer_flood":
                         w["failed_count"] += 1
+                        logger.warning(f"[{w['account_phone']}] 🛡️ PEER FLOOD: {group.identifier}")
                         w["failed_groups_list"].append(
                             {"identifier": group.identifier, "reason": "Telegram Search Rate Limit (PeerFlood)"}
                         )
@@ -555,6 +562,7 @@ class SafeBroadcaster:
 
                     elif status in ["forbidden", "banned", "private"]:
                         w["failed_count"] += 1
+                        logger.warning(f"[{w['account_phone']}] 🚫 ({idx}/{w['total_targets']}) {status.upper()}: {group.identifier} - {reason}")
                         w["failed_groups_list"].append({"identifier": group.identifier, "reason": reason})
                         await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", reason)
                         # Mark as BANNED — don't delete so user can review the list
@@ -563,6 +571,7 @@ class SafeBroadcaster:
 
                     else:
                         w["failed_count"] += 1
+                        logger.warning(f"[{w['account_phone']}] ❌ ({idx}/{w['total_targets']}) FAILED: {group.identifier} - {reason}")
                         w["failed_groups_list"].append({"identifier": group.identifier, "reason": reason})
                         await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", reason)
                         # Only permanently delete groups that are truly dead (NEVER on rate limits or floodwaits)
