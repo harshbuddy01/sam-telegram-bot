@@ -203,17 +203,19 @@ def get_product_detail_keyboard(
     has_stock: bool,
     is_manual: bool = False,
     is_admin: bool = False,
-    quantity: int = 1
+    quantity: int = 1,
+    usd_price: float = None
 ) -> InlineKeyboardMarkup:
     buttons = []
     qty = max(1, min(int(quantity), 10))
     total_price = round(price * qty, 2)
+    usd_tag = f" · ~${usd_price:.2f}" if usd_price is not None else ""
 
     # Quantity header / indicator row
     unit_word = "units" if qty > 1 else "unit"
     buttons.append([
         InlineKeyboardButton(
-            text=f"Select Quantity: {qty} {unit_word} (Total: {config.CURRENCY_SYMBOL}{total_price:.0f})",
+            text=f"Quantity: {qty} {unit_word} (Total: {config.CURRENCY_SYMBOL}{total_price:.0f}{usd_tag})",
             callback_data="noop",
             icon_custom_emoji_id=CustomEmojis.SHOP
         )
@@ -233,9 +235,9 @@ def get_product_detail_keyboard(
 
     # Buy button — show total if qty > 1
     if qty > 1:
-        total_label = f"{config.CURRENCY_SYMBOL}{price:.0f} × {qty} = {config.CURRENCY_SYMBOL}{total_price:.2f}"
+        total_label = f"{config.CURRENCY_SYMBOL}{price:.0f} × {qty} = {config.CURRENCY_SYMBOL}{total_price:.0f}{usd_tag}"
     else:
-        total_label = f"{config.CURRENCY_SYMBOL}{price:.2f}"
+        total_label = f"{config.CURRENCY_SYMBOL}{price:.0f}{usd_tag}"
 
     if is_manual:
         buttons.append([

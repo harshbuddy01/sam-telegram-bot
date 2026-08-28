@@ -159,7 +159,7 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
                     f"{ce(CustomEmojis.DIAMOND, '💎')} <b>SELECT PAYMENT METHOD FOR 1-CLICK ORDER</b>\n"
                     f"{UI.SECTION_BAR}\n\n"
                     f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_icon} <b>{prod_title}</b> — <b>{variant.name}</b>{qty_info}\n"
-                    f"{ce(CustomEmojis.WALLET, '💰')} <b>Total:</b> <b>{config.CURRENCY_SYMBOL}{total_price:.2f}</b>\n\n"
+                    f"{ce(CustomEmojis.WALLET, '💰')} <b>Total:</b> <b>{config.CURRENCY_SYMBOL}{total_price:.2f} · ~${oxa_usd:.2f} USDT</b>\n\n"
                     f"<i>Choose your preferred payment method for instant automated delivery:</i>\n\n"
                     f"<blockquote>"
                     f"{ce(CustomEmojis.FIRE, '⚡')} <b>Instant UPI:</b> {config.CURRENCY_SYMBOL}{total_price:.0f} (GPay / PhonePe / Paytm / CRED)\n"

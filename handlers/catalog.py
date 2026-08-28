@@ -307,8 +307,18 @@ async def cb_set_quantity(callback: types.CallbackQuery, state: FSMContext, sess
 
     total_val = round(variant.price * qty, 2)
     unit_label = "units" if qty > 1 else "unit"
-    # Show instant toast feedback to user
-    await callback.answer(f"✅ Selected: {qty} {unit_label} • Total: {config.CURRENCY_SYMBOL}{total_val:.2f}", show_alert=False)
+
+    # Compute USD equivalents
+    try:
+        from payments.manager import payment_manager
+        _, _, _, total_usdt = payment_manager.oxapay.calculate_amounts(total_val)
+        _, _, _, each_usdt = payment_manager.oxapay.calculate_amounts(variant.price)
+    except Exception:
+        total_usdt = round(total_val / 90.0, 2)
+        each_usdt = round(variant.price / 90.0, 2)
+
+    # Show instant toast feedback to user with dual currency
+    await callback.answer(f"✅ Selected: {qty} {unit_label} • {config.CURRENCY_SYMBOL}{total_val:.0f} (~${total_usdt:.2f} USDT)", show_alert=False)
 
     is_manual = (getattr(variant, "fulfillment_type", "AUTOMATIC") == "MANUAL")
     dispatch_time = getattr(variant, "manual_dispatch_time", "1–2 Hours") or "1–2 Hours"
@@ -351,7 +361,7 @@ async def cb_set_quantity(callback: types.CallbackQuery, state: FSMContext, sess
         prod_icon=prod_icon_clean,
         variant_name=variant.name,
         currency=config.CURRENCY_SYMBOL,
-        price=f"{variant.price:.2f}",
+        price=f"{variant.price:.0f} · ~${each_usdt:.2f} USDT",
         variant_type=variant.variant_type,
         fulfillment_badge=fulfillment_badge,
         stock_badge=stock_badge,
@@ -362,7 +372,8 @@ async def cb_set_quantity(callback: types.CallbackQuery, state: FSMContext, sess
     qty_banner = (
         f"<blockquote>"
         f"{ce(CustomEmojis.SPARKLE, '🔢')} <b>Selected Quantity:</b> <b>{qty} {unit_label}</b>\n"
-        f"{ce(CustomEmojis.WALLET, '💰')} <b>Total Checkout:</b> <b>{config.CURRENCY_SYMBOL}{total_val:.2f}</b>"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Total Amount:</b> <b>{config.CURRENCY_SYMBOL}{total_val:.2f} · ~${total_usdt:.2f} USDT</b> "
+        f"<i>({config.CURRENCY_SYMBOL}{variant.price:.0f} · ~${each_usdt:.2f} each)</i>"
         f"</blockquote>\n"
     )
     text += f"\n{qty_banner}\n{action_note}"
@@ -377,7 +388,8 @@ async def cb_set_quantity(callback: types.CallbackQuery, state: FSMContext, sess
             has_stock=has_stock,
             is_manual=is_manual,
             is_admin=config.is_admin(callback.from_user.id),
-            quantity=qty
+            quantity=qty,
+            usd_price=total_usdt
         )
     )
 
@@ -428,6 +440,22 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
     prod_title_clean = product.title if product else "Digital Item"
     prod_icon_clean = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if product else "📦"
 
+    # Read persisted quantity for this variant from FSM
+    data = await state.get_data()
+    variant_qty = data.get("variant_qty", {})
+    qty = int(variant_qty.get(str(variant_id), 1))
+    total_val = round(variant.price * qty, 2)
+    unit_label = "units" if qty > 1 else "unit"
+
+    # Compute USD equivalents
+    try:
+        from payments.manager import payment_manager
+        _, _, _, total_usdt = payment_manager.oxapay.calculate_amounts(total_val)
+        _, _, _, each_usdt = payment_manager.oxapay.calculate_amounts(variant.price)
+    except Exception:
+        total_usdt = round(total_val / 90.0, 2)
+        each_usdt = round(variant.price / 90.0, 2)
+
     text = await render_template(
         session,
         "variant_detail",
@@ -436,7 +464,7 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
         prod_icon=prod_icon_clean,
         variant_name=variant.name,
         currency=config.CURRENCY_SYMBOL,
-        price=f"{variant.price:.2f}",
+        price=f"{variant.price:.0f} · ~${each_usdt:.2f} USDT",
         variant_type=variant.variant_type,
         fulfillment_badge=fulfillment_badge,
         stock_badge=stock_badge,
@@ -444,17 +472,11 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
         delivery_time=dispatch_time if is_manual else "Instant (Under 5s)"
     )
 
-    # Read persisted quantity for this variant from FSM
-    data = await state.get_data()
-    variant_qty = data.get("variant_qty", {})
-    qty = int(variant_qty.get(str(variant_id), 1))
-    total_val = round(variant.price * qty, 2)
-    unit_label = "units" if qty > 1 else "unit"
-
     qty_banner = (
         f"<blockquote>"
         f"{ce(CustomEmojis.SPARKLE, '🔢')} <b>Selected Quantity:</b> <b>{qty} {unit_label}</b>\n"
-        f"{ce(CustomEmojis.WALLET, '💰')} <b>Total Checkout:</b> <b>{config.CURRENCY_SYMBOL}{total_val:.2f}</b>"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Total Amount:</b> <b>{config.CURRENCY_SYMBOL}{total_val:.2f} · ~${total_usdt:.2f} USDT</b> "
+        f"<i>({config.CURRENCY_SYMBOL}{variant.price:.0f} · ~${each_usdt:.2f} each)</i>"
         f"</blockquote>\n"
     )
     text += f"\n{qty_banner}\n{action_note}"
@@ -469,6 +491,7 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
             has_stock=has_stock,
             is_manual=is_manual,
             is_admin=config.is_admin(callback.from_user.id),
-            quantity=qty
+            quantity=qty,
+            usd_price=total_usdt
         )
     )
