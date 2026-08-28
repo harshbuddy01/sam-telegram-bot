@@ -166,12 +166,22 @@ def get_products_keyboard(
 def get_variants_keyboard(
     variants: list[Variant],
     product_id: int,
-    category_id: int
+    category_id: int,
+    usd_prices: dict = None  # {variant_id: (usdt_amount, paypal_usd)} optional
 ) -> InlineKeyboardMarkup:
     buttons = []
     for var in variants:
-        price_tag = f"{config.CURRENCY_SYMBOL}{var.price:.0f}"
         clean_name = clean_button_text(var.name)
+        inr_tag = f"{config.CURRENCY_SYMBOL}{var.price:.0f}"
+
+        # Build dual pricing label if USD prices available
+        if usd_prices and var.id in usd_prices:
+            usdt, pp_usd = usd_prices[var.id]
+            # Show the lower (crypto) USD price to attract — PayPal shown at checkout
+            price_tag = f"{inr_tag}  ·  ~${usdt:.2f} USDT"
+        else:
+            price_tag = inr_tag
+
         buttons.append([
             InlineKeyboardButton(
                 text=f"{clean_name}  ➜  {price_tag}",
@@ -192,13 +202,35 @@ def get_product_detail_keyboard(
     product_id: int,
     has_stock: bool,
     is_manual: bool = False,
-    is_admin: bool = False
+    is_admin: bool = False,
+    quantity: int = 1
 ) -> InlineKeyboardMarkup:
     buttons = []
+    qty = max(1, min(int(quantity), 10))
+    total_price = round(price * qty, 2)
+
+    # Quantity selector row (1–5)
+    qty_row = []
+    for q in range(1, 6):
+        label = f"✅ {q}" if q == qty else str(q)
+        qty_row.append(
+            InlineKeyboardButton(
+                text=label,
+                callback_data=f"setqty_{variant_id}_{q}"
+            )
+        )
+    buttons.append(qty_row)
+
+    # Buy button — show total if qty > 1
+    if qty > 1:
+        total_label = f"{config.CURRENCY_SYMBOL}{price:.0f} × {qty} = {config.CURRENCY_SYMBOL}{total_price:.2f}"
+    else:
+        total_label = f"{config.CURRENCY_SYMBOL}{price:.2f}"
+
     if is_manual:
         buttons.append([
             InlineKeyboardButton(
-                text=f"ORDER ACTIVATION ({config.CURRENCY_SYMBOL}{price:.2f})",
+                text=f"ORDER ACTIVATION  ({total_label})",
                 callback_data=f"buy_{variant_id}",
                 icon_custom_emoji_id=CustomEmojis.FIRE
             )
@@ -206,7 +238,7 @@ def get_product_detail_keyboard(
     elif has_stock:
         buttons.append([
             InlineKeyboardButton(
-                text=f"PURCHASE NOW ({config.CURRENCY_SYMBOL}{price:.2f})",
+                text=f"PURCHASE NOW  ({total_label})",
                 callback_data=f"buy_{variant_id}",
                 icon_custom_emoji_id=CustomEmojis.FIRE
             )

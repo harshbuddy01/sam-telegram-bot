@@ -347,8 +347,9 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
                 prod_title = prod.title if prod else "Digital Item"
 
                 order = None
+                qty = max(1, int(round(deposit.amount / target_var.price))) if target_var.price > 0 else 1
                 if not is_manual:
-                    order, err = await fulfill_order(session, user.telegram_id, target_var.id, target_var.price)
+                    order, err = await fulfill_order(session, user.telegram_id, target_var.id, target_var.price, quantity=qty)
 
                 if order and getattr(order, "delivered_content", None):
                     delivery_text = (
@@ -371,7 +372,7 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
                     return
                 else:
                     # MANUAL FULFILLMENT or STOCK EMPTY -> Create manual order
-                    manual_order, m_err = await create_manual_order(session, user.telegram_id, target_var.id, target_var.price, customer_input=None)
+                    manual_order, m_err = await create_manual_order(session, user.telegram_id, target_var.id, target_var.price, customer_input=None, quantity=qty)
                     manual_confirm_text = (
                         f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER PLACED!</b>\n"
                         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -417,8 +418,9 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
                 prod_title = prod.title if prod else "Digital Item"
                 
                 order = None
+                qty = max(1, int(round(deposit.amount / target_var.price))) if target_var.price > 0 else 1
                 if not is_manual:
-                    order, err = await fulfill_order(session, user.telegram_id, target_var.id, target_var.price)
+                    order, err = await fulfill_order(session, user.telegram_id, target_var.id, target_var.price, quantity=qty)
                 
                 if order and getattr(order, "delivered_content", None):
                     delivery_text = (
@@ -455,7 +457,7 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
                     return
                 else:
                     # MANUAL FULFILLMENT or STOCK EMPTY -> Create manual order
-                    manual_order = await create_manual_order(session, user.telegram_id, target_var.id, target_var.price, customer_input=None)
+                    manual_order, m_err = await create_manual_order(session, user.telegram_id, target_var.id, target_var.price, customer_input=None, quantity=qty)
                     
                     manual_confirm_text = (
                         f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER PLACED!</b>\n"

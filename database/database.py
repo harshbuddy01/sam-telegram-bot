@@ -51,6 +51,7 @@ async def init_db():
             "ALTER TABLE orders ADD COLUMN status VARCHAR(30) DEFAULT 'COMPLETED'",
             "ALTER TABLE orders ADD COLUMN customer_input TEXT",
             "ALTER TABLE orders ADD COLUMN fulfilled_at DATETIME",
+            "ALTER TABLE orders ADD COLUMN quantity INTEGER DEFAULT 1",
             "ALTER TABLE deposits ADD COLUMN gateway VARCHAR(50) DEFAULT 'MANUAL_UPI'",
             "ALTER TABLE deposits ADD COLUMN gateway_order_id VARCHAR(100)",
             "ALTER TABLE deposits ADD COLUMN gateway_payment_id VARCHAR(100)",
@@ -63,3 +64,20 @@ async def init_db():
                 await conn.execute(text(query))
             except Exception:
                 pass # Column already exists or already updated
+
+        # Startup diagnostic — count existing rows to confirm DB is intact
+        import logging
+        diag_logger = logging.getLogger("db.startup")
+        try:
+            from sqlalchemy import text as _text
+            async with engine.connect() as diag_conn:
+                cats = (await diag_conn.execute(_text("SELECT COUNT(*) FROM categories WHERE is_active=1"))).scalar() or 0
+                prods = (await diag_conn.execute(_text("SELECT COUNT(*) FROM products WHERE is_active=1"))).scalar() or 0
+                variants = (await diag_conn.execute(_text("SELECT COUNT(*) FROM variants WHERE is_active=1"))).scalar() or 0
+                orders = (await diag_conn.execute(_text("SELECT COUNT(*) FROM orders"))).scalar() or 0
+                diag_logger.info(
+                    f"✅ DB INTACT — {cats} categories | {prods} products | {variants} variants | {orders} orders. "
+                    f"Seed will be SKIPPED (data already exists)."
+                )
+        except Exception as e:
+            diag_logger.warning(f"Startup diagnostic failed: {e}")

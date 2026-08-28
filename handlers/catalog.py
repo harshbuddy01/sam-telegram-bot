@@ -233,7 +233,7 @@ async def cb_noop(callback: types.CallbackQuery):
     await callback.answer()
 
 @router.callback_query(F.data.startswith("prod_"))
-async def cb_product_variants(callback: types.CallbackQuery, session: AsyncSession):
+async def cb_product_variants(callback: types.CallbackQuery, session: AsyncSession, state: FSMContext):
     await callback.answer()
     product_id = int(callback.data.split("_")[1])
     product = await get_product(session, product_id)
@@ -267,14 +267,112 @@ async def cb_product_variants(callback: types.CallbackQuery, session: AsyncSessi
             f"{ce(CustomEmojis.LOCK, '⚠️')} <i>No plans are currently in stock for this item. Please contact support @{config.SUPPORT_USERNAME.lstrip('@')} to order!</i>"
         )
 
+    # Compute USD equivalents for dual pricing display
+    usd_prices = {}
+    try:
+        from payments.manager import payment_manager
+        for var in variants:
+            _, _, _, usdt_amt = payment_manager.oxapay.calculate_amounts(var.price)
+            _, _, _, pp_usd = payment_manager.paypal.calculate_amounts(var.price)
+            usd_prices[var.id] = (usdt_amt, pp_usd)
+    except Exception:
+        pass  # USD prices optional — fallback to INR-only display
+
+    # Clear any previous quantity selection when re-entering product
+    await state.update_data(variant_qty={})
+
     await safe_edit_or_reply(
         callback,
         text,
-        reply_markup=get_variants_keyboard(variants, product_id, product.category_id)
+        reply_markup=get_variants_keyboard(variants, product_id, product.category_id, usd_prices=usd_prices)
+    )
+
+@router.callback_query(F.data.startswith("setqty_"))
+async def cb_set_quantity(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
+    """Inline quantity selector — updates the buy button total live."""
+    await callback.answer()
+    parts = callback.data.split("_")
+    variant_id = int(parts[1])
+    qty = int(parts[2])
+
+    # Store per-variant qty in FSM
+    data = await state.get_data()
+    variant_qty = data.get("variant_qty", {})
+    variant_qty[str(variant_id)] = qty
+    await state.update_data(variant_qty=variant_qty)
+
+    # Re-render the variant detail card with updated quantity
+    variant = await get_variant(session, variant_id)
+    if not variant:
+        await callback.answer("Plan not found.", show_alert=True)
+        return
+
+    is_manual = (getattr(variant, "fulfillment_type", "AUTOMATIC") == "MANUAL")
+    dispatch_time = getattr(variant, "manual_dispatch_time", "1–2 Hours") or "1–2 Hours"
+
+    product = await get_product(session, variant.product_id)
+    if product and "<tg-emoji" in product.title:
+        prod_display = product.title
+    elif product:
+        prod_icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id)
+        prod_display = f"{prod_icon} {product.title}"
+    else:
+        prod_display = f"{ce(CustomEmojis.SHOP, '📦')} Digital Item"
+
+    stock_count = await get_available_stock_count(session, variant.id)
+    has_stock = (stock_count > 0) or is_manual
+
+    if is_manual:
+        stock_badge = "Available (1–2h Activation)"
+        fulfillment_badge = f"Manual Activation ({dispatch_time})"
+        action_note = f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>Click <b>'ORDER ACTIVATION'</b> to submit your details &amp; buy:</i>"
+    else:
+        stock_badge = f"In Stock ({stock_count} Available)" if has_stock else "Out of Stock"
+        fulfillment_badge = "100% Instant Delivery"
+        action_note = f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>Click <b>'PURCHASE NOW'</b> to buy:</i>"
+
+    if variant.detailed_description:
+        desc_block = f"<blockquote><b>Features &amp; Specifications:</b>\n{variant.detailed_description.strip()}</blockquote>\n\n"
+    else:
+        desc_block = ""
+
+    prod_title_clean = product.title if product else "Digital Item"
+    prod_icon_clean = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if product else "📦"
+
+    from utils.templates import render_template
+    text = await render_template(
+        session,
+        "variant_detail",
+        prod_header=f"{ce(CustomEmojis.DIAMOND, '💎')} <b>{prod_display}</b>",
+        prod_title=prod_title_clean,
+        prod_icon=prod_icon_clean,
+        variant_name=variant.name,
+        currency=config.CURRENCY_SYMBOL,
+        price=f"{variant.price:.2f}",
+        variant_type=variant.variant_type,
+        fulfillment_badge=fulfillment_badge,
+        stock_badge=stock_badge,
+        description_block=desc_block,
+        delivery_time=dispatch_time if is_manual else "Instant (Under 5s)"
+    )
+    text += f"\n{action_note}"
+
+    await safe_edit_or_reply(
+        callback,
+        text,
+        reply_markup=get_product_detail_keyboard(
+            variant_id=variant.id,
+            price=variant.price,
+            product_id=variant.product_id,
+            has_stock=has_stock,
+            is_manual=is_manual,
+            is_admin=config.is_admin(callback.from_user.id),
+            quantity=qty
+        )
     )
 
 @router.callback_query(F.data.startswith("var_"))
-async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession):
+async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession, state: FSMContext):
     """
     Detailed Product Card Screen:
     Displays rich specifications, pricing card, warranty, rules, and stock status.
@@ -337,6 +435,11 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
     )
     text += f"\n{action_note}"
 
+    # Read persisted quantity for this variant from FSM
+    data = await state.get_data()
+    variant_qty = data.get("variant_qty", {})
+    qty = int(variant_qty.get(str(variant_id), 1))
+
     await safe_edit_or_reply(
         callback,
         text,
@@ -346,6 +449,7 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
             product_id=variant.product_id,
             has_stock=has_stock,
             is_manual=is_manual,
-            is_admin=config.is_admin(callback.from_user.id)
+            is_admin=config.is_admin(callback.from_user.id),
+            quantity=qty
         )
     )

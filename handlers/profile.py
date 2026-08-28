@@ -110,11 +110,15 @@ async def cb_order_detail(callback: types.CallbackQuery, session: AsyncSession):
         )
         footer_line = f"{ce(CustomEmojis.SUPPORT, '💬')} <i>Contact support ({config.SUPPORT_USERNAME}) if you have any questions.</i>"
 
+    qty = getattr(order, "quantity", 1) or 1
+    qty_line = f"{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{qty} unit(s)</b>\n" if qty > 1 else ""
+
     text = (
         f"{ce(CustomEmojis.ORDERS, '🧾')} <b>ORDER RECEIPT #{order.id}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} {prod_title}\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} <b>{prod_title}</b>\n"
         f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{var_name}</b>\n"
+        f"{qty_line}"
         f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
         f"{ce(CustomEmojis.STAR, '📅')} <b>Ordered On:</b> {date_str}\n"
         f"{status_line}\n\n"

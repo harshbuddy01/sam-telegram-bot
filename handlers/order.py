@@ -104,8 +104,13 @@ async def cb_buy_variant_gateway(callback: types.CallbackQuery, state: FSMContex
     prod_title = product.title if product else "Digital Item"
     prod_icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if product else "📦"
 
+    # Read quantity from FSM
+    fsm_data = await state.get_data()
+    variant_qty = fsm_data.get("variant_qty", {})
+    qty = max(1, int(variant_qty.get(str(variant_id), 1)))
+
     await callback.answer("⚡ Initializing checkout session...", show_alert=False)
-    await initiate_1click_checkout(callback.message, user, variant, prod_title, prod_icon, session, preferred_gateway=gw_name)
+    await initiate_1click_checkout(callback.message, user, variant, prod_title, prod_icon, session, preferred_gateway=gw_name, quantity=qty)
 
 @router.callback_query(F.data.regexp(r"^buy_\d+$"))
 async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
@@ -132,32 +137,40 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
         prod_title = product.title if product else "Digital Item"
         prod_icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if product else "📦"
 
-        # 1. Check Wallet Balance -> If 0/insufficient, trigger Direct 1-Click Checkout
-        if user.balance < variant.price:
+        # Read quantity from FSM state (set by setqty_ callback)
+        fsm_data = await state.get_data()
+        variant_qty = fsm_data.get("variant_qty", {})
+        qty = max(1, int(variant_qty.get(str(variant_id), 1)))
+        total_price = round(variant.price * qty, 2)
+        qty_label = f" × {qty}" if qty > 1 else ""
+
+        # 1. Check Wallet Balance -> If insufficient, trigger Direct 1-Click Checkout
+        if user.balance < total_price:
             from payments.manager import payment_manager
             available_gateways = payment_manager.get_available_gateways()
 
             # If multiple automated gateways are configured, present a clean 3-option selector
             if len(available_gateways) > 1:
-                _, _, _, pp_usd = payment_manager.paypal.calculate_amounts(variant.price)
-                _, _, _, oxa_usd = payment_manager.oxapay.calculate_amounts(variant.price)
+                _, _, _, pp_usd = payment_manager.paypal.calculate_amounts(total_price)
+                _, _, _, oxa_usd = payment_manager.oxapay.calculate_amounts(total_price)
 
+                qty_info = f"\n{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{qty} unit(s)</b>" if qty > 1 else ""
                 text = (
                     f"{ce(CustomEmojis.DIAMOND, '💎')} <b>SELECT PAYMENT METHOD FOR 1-CLICK ORDER</b>\n"
                     f"{UI.SECTION_BAR}\n\n"
-                    f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_icon} <b>{prod_title}</b> — <b>{variant.name}</b>\n"
-                    f"{ce(CustomEmojis.WALLET, '💰')} <b>Item Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n\n"
+                    f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_icon} <b>{prod_title}</b> — <b>{variant.name}</b>{qty_info}\n"
+                    f"{ce(CustomEmojis.WALLET, '💰')} <b>Total:</b> <b>{config.CURRENCY_SYMBOL}{total_price:.2f}</b>\n\n"
                     f"<i>Choose your preferred payment method for instant automated delivery:</i>\n\n"
                     f"<blockquote>"
-                    f"{ce(CustomEmojis.FIRE, '⚡')} <b>Instant UPI:</b> {config.CURRENCY_SYMBOL}{variant.price:.0f} (GPay / PhonePe / Paytm / CRED)\n"
-                    f"{ce(CustomEmojis.CARD, '🅿️')} <b>PayPal & Cards:</b> ${pp_usd:.2f} USD (Visa / Mastercard / Amex)\n"
+                    f"{ce(CustomEmojis.FIRE, '⚡')} <b>Instant UPI:</b> {config.CURRENCY_SYMBOL}{total_price:.0f} (GPay / PhonePe / Paytm / CRED)\n"
+                    f"{ce(CustomEmojis.CARD, '🅿️')} <b>PayPal &amp; Cards:</b> ${pp_usd:.2f} USD (Visa / Mastercard / Amex)\n"
                     f"{ce(CustomEmojis.STAR, '🪙')} <b>Crypto (OxaPay):</b> ${oxa_usd:.2f} USDT (USDT / BTC / SOL / TRX)"
                     f"</blockquote>"
                 )
                 buttons = []
                 if payment_manager.razorpay.is_configured:
                     buttons.append([
-                        InlineKeyboardButton(text=f"Instant UPI / Razorpay ({config.CURRENCY_SYMBOL}{variant.price:.0f})", callback_data=f"buygw_razorpay_{variant.id}", icon_custom_emoji_id=CustomEmojis.FIRE)
+                        InlineKeyboardButton(text=f"Instant UPI / Razorpay ({config.CURRENCY_SYMBOL}{total_price:.0f})", callback_data=f"buygw_razorpay_{variant.id}", icon_custom_emoji_id=CustomEmojis.FIRE)
                     ])
                 if payment_manager.paypal.is_configured:
                     buttons.append([
@@ -175,7 +188,7 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
                 return
 
             await callback.answer("⚡ Initializing checkout...", show_alert=False)
-            await initiate_1click_checkout(callback.message, user, variant, prod_title, prod_icon, session)
+            await initiate_1click_checkout(callback.message, user, variant, prod_title, prod_icon, session, quantity=qty)
             return
 
         # 2. Check Fulfillment Mode (MANUAL vs AUTOMATIC)
@@ -191,20 +204,22 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
                     user_id=user.telegram_id,
                     variant_id=variant.id,
                     amount=variant.price,
-                    customer_input=None
+                    customer_input=None,
+                    quantity=qty
                 )
                 if err_msg or not order:
                     await callback.message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Failed to place order: {err_msg}")
                     return
 
                 dispatch_time = getattr(variant, "manual_dispatch_time", "1–2 Hours") or "1–2 Hours"
+                qty_line = f"\n{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{qty} unit(s)</b>" if qty > 1 else ""
                 text = (
-                    f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>ORDER PLACED & PAYMENT CONFIRMED!</b>\n"
+                    f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>ORDER PLACED &amp; PAYMENT CONFIRMED!</b>\n"
                     f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                     f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
                     f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
-                    f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
-                    f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
+                    f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>{qty_line}\n"
+                    f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
                     f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Delivery:</b> within {dispatch_time}\n\n"
                     f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                     f"Our team has received your order and is preparing your credentials right now! You will receive your details directly in this chat shortly."
@@ -217,7 +232,7 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
                 await callback.message.edit_text(text, reply_markup=kb)
 
                 asyncio.create_task(_background_notify_manual(
-                    bot, order, prod_title, variant.name, callback.from_user, None, variant.price
+                    bot, order, prod_title, variant.name, callback.from_user, None, order.amount, qty
                 ))
                 return
 
@@ -226,18 +241,20 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
             await state.update_data(
                 variant_id=variant.id,
                 price=variant.price,
+                quantity=qty,
                 prod_title=prod_title,
                 var_name=variant.name,
                 dispatch_time=getattr(variant, "manual_dispatch_time", "1–2 Hours") or "1–2 Hours"
             )
 
             prompt_msg = getattr(variant, "input_prompt", None) or "Please send your target Email / Account username for activation:"
+            qty_line = f"\n{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{qty} unit(s)  —  Total: {config.CURRENCY_SYMBOL}{total_price:.2f}</b>" if qty > 1 else ""
             text = (
                 f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>ACTIVATION DETAILS REQUIRED</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} {prod_title}\n"
-                f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n"
-                f"{ce(CustomEmojis.WALLET, '💰')} <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f}</b>\n"
+                f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>{qty_line}\n"
+                f"{ce(CustomEmojis.WALLET, '💰')} <b>Price:</b> <b>{config.CURRENCY_SYMBOL}{total_price:.2f}</b>\n"
                 f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Dispatch Time:</b> within {getattr(variant, 'manual_dispatch_time', '1–2 Hours')}\n\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"{ce(CustomEmojis.SPARKLE, '👉')} <b>{prompt_msg}</b>\n\n"
@@ -249,9 +266,9 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
             await callback.message.edit_text(text, reply_markup=kb)
             return
 
-        # 3. AUTOMATIC Fulfillment (Draws 1 stock from inventory)
-        order, error_msg = await fulfill_order(session, user.telegram_id, variant.id, variant.price)
-        
+        # 3. AUTOMATIC Fulfillment (Draws N stocks from inventory)
+        order, error_msg = await fulfill_order(session, user.telegram_id, variant.id, variant.price, quantity=qty)
+
         if error_msg or not order:
             await callback.message.answer(
                 f"{ce(CustomEmojis.LOCK, '⚠️')} <b>Purchase Error:</b> {error_msg or 'Unknown error occurred.'}",
@@ -289,6 +306,7 @@ async def msg_order_manual_input(message: types.Message, state: FSMContext, sess
     data = await state.get_data()
     variant_id = data.get("variant_id")
     price = data.get("price")
+    quantity = data.get("quantity", 1)
     prod_title = data.get("prod_title", "Digital Item")
     var_name = data.get("var_name", "Plan")
     dispatch_time = data.get("dispatch_time", "1–2 Hours")
@@ -298,10 +316,13 @@ async def msg_order_manual_input(message: types.Message, state: FSMContext, sess
         await message.answer("Order session expired. Please choose your item again from the store.")
         return
 
+    quantity = max(1, int(quantity))
+    total_amount = round(price * quantity, 2)
+
     user = await get_user(session, message.from_user.id)
-    if not user or user.balance < price:
+    if not user or user.balance < total_amount:
         await state.clear()
-        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Insufficient balance to place order.")
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Insufficient balance to place order. Need {config.CURRENCY_SYMBOL}{total_amount:.2f}, your balance is {config.CURRENCY_SYMBOL}{user.balance if user else 0:.2f}.")
         return
 
     # Deduct balance & create manual order
@@ -310,7 +331,8 @@ async def msg_order_manual_input(message: types.Message, state: FSMContext, sess
         user_id=message.from_user.id,
         variant_id=variant_id,
         amount=price,
-        customer_input=cust_input
+        customer_input=cust_input,
+        quantity=quantity
     )
     await state.clear()
 
@@ -318,13 +340,14 @@ async def msg_order_manual_input(message: types.Message, state: FSMContext, sess
         await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Failed to place order: {err_msg}")
         return
 
+    qty_line = f"\n{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{quantity} unit(s)</b>" if quantity > 1 else ""
     text = (
         f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>ORDER PLACED SUCCESSFULLY!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
         f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
-        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{var_name}</b>\n"
-        f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount:</b> <b>{config.CURRENCY_SYMBOL}{price:.2f}</b>\n"
+        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{var_name}</b>{qty_line}\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount:</b> <b>{config.CURRENCY_SYMBOL}{order.amount:.2f}</b>\n"
         f"{ce(CustomEmojis.VERIFIED, '📧')} <b>Provided Details:</b> <code>{cust_input}</code>\n"
         f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Delivery Time:</b> within {dispatch_time}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -339,12 +362,18 @@ async def msg_order_manual_input(message: types.Message, state: FSMContext, sess
 
     # Background notifications
     asyncio.create_task(_background_notify_manual(
-        bot, order, prod_title, var_name, message.from_user, cust_input, price
+        bot, order, prod_title, var_name, message.from_user, cust_input, order.amount, quantity
     ))
 
-async def _background_notify_manual(bot: Bot, order, prod_title: str, var_name: str, user_obj, cust_input: Optional[str], price: float):
+async def _background_notify_manual(bot: Bot, order, prod_title: str, var_name: str, user_obj, cust_input: Optional[str], price: float, quantity: int = 1):
     from keyboards.admin_keyboards import get_admin_order_actions_keyboard
     input_display = f"<code>{cust_input}</code>" if cust_input else "<i>None (Direct Provisioning from Admin)</i>"
+    qty_section = ""
+    if quantity > 1:
+        qty_section = (
+            f"{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{quantity} units</b>\n"
+            f"⚠️ <b>NOTE:</b> Please provide credentials for {quantity} separate accounts (Account 1, Account 2, etc.)\n"
+        )
     admin_alert = (
         f"{ce(CustomEmojis.FIRE, '🚨')} <b>NEW MANUAL ORDER REQUIRES DISPATCH!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -353,7 +382,8 @@ async def _background_notify_manual(bot: Bot, order, prod_title: str, var_name: 
         f"{ce(CustomEmojis.KEY, '🆔')} <b>Telegram ID:</b> <code>{getattr(user_obj, 'id', getattr(user_obj, 'telegram_id', 0))}</code>\n"
         f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_title}\n"
         f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> {var_name}\n"
-        f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount:</b> {config.CURRENCY_SYMBOL}{price:.2f}\n"
+        f"{qty_section}"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Total Amount:</b> {config.CURRENCY_SYMBOL}{price:.2f}\n"
         f"{ce(CustomEmojis.VERIFIED, '📧')} <b>Customer Details:</b> {input_display}\n\n"
         f"{ce(CustomEmojis.SPARKLE, '👉')} <i>Click 'Fulfill Order' below to send credentials/access directly to customer:</i>"
     )
@@ -370,7 +400,8 @@ async def initiate_1click_checkout(
     prod_title: str,
     prod_icon: str,
     session: AsyncSession,
-    preferred_gateway: Optional[str] = None
+    preferred_gateway: Optional[str] = None,
+    quantity: int = 1
 ):
     import time
     import io
@@ -378,7 +409,8 @@ async def initiate_1click_checkout(
     from payments.manager import payment_manager
     from aiogram.types import BufferedInputFile
 
-    amount = variant.price
+    quantity = max(1, int(quantity))
+    amount = round(variant.price * quantity, 2)
     customer_name = user.full_name or user.username or f"User {user.telegram_id}"
     order_ref = f"BUY{user.telegram_id}_{variant.id}_{int(time.time())}"
 
@@ -403,13 +435,15 @@ async def initiate_1click_checkout(
                 target_variant_id=variant.id
             )
 
+            qty_info = f"\n{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{quantity} unit(s)</b>" if quantity > 1 else ""
+            item_price_line = f"{ce(CustomEmojis.WALLET, '💰')} <b>Item Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f} × {quantity} = {config.CURRENCY_SYMBOL}{amount:.2f}</b>\n" if quantity > 1 else f"{ce(CustomEmojis.WALLET, '💰')} <b>Item Price:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
             text = (
                 f"{ce(CustomEmojis.DIAMOND, '🪙')} <b>DIRECT 1-CLICK CRYPTO CHECKOUT (OXAPAY)</b>\n"
                 f"{UI.SECTION_BAR}\n\n"
                 f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} <b>{prod_title}</b>\n"
-                f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n\n"
+                f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>{qty_info}\n\n"
                 f"<blockquote>"
-                f"{ce(CustomEmojis.WALLET, '💰')} <b>Item Price:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
+                f"{item_price_line}"
                 f"{ce(CustomEmojis.STAR, '💎')} <b>Total Amount:</b> <b>${res.get('amount_usd', 0):.2f} {res.get('currency', 'USDT')}</b>\n"
                 f"{ce(CustomEmojis.FIRE, '🪙')} <b>Supported:</b> USDT (TRC20/BEP20/Polygon), BTC, ETH, SOL, TRX\n"
                 f"{ce(CustomEmojis.CHECK, '🛡️')} <b>Delivery:</b> Instant Automated Delivery upon payment"
@@ -456,13 +490,15 @@ async def initiate_1click_checkout(
                 target_variant_id=variant.id
             )
 
+            qty_info = f"\n{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{quantity} unit(s)</b>" if quantity > 1 else ""
+            item_price_line = f"{ce(CustomEmojis.WALLET, '💰')} <b>Item Price:</b> <b>{config.CURRENCY_SYMBOL}{variant.price:.2f} × {quantity} = {config.CURRENCY_SYMBOL}{amount:.2f}</b>\n" if quantity > 1 else f"{ce(CustomEmojis.WALLET, '💰')} <b>Item Price:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
             text = (
                 f"{ce(CustomEmojis.DIAMOND, '🅿️')} <b>DIRECT 1-CLICK CHECKOUT (PAYPAL)</b>\n"
                 f"{UI.SECTION_BAR}\n\n"
                 f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_icon} <b>{prod_title}</b>\n"
-                f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>\n\n"
+                f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{variant.name}</b>{qty_info}\n\n"
                 f"<blockquote>"
-                f"{ce(CustomEmojis.WALLET, '💰')} <b>Item Price:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n"
+                f"{item_price_line}"
                 f"{ce(CustomEmojis.CARD, '💵')} <b>Total Amount:</b> <b>${res.get('total_usd', 0):.2f} USD</b>\n"
                 f"{ce(CustomEmojis.CHECK, '🛡️')} <b>Payment Method:</b> PayPal / Debit / Credit Cards\n"
                 f"{ce(CustomEmojis.FIRE, '⚡')} <b>Delivery:</b> Instant Automated Delivery upon payment"
@@ -528,12 +564,13 @@ async def initiate_1click_checkout(
                 qr_io.seek(0)
                 input_file = BufferedInputFile(qr_io.read(), filename=f"rzp_qr_{deposit.id}.png")
 
+            variant_display = f"{variant.name} (x{quantity})" if quantity > 1 else variant.name
             caption = await render_template(
                 session,
                 "checkout_text",
                 prod_title=prod_title,
                 prod_icon=prod_icon,
-                variant_name=variant.name,
+                variant_name=variant_display,
                 currency=config.CURRENCY_SYMBOL,
                 price=f"{amount:.2f}"
             )

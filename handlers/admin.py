@@ -309,12 +309,14 @@ async def cb_admin_ord_view(callback: types.CallbackQuery, session: AsyncSession
     product = await get_product(session, variant.product_id) if variant else None
     prod_title = product.title if product else "Product"
     var_name = variant.name if variant else "Plan"
+    qty = getattr(order, "quantity", 1) or 1
+    qty_line = f"\n{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{qty} unit(s)</b>" if qty > 1 else ""
 
     text = (
         f"📋 <b>MANUAL ORDER DETAILS #{order.id}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {user.full_name if user else 'User'} (ID: <code>{order.user_id}</code>)\n"
-        f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {var_name}\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {var_name}{qty_line}\n"
         f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f}\n"
         f"{ce(CustomEmojis.STAR, '📅')} <b>Ordered At:</b> {order.created_at.strftime('%d %b %Y, %H:%M UTC')}\n"
         f"{ce(CustomEmojis.TROPHY, '📊')} <b>Status:</b> {ce(CustomEmojis.FIRE, '⏳')} PENDING DISPATCH\n\n"
@@ -327,19 +329,32 @@ async def cb_admin_ord_view(callback: types.CallbackQuery, session: AsyncSession
     await callback.message.edit_text(text, reply_markup=get_admin_manual_order_detail_keyboard(order.id))
 
 @router.callback_query(F.data.startswith("adm_man_ful_"))
-async def cb_admin_man_ful(callback: types.CallbackQuery, state: FSMContext):
+async def cb_admin_man_ful(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
     if not check_admin(callback.from_user.id):
         return
     await callback.answer()
 
     order_id = int(callback.data.split("_")[3])
+    order = await get_order_by_id(session, order_id)
     await state.set_state(AdminManualOrderStates.waiting_for_fulfillment_content)
     await state.update_data(order_id=order_id)
+
+    qty = getattr(order, "quantity", 1) or 1 if order else 1
+    if qty > 1:
+        qty_prompt = (
+            f"⚠️ <b>ORDER FOR {qty} UNITS:</b>\n"
+            f"Please enter the credentials for all {qty} accounts:\n\n"
+            f"<code>Account 1:\nEmail: ...\nPassword: ...\n\nAccount 2:\nEmail: ...\nPassword: ...</code>\n\n"
+        )
+    else:
+        qty_prompt = (
+            f"Please send the login credentials, invite link, or license key to deliver to the customer:\n\n"
+        )
 
     text = (
         f"{ce(CustomEmojis.KEY, '🔑')} <b>FULFILL MANUAL ORDER #{order_id}</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"Please send the login credentials, invite link, or license key to deliver to the customer:\n\n"
+        f"{qty_prompt}"
         f"<i>(The bot will format this into a copyable block and notify the user immediately):</i>"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard("adm_pending_orders"))
@@ -366,12 +381,14 @@ async def msg_admin_man_ful_content(message: types.Message, state: FSMContext, s
     variant = order.variant
     product = await get_product(session, variant.product_id) if variant else None
     prod_title = product.title if product else "Digital Service"
+    qty = getattr(order, "quantity", 1) or 1
+    qty_badge = f"\n{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{qty} unit(s)</b>" if qty > 1 else ""
 
     customer_msg = (
         f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>YOUR ORDER #{order.id} HAS BEEN DISPATCHED!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_title}\n"
-        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> {variant.name if variant else 'Plan'}\n"
+        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> {variant.name if variant else 'Plan'}{qty_badge}\n"
         f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"{ce(CustomEmojis.KEY, '🔑')} <b>YOUR DELIVERED CREDENTIALS / INVITE LINK:</b>\n\n"

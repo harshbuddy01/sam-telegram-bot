@@ -92,6 +92,7 @@ class Order(Base):
     user_id = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=False, index=True)
     variant_id = Column(Integer, ForeignKey("variants.id", ondelete="SET NULL"), nullable=True, index=True)
     amount = Column(Float, nullable=False)
+    quantity = Column(Integer, default=1, nullable=True)  # Number of units purchased
     status = Column(String(30), default="COMPLETED") # "COMPLETED", "PENDING_DISPATCH", "CANCELLED"
     customer_input = Column(Text, nullable=True) # Target email/phone/username provided by customer
     delivered_content = Column(Text, nullable=True, default="") # Delivered accounts, PINs, or activation links

@@ -478,53 +478,74 @@ async def fulfill_order(
     session: AsyncSession,
     user_id: int,
     variant_id: int,
-    amount: float
+    amount: float,
+    quantity: int = 1
 ) -> Tuple[Optional[Order], Optional[str]]:
     """
-    Automatic Fulfillment: Deducts balance, consumes 1 pre-loaded stock item, creates Order,
+    Automatic Fulfillment: Deducts balance, consumes N pre-loaded stock items, creates one Order,
     credits referral commission if applicable.
     Returns (Order, error_message).
     """
+    quantity = max(1, int(quantity))
+    total_amount = round(amount * quantity, 2)
+
     user = await get_user(session, user_id)
-    if not user or user.balance < amount:
-        return None, "Insufficient balance in your wallet."
+    if not user or user.balance < total_amount:
+        return None, f"Insufficient balance. Need {config.CURRENCY_SYMBOL}{total_amount:.2f}, you have {config.CURRENCY_SYMBOL}{user.balance:.2f}."
 
     variant = await get_variant(session, variant_id)
     if not variant:
         return None, "Product variant not found."
 
-    stock = await pop_available_stock(session, variant_id)
-    if not stock:
-        return None, "Sorry, this item is currently out of stock."
-
-    # Mark stock used
-    stock.is_used = True
-    stock.sold_at = datetime.datetime.utcnow()
+    # Pop N stock items
+    stocks = []
+    for _ in range(quantity):
+        stock = await pop_available_stock(session, variant_id)
+        if not stock:
+            # Rollback already-drawn stocks conceptually — mark them unused again
+            for s in stocks:
+                s.is_used = False
+                s.sold_at = None
+            return None, f"Not enough stock available for qty={quantity}. Only {len(stocks)} item(s) left."
+        stock.is_used = True
+        stock.sold_at = datetime.datetime.utcnow()
+        stocks.append(stock)
 
     # Deduct user balance & update total_spent
-    user.balance = round(user.balance - amount, 2)
-    user.total_spent = round(user.total_spent + amount, 2)
+    user.balance = round(user.balance - total_amount, 2)
+    user.total_spent = round(user.total_spent + total_amount, 2)
 
-    # Create order
+    # Bundle delivered content — "Account 1: ...\n\nAccount 2: ..." for qty>1
+    if quantity == 1:
+        delivered = stocks[0].content
+    else:
+        parts = []
+        for i, s in enumerate(stocks, 1):
+            parts.append(f"Account {i}:\n{s.content}")
+        delivered = "\n\n".join(parts)
+
+    # Create single order for the whole quantity
     now = datetime.datetime.utcnow()
     order = Order(
         user_id=user_id,
         variant_id=variant_id,
-        amount=amount,
+        amount=total_amount,
+        quantity=quantity,
         status="COMPLETED",
         customer_input=None,
-        delivered_content=stock.content,
+        delivered_content=delivered,
         created_at=now,
         fulfilled_at=now
     )
     session.add(order)
-    await session.flush() # Flush to populate order.id
+    await session.flush()
 
-    stock.order_id = order.id
+    for s in stocks:
+        s.order_id = order.id
 
     # Handle referral commission
     if user.referrer_id and config.REFERRAL_BONUS_PERCENT > 0:
-        commission = round((amount * config.REFERRAL_BONUS_PERCENT) / 100, 2)
+        commission = round((total_amount * config.REFERRAL_BONUS_PERCENT) / 100, 2)
         if commission > 0:
             referrer = await get_user(session, user.referrer_id)
             if referrer:
@@ -539,27 +560,31 @@ async def create_manual_order(
     user_id: int,
     variant_id: int,
     amount: float,
-    customer_input: str
+    customer_input: str,
+    quantity: int = 1
 ) -> Tuple[Optional[Order], Optional[str]]:
     """
     Manual Fulfillment: Deducts wallet balance, records user's input/email,
     and sets status to PENDING_DISPATCH (dispatch within 1-2 hours).
     """
+    quantity = max(1, int(quantity))
+    total_amount = round(amount * quantity, 2)
+
     user = await get_user(session, user_id)
-    if not user or user.balance < amount:
-        return None, "Insufficient balance in your wallet."
+    if not user or user.balance < total_amount:
+        return None, f"Insufficient balance. Need {config.CURRENCY_SYMBOL}{total_amount:.2f}, you have {config.CURRENCY_SYMBOL}{user.balance:.2f}."
 
     variant = await get_variant(session, variant_id)
     if not variant:
         return None, "Product variant not found."
 
     # Deduct balance
-    user.balance = round(user.balance - amount, 2)
-    user.total_spent = round(user.total_spent + amount, 2)
+    user.balance = round(user.balance - total_amount, 2)
+    user.total_spent = round(user.total_spent + total_amount, 2)
 
-    # Decrement manual stock slots if tracked
+    # Decrement manual stock slots × quantity
     if getattr(variant, "stock_quantity", None) is not None and variant.stock_quantity > 0:
-        variant.stock_quantity -= 1
+        variant.stock_quantity = max(0, variant.stock_quantity - quantity)
 
     # Create manual order
     if customer_input:
@@ -568,12 +593,16 @@ async def create_manual_order(
         input_str = "None (Direct Admin Delivery)"
     else:
         input_str = "Direct 1-Click Purchase (Awaiting details)"
+
+    # Append quantity note to input for admin visibility
+    qty_note = f" [QTY: {quantity}]" if quantity > 1 else ""
     order = Order(
         user_id=user_id,
         variant_id=variant_id,
-        amount=amount,
+        amount=total_amount,
+        quantity=quantity,
         status="PENDING_DISPATCH",
-        customer_input=input_str,
+        customer_input=f"{input_str}{qty_note}",
         delivered_content="",
         created_at=datetime.datetime.utcnow(),
         fulfilled_at=None
@@ -583,7 +612,7 @@ async def create_manual_order(
 
     # Handle referral commission
     if user.referrer_id and config.REFERRAL_BONUS_PERCENT > 0:
-        commission = round((amount * config.REFERRAL_BONUS_PERCENT) / 100, 2)
+        commission = round((total_amount * config.REFERRAL_BONUS_PERCENT) / 100, 2)
         if commission > 0:
             referrer = await get_user(session, user.referrer_id)
             if referrer:
