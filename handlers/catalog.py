@@ -289,11 +289,15 @@ async def cb_product_variants(callback: types.CallbackQuery, session: AsyncSessi
 
 @router.callback_query(F.data.startswith("setqty_"))
 async def cb_set_quantity(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
-    """Inline quantity selector — updates the buy button total live."""
-    await callback.answer()
+    """Inline quantity selector — updates the buy button total and message live."""
     parts = callback.data.split("_")
     variant_id = int(parts[1])
     qty = int(parts[2])
+
+    variant = await get_variant(session, variant_id)
+    if not variant:
+        await callback.answer("Plan not found.", show_alert=True)
+        return
 
     # Store per-variant qty in FSM
     data = await state.get_data()
@@ -301,11 +305,10 @@ async def cb_set_quantity(callback: types.CallbackQuery, state: FSMContext, sess
     variant_qty[str(variant_id)] = qty
     await state.update_data(variant_qty=variant_qty)
 
-    # Re-render the variant detail card with updated quantity
-    variant = await get_variant(session, variant_id)
-    if not variant:
-        await callback.answer("Plan not found.", show_alert=True)
-        return
+    total_val = round(variant.price * qty, 2)
+    unit_label = "units" if qty > 1 else "unit"
+    # Show instant toast feedback to user
+    await callback.answer(f"✅ Selected: {qty} {unit_label} • Total: {config.CURRENCY_SYMBOL}{total_val:.2f}", show_alert=False)
 
     is_manual = (getattr(variant, "fulfillment_type", "AUTOMATIC") == "MANUAL")
     dispatch_time = getattr(variant, "manual_dispatch_time", "1–2 Hours") or "1–2 Hours"
@@ -355,7 +358,14 @@ async def cb_set_quantity(callback: types.CallbackQuery, state: FSMContext, sess
         description_block=desc_block,
         delivery_time=dispatch_time if is_manual else "Instant (Under 5s)"
     )
-    text += f"\n{action_note}"
+
+    qty_banner = (
+        f"<blockquote>"
+        f"{ce(CustomEmojis.SPARKLE, '🔢')} <b>Selected Quantity:</b> <b>{qty} {unit_label}</b>\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Total Checkout:</b> <b>{config.CURRENCY_SYMBOL}{total_val:.2f}</b>"
+        f"</blockquote>\n"
+    )
+    text += f"\n{qty_banner}\n{action_note}"
 
     await safe_edit_or_reply(
         callback,
@@ -403,7 +413,7 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
     if is_manual:
         stock_badge = "Available (1–2h Activation)"
         fulfillment_badge = f"Manual Activation ({dispatch_time})"
-        action_note = f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>Click <b>'ORDER ACTIVATION'</b> to submit your details & buy:</i>"
+        action_note = f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>Click <b>'ORDER ACTIVATION'</b> to submit your details &amp; buy:</i>"
     else:
         stock_badge = f"In Stock ({stock_count} Available)" if has_stock else "Out of Stock"
         fulfillment_badge = "100% Instant Delivery"
@@ -411,7 +421,7 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
 
     if variant.detailed_description:
         desc_clean = variant.detailed_description.strip()
-        desc_block = f"<blockquote><b>Features & Specifications:</b>\n{desc_clean}</blockquote>\n\n"
+        desc_block = f"<blockquote><b>Features &amp; Specifications:</b>\n{desc_clean}</blockquote>\n\n"
     else:
         desc_block = ""
 
@@ -433,12 +443,21 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
         description_block=desc_block,
         delivery_time=dispatch_time if is_manual else "Instant (Under 5s)"
     )
-    text += f"\n{action_note}"
 
     # Read persisted quantity for this variant from FSM
     data = await state.get_data()
     variant_qty = data.get("variant_qty", {})
     qty = int(variant_qty.get(str(variant_id), 1))
+    total_val = round(variant.price * qty, 2)
+    unit_label = "units" if qty > 1 else "unit"
+
+    qty_banner = (
+        f"<blockquote>"
+        f"{ce(CustomEmojis.SPARKLE, '🔢')} <b>Selected Quantity:</b> <b>{qty} {unit_label}</b>\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Total Checkout:</b> <b>{config.CURRENCY_SYMBOL}{total_val:.2f}</b>"
+        f"</blockquote>\n"
+    )
+    text += f"\n{qty_banner}\n{action_note}"
 
     await safe_edit_or_reply(
         callback,

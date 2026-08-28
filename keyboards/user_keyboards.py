@@ -209,10 +209,20 @@ def get_product_detail_keyboard(
     qty = max(1, min(int(quantity), 10))
     total_price = round(price * qty, 2)
 
+    # Quantity header / indicator row
+    unit_word = "units" if qty > 1 else "unit"
+    buttons.append([
+        InlineKeyboardButton(
+            text=f"Select Quantity: {qty} {unit_word} (Total: {config.CURRENCY_SYMBOL}{total_price:.0f})",
+            callback_data="noop",
+            icon_custom_emoji_id=CustomEmojis.SHOP
+        )
+    ])
+
     # Quantity selector row (1–5)
     qty_row = []
     for q in range(1, 6):
-        label = f"✅ {q}" if q == qty else str(q)
+        label = f"✅ {q}" if q == qty else f"{q}"
         qty_row.append(
             InlineKeyboardButton(
                 text=label,
