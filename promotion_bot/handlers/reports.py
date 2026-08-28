@@ -1,4 +1,6 @@
 import io
+import html
+import re
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.fsm.context import FSMContext
@@ -18,6 +20,24 @@ from core.broadcaster import broadcaster
 import config
 
 router = Router()
+
+
+async def _safe_send_message(query: CallbackQuery, text: str, kb: list, is_edit: bool = True):
+    markup = InlineKeyboardMarkup(inline_keyboard=kb)
+    try:
+        if is_edit:
+            await query.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+        else:
+            await query.message.answer(text, reply_markup=markup, parse_mode="HTML")
+    except Exception:
+        plain_text = re.sub(r'<[^>]+>', '', text)
+        try:
+            if is_edit:
+                await query.message.edit_text(plain_text, reply_markup=markup)
+            else:
+                await query.message.answer(plain_text, reply_markup=markup)
+        except Exception:
+            pass
 
 
 @router.callback_query(F.data == "sec_reports")
@@ -45,7 +65,7 @@ async def cb_reports_menu(query: CallbackQuery, state: FSMContext = None):
         text += "<i>No phone numbers connected yet.</i>"
     else:
         for acc in accounts:
-            user_lbl = f"@{acc.username}" if acc.username else (acc.first_name or "")
+            user_lbl = html.escape(f"@{acc.username}" if acc.username else (acc.first_name or ""))
             is_active_bc = broadcaster.is_account_broadcasting(acc.id)
             live_tag = " 🔴 [LIVE BROADCASTING]" if is_active_bc else ""
             text += f"📱 <b>{acc.phone}</b> ({user_lbl}){live_tag}\n"
@@ -57,10 +77,7 @@ async def cb_reports_menu(query: CallbackQuery, state: FSMContext = None):
             ])
 
     kb.append([InlineKeyboardButton(text="⬅️ Back to Main Menu", callback_data="main_menu")])
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
-    except Exception:
-        await query.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+    await _safe_send_message(query, text, kb, is_edit=True)
 
 
 @router.callback_query(F.data.startswith("rpt_acc_"))
@@ -86,7 +103,7 @@ async def cb_account_report_detail(query: CallbackQuery, state: FSMContext = Non
         daily = await check_daily_join_limit(session, account_id)
         cycles = await get_recent_cycles(session, limit=5, account_id=account_id)
 
-    user_lbl = f"@{acc.username}" if acc.username else (acc.first_name or "")
+    user_lbl = html.escape(f"@{acc.username}" if acc.username else (acc.first_name or ""))
     text = (
         f"📊 <b>DETAILED AUDIT REPORT — {acc.phone}</b> ({user_lbl})\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -125,10 +142,7 @@ async def cb_account_report_detail(query: CallbackQuery, state: FSMContext = Non
     ])
     kb.append([InlineKeyboardButton(text="⬅️ Back to Reports List", callback_data="sec_reports")])
 
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
-    except Exception:
-        await query.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+    await _safe_send_message(query, text, kb, is_edit=True)
 
 
 @router.callback_query(F.data.startswith("rpt_cycle_"))

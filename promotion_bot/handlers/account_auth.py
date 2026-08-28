@@ -1,3 +1,5 @@
+import html
+import re
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
@@ -52,9 +54,10 @@ async def cb_auth_menu(query: CallbackQuery, state: FSMContext = None):
 
     if active_acc:
         prem = "👑 Telegram Premium" if active_acc.is_premium else "Standard Telegram"
+        user_name = html.escape(active_acc.username or active_acc.first_name or 'N/A')
         status_info = (
             f"🟢 <b>Active Sender:</b> <code>{active_acc.phone}</code>\n"
-            f"• <b>User:</b> @{active_acc.username or active_acc.first_name or 'N/A'} (ID: {active_acc.user_id})\n"
+            f"• <b>User:</b> @{user_name} (ID: {active_acc.user_id})\n"
             f"• <b>Type:</b> <code>{prem}</code>\n"
         )
     else:
@@ -70,7 +73,11 @@ async def cb_auth_menu(query: CallbackQuery, state: FSMContext = None):
     try:
         await query.message.edit_text(text, parse_mode="HTML", reply_markup=get_auth_menu_keyboard(accounts))
     except Exception:
-        await query.message.answer(text, parse_mode="HTML", reply_markup=get_auth_menu_keyboard(accounts))
+        plain_text = re.sub(r'<[^>]+>', '', text)
+        try:
+            await query.message.edit_text(plain_text, reply_markup=get_auth_menu_keyboard(accounts))
+        except Exception:
+            await query.message.answer(plain_text, reply_markup=get_auth_menu_keyboard(accounts))
 
 
 @router.callback_query(F.data.startswith("switch_acc_"))

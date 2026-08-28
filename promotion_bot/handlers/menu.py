@@ -1,3 +1,5 @@
+import html
+import re
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
@@ -182,7 +184,8 @@ async def build_dashboard_text() -> str:
     else:
         for acc, st in stats_list:
             status_icon = "🟢" if acc.status == "ACTIVE" else "🔴"
-            user_label = f"@{acc.username}" if acc.username else (acc.first_name or "N/A")
+            raw_lbl = f"@{acc.username}" if acc.username else (acc.first_name or "N/A")
+            user_label = html.escape(raw_lbl)
             is_broadcasting = broadcaster.is_account_broadcasting(acc.id)
             bc_state = " [🚀 BROADCASTING]" if is_broadcasting else ""
             text += (
@@ -206,7 +209,11 @@ async def cmd_main_menu(message: Message, state: FSMContext = None):
     if state:
         await state.clear()
     text = await build_dashboard_text()
-    await message.answer(text, reply_markup=get_main_menu_keyboard(), parse_mode="HTML")
+    try:
+        await message.answer(text, reply_markup=get_main_menu_keyboard(), parse_mode="HTML")
+    except Exception:
+        plain_text = re.sub(r'<[^>]+>', '', text)
+        await message.answer(plain_text, reply_markup=get_main_menu_keyboard())
 
 
 @router.callback_query(F.data == "main_menu")
@@ -223,7 +230,11 @@ async def cb_main_menu(query: CallbackQuery, state: FSMContext = None):
     try:
         await query.message.edit_text(text, reply_markup=get_main_menu_keyboard(), parse_mode="HTML")
     except Exception:
-        await query.message.answer(text, reply_markup=get_main_menu_keyboard(), parse_mode="HTML")
+        plain_text = re.sub(r'<[^>]+>', '', text)
+        try:
+            await query.message.edit_text(plain_text, reply_markup=get_main_menu_keyboard())
+        except Exception:
+            await query.message.answer(plain_text, reply_markup=get_main_menu_keyboard())
 
 
 @router.callback_query(F.data == "sec_sync_all")

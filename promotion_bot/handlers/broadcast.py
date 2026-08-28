@@ -1,3 +1,5 @@
+import html
+import re
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
@@ -18,6 +20,25 @@ from core.broadcaster import broadcaster
 import config
 
 router = Router()
+
+
+async def _safe_send_message(query: CallbackQuery, text: str, kb: list, is_edit: bool = True):
+    markup = InlineKeyboardMarkup(inline_keyboard=kb)
+    try:
+        if is_edit:
+            await query.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+        else:
+            await query.message.answer(text, reply_markup=markup, parse_mode="HTML")
+    except Exception:
+        # Fallback to plain text so keyboard buttons NEVER crash/freeze on HTML issues
+        plain_text = re.sub(r'<[^>]+>', '', text)
+        try:
+            if is_edit:
+                await query.message.edit_text(plain_text, reply_markup=markup)
+            else:
+                await query.message.answer(plain_text, reply_markup=markup)
+        except Exception:
+            pass
 
 
 @router.callback_query(F.data == "sec_broadcast")
@@ -53,7 +74,7 @@ async def cb_broadcast_menu(query: CallbackQuery, state: FSMContext = None):
             st, sel_count = stats_map[acc.id]
             is_running = broadcaster.is_account_broadcasting(acc.id)
             status_tag = "🔴 [RUNNING]" if is_running else "🟢 [IDLE]"
-            user_lbl = f"@{acc.username}" if acc.username else (acc.first_name or "")
+            user_lbl = html.escape(f"@{acc.username}" if acc.username else (acc.first_name or ""))
             text += (
                 f"📱 <b>{acc.phone}</b> ({user_lbl}) {status_tag}\n"
                 f"   • Selected for Broadcast: <code>{sel_count}/{st['ACTIVE']} groups</code>\n\n"
@@ -62,10 +83,7 @@ async def cb_broadcast_menu(query: CallbackQuery, state: FSMContext = None):
             kb.append([InlineKeyboardButton(text=btn_text, callback_data=f"bc_acc_{acc.id}")])
 
     kb.append([InlineKeyboardButton(text="⬅️ Back to Main Menu", callback_data="main_menu")])
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
-    except Exception:
-        await query.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+    await _safe_send_message(query, text, kb, is_edit=True)
 
 
 @router.callback_query(F.data.startswith("bc_acc_"))
@@ -91,7 +109,8 @@ async def cb_account_broadcast_detail(query: CallbackQuery, state: FSMContext = 
         promo = await get_or_create_account_promo(session, account_id, acc.phone)
 
     is_running = broadcaster.is_account_broadcasting(account_id)
-    user_lbl = f"@{acc.username}" if acc.username else (acc.first_name or "")
+    raw_user = f"@{acc.username}" if acc.username else (acc.first_name or "")
+    user_lbl = html.escape(raw_user)
 
     if is_running:
         status_info = broadcaster.get_progress_status(account_id)
@@ -140,10 +159,11 @@ async def cb_account_broadcast_detail(query: CallbackQuery, state: FSMContext = 
                 st = await get_group_stats_for_account(session, account_id)
                 selected = await get_selected_groups(session, account_id)
 
+        clean_snippet = html.escape(re.sub(r'<[^>]+>', '', promo.text or "")[:50].strip())
         text = (
             f"🚀 <b>CAMPAIGN LAUNCHER — {acc.phone}</b> ({user_lbl})\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📝 <b>Promotional Text:</b> <i>{promo.text[:60]}...</i>\n"
+            f"📝 <b>Promotional Text:</b> <i>{clean_snippet}...</i>\n"
             f"🖼️ <b>Media Attached:</b> <code>{promo.media_type.upper()}</code>\n\n"
             f"🎯 <b>Target Groups:</b>\n"
             f"• ✅ Active Groups in DB: <b>{st['ACTIVE']}</b>\n"
@@ -159,10 +179,7 @@ async def cb_account_broadcast_detail(query: CallbackQuery, state: FSMContext = 
             [InlineKeyboardButton(text="⬅️ Back to Numbers List", callback_data="sec_broadcast")]
         ]
 
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
-    except Exception:
-        await query.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+    await _safe_send_message(query, text, kb, is_edit=True)
 
 
 @router.callback_query(F.data.startswith("bc_sync_"))
@@ -259,10 +276,7 @@ async def cb_group_selection_page(query: CallbackQuery):
         InlineKeyboardButton(text=f"🚀 Done & Launch ({len(selected)} selected)", callback_data=f"bc_acc_{account_id}")
     ])
 
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
-    except Exception:
-        await query.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+    await _safe_send_message(query, text, kb, is_edit=True)
 
 
 @router.callback_query(F.data.startswith("bc_tog_"))

@@ -1,3 +1,5 @@
+import html
+import re
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
@@ -14,6 +16,24 @@ from core.scheduler import scheduler
 import config
 
 router = Router()
+
+
+async def _safe_send_message(query: CallbackQuery, text: str, kb: list, is_edit: bool = True):
+    markup = InlineKeyboardMarkup(inline_keyboard=kb)
+    try:
+        if is_edit:
+            await query.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+        else:
+            await query.message.answer(text, reply_markup=markup, parse_mode="HTML")
+    except Exception:
+        plain_text = re.sub(r'<[^>]+>', '', text)
+        try:
+            if is_edit:
+                await query.message.edit_text(plain_text, reply_markup=markup)
+            else:
+                await query.message.answer(plain_text, reply_markup=markup)
+        except Exception:
+            pass
 
 
 @router.callback_query(F.data == "sec_scheduler")
@@ -56,7 +76,7 @@ async def cb_scheduler_menu(query: CallbackQuery, state: FSMContext = None):
         for acc in accounts:
             p = promos_map[acc.id]
             enabled_badge = "🟢 ON" if p.is_enabled else "⚪ OFF"
-            user_lbl = f"@{acc.username}" if acc.username else (acc.first_name or "")
+            user_lbl = html.escape(f"@{acc.username}" if acc.username else (acc.first_name or ""))
             text += (
                 f"• <b>{acc.phone}</b> ({user_lbl})\n"
                 f"   └ ⏱️ Interval: <b>Every {p.interval_hours} hours</b> | State: <b>{enabled_badge}</b>\n"
@@ -83,10 +103,7 @@ async def cb_scheduler_menu(query: CallbackQuery, state: FSMContext = None):
     ])
     kb.append([InlineKeyboardButton(text="⬅️ Back to Main Menu", callback_data="main_menu")])
 
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
-    except Exception:
-        await query.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+    await _safe_send_message(query, text, kb, is_edit=True)
 
 
 @router.callback_query(F.data.startswith("sched_acc_"))
@@ -107,7 +124,7 @@ async def cb_edit_account_interval(query: CallbackQuery):
             return
         promo = await get_or_create_account_promo(session, account_id, acc.phone)
 
-    user_lbl = f"@{acc.username}" if acc.username else (acc.first_name or "")
+    user_lbl = html.escape(f"@{acc.username}" if acc.username else (acc.first_name or ""))
     text = (
         f"⏱️ <b>SET INTERVAL — {acc.phone}</b> ({user_lbl})\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -136,10 +153,7 @@ async def cb_edit_account_interval(query: CallbackQuery):
         [InlineKeyboardButton(text="⬅️ Back to Scheduler", callback_data="sec_scheduler")]
     ]
 
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
-    except Exception:
-        await query.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+    await _safe_send_message(query, text, kb, is_edit=True)
 
 
 @router.callback_query(F.data.startswith("sched_set_"))

@@ -60,6 +60,18 @@ async def init_db():
         except Exception as ex:
             logger.warning(f"Could not update promo_messages scheduler state: {ex}")
 
+        # ── FIX: Repair any inverted HTML tags from old emoji extractor ───────
+        try:
+            res = await conn.execute(text("SELECT id, text FROM promo_messages"))
+            rows = res.fetchall()
+            for row_id, p_text in rows:
+                if p_text and isinstance(p_text, str):
+                    fixed = p_text.replace("</b></u>", "</u></b>").replace("</i></u>", "</u></i>").replace("</u></code>", "</code></u>")
+                    if fixed != p_text:
+                        await conn.execute(text("UPDATE promo_messages SET text = :t WHERE id = :id"), {"t": fixed, "id": row_id})
+        except Exception as ex:
+            logger.warning(f"Could not sanitize promo_messages text: {ex}")
+
         # ── SAFE table rebuild: remove UNIQUE constraint on target_groups.identifier
         # The old schema had identifier UNIQUE globally — this crashes multi-account sync.
         # We rebuild ONLY if UNIQUE is detected AND target_groups_clean does NOT yet exist.

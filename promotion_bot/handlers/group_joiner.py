@@ -1,5 +1,6 @@
 import io
 import re
+import html
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.fsm.context import FSMContext
@@ -20,6 +21,24 @@ from core.joiner import safe_joiner
 import config
 
 router = Router()
+
+
+async def _safe_send_message(query: CallbackQuery, text: str, kb: list, is_edit: bool = True):
+    markup = InlineKeyboardMarkup(inline_keyboard=kb)
+    try:
+        if is_edit:
+            await query.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+        else:
+            await query.message.answer(text, reply_markup=markup, parse_mode="HTML")
+    except Exception:
+        plain_text = re.sub(r'<[^>]+>', '', text)
+        try:
+            if is_edit:
+                await query.message.edit_text(plain_text, reply_markup=markup)
+            else:
+                await query.message.answer(plain_text, reply_markup=markup)
+        except Exception:
+            pass
 
 
 class JoinerStates(StatesGroup):
@@ -57,7 +76,7 @@ async def cb_group_joiner_menu(query: CallbackQuery, state: FSMContext = None):
     else:
         for acc in accounts:
             st, unjoined_count = stats_map[acc.id]
-            user_lbl = f"@{acc.username}" if acc.username else (acc.first_name or "")
+            user_lbl = html.escape(f"@{acc.username}" if acc.username else (acc.first_name or ""))
             text += (
                 f"📱 <b>{acc.phone}</b> ({user_lbl})\n"
                 f"   • Total Groups: <code>{st['TOTAL']}</code> (Active: {st['ACTIVE']})\n"
@@ -71,10 +90,7 @@ async def cb_group_joiner_menu(query: CallbackQuery, state: FSMContext = None):
             ])
 
     kb.append([InlineKeyboardButton(text="⬅️ Back to Main Menu", callback_data="main_menu")])
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
-    except Exception:
-        await query.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+    await _safe_send_message(query, text, kb, is_edit=True)
 
 
 @router.callback_query(F.data.startswith("join_acc_"))
@@ -100,7 +116,7 @@ async def cb_join_account_dashboard(query: CallbackQuery, state: FSMContext = No
         report = await get_join_report(session, account_id)
         limit_info = await check_daily_join_limit(session, account_id)
 
-    user_lbl = f"@{acc.username}" if acc.username else (acc.first_name or "")
+    user_lbl = html.escape(f"@{acc.username}" if acc.username else (acc.first_name or ""))
     text = (
         f"👥 <b>GROUP JOINER — {acc.phone}</b> ({user_lbl})\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -134,10 +150,7 @@ async def cb_join_account_dashboard(query: CallbackQuery, state: FSMContext = No
     ])
     kb.append([InlineKeyboardButton(text="⬅️ Back to Numbers List", callback_data="sec_joiner")])
 
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
-    except Exception:
-        await query.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+    await _safe_send_message(query, text, kb, is_edit=True)
 
 
 @router.callback_query(F.data.startswith("join_import_"))

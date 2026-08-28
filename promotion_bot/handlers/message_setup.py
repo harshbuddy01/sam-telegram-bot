@@ -1,5 +1,6 @@
 import os
 import html
+import re
 from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton, PhotoSize, Video
 from aiogram.fsm.context import FSMContext
@@ -15,6 +16,24 @@ from utils.premium_emojis import parse_shortcodes_to_tg_emoji
 import config
 
 router = Router()
+
+
+async def _safe_send_message(query: CallbackQuery, text: str, kb: list, is_edit: bool = True):
+    markup = InlineKeyboardMarkup(inline_keyboard=kb)
+    try:
+        if is_edit:
+            await query.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
+        else:
+            await query.message.answer(text, reply_markup=markup, parse_mode="HTML")
+    except Exception:
+        plain_text = re.sub(r'<[^>]+>', '', text)
+        try:
+            if is_edit:
+                await query.message.edit_text(plain_text, reply_markup=markup)
+            else:
+                await query.message.answer(plain_text, reply_markup=markup)
+        except Exception:
+            pass
 
 
 class MessageStates(StatesGroup):
@@ -53,10 +72,11 @@ async def cb_message_setup_menu(query: CallbackQuery, state: FSMContext = None):
         for acc in accounts:
             promo = promos_map[acc.id]
             media_badge = f" [📷 {promo.media_type.upper()}]" if promo.media_type != "none" else ""
-            user_lbl = f"@{acc.username}" if acc.username else (acc.first_name or "")
+            user_lbl = html.escape(f"@{acc.username}" if acc.username else (acc.first_name or ""))
+            clean_snippet = html.escape(re.sub(r'<[^>]+>', '', promo.text or "")[:50].strip())
             text += (
                 f"📱 <b>{acc.phone}</b> ({user_lbl}){media_badge}\n"
-                f"   • Snippet: <i>{html.escape(promo.text[:50])}...</i>\n\n"
+                f"   • Snippet: <i>{clean_snippet}...</i>\n\n"
             )
             kb.append([
                 InlineKeyboardButton(
@@ -66,10 +86,7 @@ async def cb_message_setup_menu(query: CallbackQuery, state: FSMContext = None):
             ])
 
     kb.append([InlineKeyboardButton(text="⬅️ Back to Main Menu", callback_data="main_menu")])
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
-    except Exception:
-        await query.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+    await _safe_send_message(query, text, kb, is_edit=True)
 
 
 @router.callback_query(F.data.startswith("msg_acc_"))
@@ -92,7 +109,7 @@ async def cb_message_account_editor(query: CallbackQuery, state: FSMContext = No
             return
         promo = await get_or_create_account_promo(session, account_id, acc.phone)
 
-    user_lbl = f"@{acc.username}" if acc.username else (acc.first_name or "")
+    user_lbl = html.escape(f"@{acc.username}" if acc.username else (acc.first_name or ""))
     media_info = f"<code>{promo.media_type.upper()}</code>" if promo.media_type != "none" else "<i>None (Text Only)</i>"
 
     text = (
@@ -120,10 +137,7 @@ async def cb_message_account_editor(query: CallbackQuery, state: FSMContext = No
         [InlineKeyboardButton(text="⬅️ Back to Numbers List", callback_data="sec_message")]
     ]
 
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
-    except Exception:
-        await query.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+    await _safe_send_message(query, text, kb, is_edit=True)
 
 
 @router.callback_query(F.data.startswith("msg_edit_text_"))
@@ -188,7 +202,11 @@ async def handle_new_text_input(message: Message, state: FSMContext):
         [InlineKeyboardButton(text="✏️ Back to Editor", callback_data=f"msg_acc_{account_id}")],
         [InlineKeyboardButton(text="🏠 Main Menu", callback_data="main_menu")]
     ]
-    await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+    try:
+        await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb), parse_mode="HTML")
+    except Exception:
+        plain_text = re.sub(r'<[^>]+>', '', text)
+        await message.answer(plain_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
 
 
 @router.callback_query(F.data.startswith("msg_edit_media_"))
@@ -340,7 +358,16 @@ async def cb_preview_promo(query: CallbackQuery):
                 disable_web_page_preview=False
             )
     except Exception as e:
-        await query.message.answer(f"⚠️ Preview render error (check HTML syntax): <code>{e}</code>", parse_mode="HTML")
+        plain_processed = re.sub(r'<[^>]+>', '', processed_text)
+        await query.message.answer(
+            f"👁️ <b>LIVE BROADCAST PREVIEW (Plain Text Fallback)</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{html.escape(plain_processed)}\n\n"
+            f"⚠️ <i>Note: Your HTML formatting contains syntax errors:</i>\n"
+            f"<code>{html.escape(str(e))}</code>\n\n"
+            f"👉 <i>Please edit the message text and check for unclosed HTML tags.</i>",
+            parse_mode="HTML"
+        )
 
 
 @router.callback_query(F.data == "msg_spintax_help")
