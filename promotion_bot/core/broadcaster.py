@@ -288,6 +288,21 @@ class SafeBroadcaster:
                         parse_mode="html",
                         link_preview=True,
                     )
+            except (
+                SlowModeWaitError,
+                ChatWriteForbiddenError,
+                UserBannedInChannelError,
+                ChatSendMediaForbiddenError,
+                ChannelPrivateError,
+                ChatAdminRequiredError,
+                PeerFloodError,
+                FloodWaitError,
+                AuthKeyUnregisteredError,
+                SessionRevokedError,
+                UserDeactivatedError,
+                UserDeactivatedBanError,
+            ):
+                raise
             except Exception as e_html:
                 # If HTML parsing or entity formatting fails, retry as clean plain text
                 plain_msg = re.sub(r'<[^>]+>', '', message_text)
@@ -323,7 +338,10 @@ class SafeBroadcaster:
             except Exception as e_retry:
                 return {"status": "forbidden", "reason": f"No permission to post: {e_retry}"}
 
-        except UserBannedInChannelError:
+        except UserBannedInChannelError as e_ban:
+            msg = str(e_ban)
+            if "banned from sending messages" in msg.lower():
+                return {"status": "account_banned", "reason": msg}
             return {"status": "banned", "reason": "Account is banned/muted in this group"}
 
         except ChatSendMediaForbiddenError:
@@ -557,6 +575,28 @@ class SafeBroadcaster:
                             f"🛡️ <b>Telegram Search Rate Limit Active ({w['account_phone']})</b>\n"
                             "Telegram has temporarily paused username searches for this account to prevent bans.\n\n"
                             "Worker paused safely. Please allow ~15 minutes before re-launching."
+                        )
+                        break
+
+                    elif status == "account_banned" or "banned from sending messages" in reason.lower():
+                        w["failed_count"] += 1
+                        logger.error(f"[{w['account_phone']}] 🚨 ACCOUNT MUTED GLOBALLY BY TELEGRAM!")
+                        w["failed_groups_list"].append(
+                            {"identifier": group.identifier, "reason": "Muted Globally by Telegram (@SpamBot)"}
+                        )
+                        await log_broadcast_result(
+                            session, cycle_id, group.id, group.identifier, "FAILED", "Muted Globally by Telegram (@SpamBot)"
+                        )
+                        await self.notify_admins(
+                            f"🚨 <b>Telegram Account Muted ({w['account_phone']})</b>\n"
+                            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            "Telegram has temporarily muted this number from sending messages in all public groups:\n\n"
+                            f"<i>\"{reason}\"</i>\n\n"
+                            "💡 <b>What to do:</b>\n"
+                            "1. Open the Telegram app on this phone number.\n"
+                            "2. Message <b>@SpamBot</b> to check when the mute will be lifted.\n"
+                            "3. Broadcast using your other active number (<code>+918210411620</code>)!\n\n"
+                            "🛑 <i>Campaign stopped automatically to protect your account.</i>"
                         )
                         break
 
