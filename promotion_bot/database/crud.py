@@ -269,56 +269,75 @@ async def deselect_all_groups(session: AsyncSession, account_id: int):
     await session.commit()
 
 async def sync_telegram_groups(session: AsyncSession, account_id: int, telegram_groups: list[dict]) -> dict:
-    """Sync real Telegram groups into DB. Matches by chat_id or identifier. Returns {added, existing, total}."""
+    """Sync real Telegram groups into DB using raw INSERT OR IGNORE.
+
+    WHY raw SQL: SQLAlchemy session.flush() inside try/except corrupts the session
+    after the first constraint error — all subsequent inserts silently fail with
+    'Can't execute query: transaction has been rolled back'. Using raw SQL INSERT OR IGNORE
+    handles conflicts at the database level without ever touching the session state.
+    """
+    now_str = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Load existing groups for this account
     existing_result = await session.execute(
         select(Group).where(Group.account_id == account_id)
     )
     existing_groups = list(existing_result.scalars().all())
     existing_chat_ids = {g.chat_id for g in existing_groups if g.chat_id is not None}
-    existing_idents = {g.identifier.lower() for g in existing_groups if g.identifier}
+    existing_idents   = {g.identifier.lower() for g in existing_groups if g.identifier}
 
     added = 0
     for tg in telegram_groups:
-        cid = tg["chat_id"]
+        cid   = tg["chat_id"]
         uname = tg.get("username")
         ident = f"@{uname}" if uname else str(cid)
-        title = tg.get("title") or ident
+        title = (tg.get("title") or ident)[:255]
+        ident = ident[:255]
 
-        # Check if already present by chat_id or by @username for this account
+        # Already in DB for this account → just update title/status
         if cid in existing_chat_ids or (ident and ident.lower() in existing_idents):
-            matching = next((g for g in existing_groups if (g.chat_id is not None and g.chat_id == cid) or (g.identifier and g.identifier.lower() == ident.lower())), None)
+            matching = next(
+                (g for g in existing_groups
+                 if (g.chat_id is not None and g.chat_id == cid)
+                 or (g.identifier and g.identifier.lower() == ident.lower())),
+                None
+            )
             if matching:
                 if not matching.chat_id:
                     matching.chat_id = cid
                 if title:
                     matching.title = title
                 matching.is_joined = True
-                matching.status = "ACTIVE"
+                matching.status    = "ACTIVE"
             continue
 
+        # New group — use raw INSERT OR IGNORE so constraint errors never break the session
         try:
-            g = Group(
-                account_id=account_id,
-                chat_id=cid,
-                title=title,
-                identifier=ident,
-                is_joined=True,
-                is_selected=True,
-                status="ACTIVE"
-            )
-            session.add(g)
-            await session.flush()
+            await session.execute(text("""
+                INSERT OR IGNORE INTO target_groups
+                    (account_id, chat_id, title, identifier,
+                     is_joined, is_selected, status,
+                     failure_count, consecutive_failures, slowmode_seconds,
+                     created_at, updated_at)
+                VALUES
+                    (:acc, :cid, :title, :ident,
+                     1, 1, 'ACTIVE',
+                     0, 0, 0,
+                     :now, :now)
+            """), {"acc": account_id, "cid": cid,
+                   "title": title, "ident": ident, "now": now_str})
             added += 1
             existing_chat_ids.add(cid)
             existing_idents.add(ident.lower())
-        except Exception:
-            # If there is any collision or conflict, ignore this item and continue
+        except Exception as e:
+            # Log but never crash — move on to the next group
+            import logging
+            logging.getLogger(__name__).warning(
+                f"sync_telegram_groups: skip group {ident} for account #{account_id}: {e}"
+            )
             continue
 
-    try:
-        await session.commit()
-    except Exception:
-        await session.rollback()
+    await session.commit()
 
     total_result = await session.execute(
         select(func.count(Group.id)).where(Group.account_id == account_id)
