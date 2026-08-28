@@ -39,6 +39,104 @@ async def cmd_sync_groups(message: Message):
         await message.answer("\n".join(lines), parse_mode="HTML")
 
 
+@router.message(Command("debugsync"))
+async def cmd_debug_sync(message: Message):
+    """Detailed per-account sync diagnostics to find exactly why groups show 0."""
+    if not config.is_admin(message.from_user.id):
+        return
+    from core.client import tg_manager
+    from database.database import AsyncSessionLocal
+    from database.crud import get_all_sender_accounts
+
+    msg = await message.answer(
+        "🔬 <b>Running deep diagnostics on all accounts...</b>\n"
+        "Testing session validity + dialog fetching for each number...",
+        parse_mode="HTML"
+    )
+
+    async with AsyncSessionLocal() as session:
+        accounts = await get_all_sender_accounts(session)
+
+    lines = ["🔬 <b>SYNC DIAGNOSTICS</b>\n━━━━━━━━━━━━━━━━━━━━\n"]
+    for acc in accounts:
+        lines.append(f"📱 <b>{acc.phone}</b> (@{acc.username or acc.first_name or '?'})")
+
+        # Check if client is loaded
+        if acc.id not in tg_manager.clients:
+            lines.append(f"  ❌ Client NOT loaded in memory (status: {acc.status})")
+            lines.append(f"  Session string present: {'Yes' if acc.session_string else 'No'}")
+            lines.append("")
+            continue
+
+        client = tg_manager.clients[acc.id]
+        lines.append(f"  ✅ Client loaded in memory")
+
+        # Check authorization
+        try:
+            is_auth = await client.is_user_authorized()
+            lines.append(f"  {'✅' if is_auth else '❌'} Authorized: {is_auth}")
+        except Exception as e:
+            lines.append(f"  ❌ Auth check error: {e}")
+            lines.append("")
+            continue
+
+        # Try fetching dialogs from main folder
+        try:
+            main_dialogs = await client.get_dialogs(limit=None, folder=0)
+            lines.append(f"  ✅ Main folder dialogs: {len(main_dialogs)}")
+        except Exception as e:
+            lines.append(f"  ❌ Main folder error: {e}")
+            main_dialogs = []
+
+        # Try fetching archived dialogs
+        try:
+            arch_dialogs = await client.get_dialogs(limit=None, folder=1)
+            lines.append(f"  ✅ Archive folder dialogs: {len(arch_dialogs)}")
+        except Exception as e:
+            lines.append(f"  ⚠️ Archive folder: {e}")
+            arch_dialogs = []
+
+        # Count groups from all dialogs
+        all_dialogs = main_dialogs + arch_dialogs
+        from telethon.tl.types import Channel, Chat
+        group_count = 0
+        for d in all_dialogs:
+            if d.is_user:
+                continue
+            e = d.entity
+            if isinstance(e, Channel):
+                if getattr(e, "broadcast", False) and not getattr(e, "megagroup", False):
+                    continue
+                group_count += 1
+            elif isinstance(e, Chat):
+                if not getattr(e, "deactivated", False) and not getattr(e, "left", False):
+                    group_count += 1
+        lines.append(f"  🎯 Groups detectable from API: <b>{group_count}</b>")
+
+        # Try actual sync
+        try:
+            groups = await tg_manager.fetch_joined_groups(acc.id)
+            lines.append(f"  ✅ fetch_joined_groups returned: {len(groups)}")
+            if groups:
+                from database.database import AsyncSessionLocal as ADSL
+                from database.crud import sync_telegram_groups
+                try:
+                    async with ADSL() as s:
+                        res = await sync_telegram_groups(s, acc.id, groups)
+                    lines.append(f"  ✅ DB sync: {res['total']} total, {res['added']} added")
+                except Exception as se:
+                    lines.append(f"  ❌ DB sync error: <code>{se}</code>")
+        except Exception as fe:
+            lines.append(f"  ❌ fetch error: <code>{fe}</code>")
+
+        lines.append("")
+
+    try:
+        await msg.edit_text("\n".join(lines), parse_mode="HTML")
+    except Exception:
+        await message.answer("\n".join(lines), parse_mode="HTML")
+
+
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [

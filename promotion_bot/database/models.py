@@ -84,7 +84,7 @@ class PromoMessage(Base):
     media_file_id = Column(String(255), nullable=True)
     media_path = Column(String(255), nullable=True)
     interval_hours = Column(Float, default=2.0)
-    is_enabled = Column(Boolean, default=True)
+    is_enabled = Column(Boolean, default=False)   # OFF by default — user must enable in ⏰ Scheduler
     status = Column(String(50), default="IDLE")  # 'IDLE', 'RUNNING', 'PAUSED', 'STOPPED'
     is_active = Column(Boolean, default=True)
     last_run_at = Column(DateTime, nullable=True)
