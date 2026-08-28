@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import datetime
 from core.broadcaster import broadcaster
 from database.database import AsyncSessionLocal
 from database.crud import get_or_create_account_promo, get_all_sender_accounts, get_setting
@@ -22,65 +23,70 @@ class PromotionScheduler:
                     accounts = await get_all_sender_accounts(session)
 
                 if is_enabled.lower() != "true":
-                    logger.info("Broadcast is paused globally. Skipping this interval.")
+                    logger.debug("Broadcast paused globally. Sleeping 2h.")
                     await self._sleep_interval(7200)
                     continue
 
-                # Check each account's individual interval and enabled state
                 for acc in accounts:
                     if acc.status != "ACTIVE":
                         continue
 
+                    # Always fetch a FRESH promo from DB — never use stale object
                     async with AsyncSessionLocal() as session:
                         promo = await get_or_create_account_promo(session, acc.id, acc.phone)
 
-                    if not promo.is_enabled:
-                        continue
+                        # Skip if this account's scheduler is turned OFF
+                        if not promo.is_enabled:
+                            continue
 
-                    interval_hours = promo.interval_hours or 2.0
+                        interval_hours = promo.interval_hours or 2.0
+                        now = datetime.datetime.utcnow()
 
-                    # Check if enough time has passed since last run.
-                    # If last_run_at is NULL (never ran or bot just started),
-                    # treat it as "just ran now" — wait a full interval before first auto-fire.
-                    # This prevents campaigns from auto-starting immediately on bot restart.
-                    import datetime
-                    now = datetime.datetime.utcnow()
-                    if not promo.last_run_at:
-                        # Mark it as "started now" so timer begins from this moment
-                        async with AsyncSessionLocal() as session:
-                            from database.crud import get_or_create_account_promo as _get_promo
-                            p = await _get_promo(session, acc.id, acc.phone)
-                            p.last_run_at = now
+                        # If last_run_at is NULL, stamp it now and SKIP (wait full interval first)
+                        if not promo.last_run_at:
+                            promo.last_run_at = now
                             await session.commit()
-                        continue  # Skip this cycle — wait full interval from now
+                            logger.info(
+                                f"Scheduler: Stamped {acc.phone} last_run_at=now. "
+                                f"First auto-broadcast in {interval_hours}h."
+                            )
+                            continue
 
-                    elapsed = (now - promo.last_run_at).total_seconds()
-                    if elapsed < (interval_hours * 3600):
-                        continue
+                        elapsed_seconds = (now - promo.last_run_at).total_seconds()
+                        due_in = (interval_hours * 3600) - elapsed_seconds
 
-                    logger.info(f"Triggering scheduled broadcast for {acc.phone} (Interval: {interval_hours}h)...")
+                        if due_in > 0:
+                            logger.debug(
+                                f"Scheduler: {acc.phone} — next broadcast in "
+                                f"{int(due_in // 60)}m {int(due_in % 60)}s"
+                            )
+                            continue
+
+                    # Time has elapsed — fire the broadcast
+                    logger.info(
+                        f"Scheduler: Triggering broadcast for {acc.phone} "
+                        f"(interval={interval_hours}h, elapsed={elapsed_seconds:.0f}s)"
+                    )
                     asyncio.create_task(
                         broadcaster.start_account_broadcast(acc.id, trigger_type="SCHEDULED")
                     )
 
-                # Check every 60 seconds for due accounts
+                # Poll every 60 seconds
                 await self._sleep_interval(60)
 
             except asyncio.CancelledError:
                 logger.info("Scheduler task cancelled.")
                 break
             except Exception as e:
-                logger.error(f"Error in scheduler loop: {e}", exc_info=True)
+                logger.error(f"Scheduler loop error: {e}", exc_info=True)
                 await asyncio.sleep(60)
 
     async def _sleep_interval(self, seconds: int):
-        """Sleep in small chunks so we can stop quickly."""
-        for _ in range(seconds // 10):
-            if not self.is_running:
-                break
-            await asyncio.sleep(10)
-        if self.is_running and (seconds % 10) > 0:
-            await asyncio.sleep(seconds % 10)
+        """Sleep in 10-second chunks so we can stop quickly on shutdown."""
+        slept = 0
+        while self.is_running and slept < seconds:
+            await asyncio.sleep(min(10, seconds - slept))
+            slept += 10
 
     def start(self):
         if not self.is_running:

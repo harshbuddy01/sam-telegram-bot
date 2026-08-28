@@ -10,6 +10,35 @@ import config
 router = Router()
 
 
+@router.message(Command("syncgroups"))
+async def cmd_sync_groups(message: Message):
+    """Force-sync all accounts' groups from Telegram API."""
+    if not config.is_admin(message.from_user.id):
+        return
+    from core.client import tg_manager
+    msg = await message.answer(
+        "⏳ <b>Force-syncing all groups from Telegram API...</b>\n"
+        "Checking main chats + archived chats for all connected numbers.\n"
+        "Please wait 15–30 seconds...",
+        parse_mode="HTML"
+    )
+    results = await tg_manager.sync_all_accounts()
+    lines = ["✅ <b>Sync Results:</b>\n"]
+    for acc_id, res in results.items():
+        icon = "✅" if res.get("status") == "ok" else "⚠️"
+        phone = res.get("phone", f"#{acc_id}")
+        total = res.get("total", 0)
+        added = res.get("added", 0)
+        status = res.get("status", "?")
+        err = f" — {res.get('error','')}" if res.get("error") else ""
+        lines.append(f"{icon} <b>{phone}</b>: <code>{total} groups</code> (+{added} new) [{status}]{err}")
+    lines.append("\n/menu to see updated dashboard.")
+    try:
+        await msg.edit_text("\n".join(lines), parse_mode="HTML")
+    except Exception:
+        await message.answer("\n".join(lines), parse_mode="HTML")
+
+
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [

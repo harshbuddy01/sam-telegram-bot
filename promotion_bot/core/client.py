@@ -155,13 +155,28 @@ class TelegramClientManager:
 
     async def _startup_sync_task(self):
         """Runs in background on startup to sync all account groups without blocking boot."""
-        await asyncio.sleep(2)  # Give polling/healthcheck 2s to stabilize
+        # Wait longer so bot_instance is properly set and Railway healthcheck passes
+        await asyncio.sleep(5)
         logger.info("Starting background auto-sync for all connected accounts...")
         results = await self.sync_all_accounts()
-        logger.info(f"Background auto-sync completed: {results}")
 
+        # Log results clearly in Railway logs for debugging
+        for acc_id, res in results.items():
+            phone = res.get("phone", f"#{acc_id}")
+            status = res.get("status", "unknown")
+            total = res.get("total", 0)
+            added = res.get("added", 0)
+            error = res.get("error", "")
+            if status == "ok":
+                logger.info(f"AUTO-SYNC ✅ {phone}: {total} groups in DB ({added} new)")
+            else:
+                logger.warning(f"AUTO-SYNC ⚠️ {phone}: status={status} error={error}")
+
+        logger.info("Background auto-sync task completed.")
+
+        # Notify admin if bot_instance is ready
         if self.bot_instance and config.ADMIN_IDS:
-            msg_lines = ["🔄 <b>Telegram Groups Auto-Sync Finished</b>", "━━━━━━━━━━━━━━━━━━━━"]
+            msg_lines = ["🔄 <b>Telegram Groups Auto-Sync Done</b>", "━━━━━━━━━━━━━━━━━━━━"]
             for acc_id, res in results.items():
                 status_icon = "✅" if res.get("status") == "ok" else "⚠️"
                 msg_lines.append(
@@ -169,7 +184,7 @@ class TelegramClientManager:
                     f"<code>{res.get('total', 0)} groups</code> "
                     f"(+{res.get('added', 0)} new)"
                 )
-            msg_lines.append("\n👉 <i>Type /menu to view updated group counts.</i>")
+            msg_lines.append("\n👉 <i>Type /menu to see updated group counts.</i>")
             msg_text = "\n".join(msg_lines)
             for admin_id in config.ADMIN_IDS:
                 try:

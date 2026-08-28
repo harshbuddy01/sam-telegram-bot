@@ -1,4 +1,5 @@
 import logging
+import datetime
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import text
 import config
@@ -21,27 +22,24 @@ AsyncSessionLocal = async_sessionmaker(
 
 async def init_db():
     async with engine.begin() as conn:
+        # Create all tables defined in models (safe, won't touch existing tables)
         await conn.run_sync(Base.metadata.create_all)
 
-        # Safe SQLite column migrations for existing databases
+        # ── Safe column migrations (never destructive) ─────────────────────────
         migrations = [
-            # PromoMessage migrations
-            ("promo_messages", "account_id", "INTEGER"),
+            ("promo_messages", "account_id",    "INTEGER"),
             ("promo_messages", "interval_hours", "FLOAT DEFAULT 2.0"),
-            ("promo_messages", "is_enabled", "BOOLEAN DEFAULT 0"),
-            ("promo_messages", "status", "VARCHAR(50) DEFAULT 'IDLE'"),
-            ("promo_messages", "last_run_at", "DATETIME"),
-            # BroadcastCycle migrations
-            ("broadcast_cycles", "account_id", "INTEGER"),
-            ("broadcast_cycles", "account_phone", "VARCHAR(50)"),
-            # Group migrations (per-account groups + selection + real chat_id)
-            ("target_groups", "account_id", "INTEGER"),
-            ("target_groups", "is_selected", "BOOLEAN DEFAULT 1"),
-            ("target_groups", "chat_id", "BIGINT"),
-            ("target_groups", "is_joined", "BOOLEAN DEFAULT 0"),
-            # SenderAccount migrations (daily join tracking)
-            ("sender_accounts", "joins_today", "INTEGER DEFAULT 0"),
-            ("sender_accounts", "last_join_reset", "DATETIME"),
+            ("promo_messages", "is_enabled",     "BOOLEAN DEFAULT 0"),
+            ("promo_messages", "status",         "VARCHAR(50) DEFAULT 'IDLE'"),
+            ("promo_messages", "last_run_at",    "DATETIME"),
+            ("broadcast_cycles", "account_id",   "INTEGER"),
+            ("broadcast_cycles", "account_phone","VARCHAR(50)"),
+            ("target_groups",  "account_id",     "INTEGER"),
+            ("target_groups",  "is_selected",    "BOOLEAN DEFAULT 1"),
+            ("target_groups",  "chat_id",        "BIGINT"),
+            ("target_groups",  "is_joined",      "BOOLEAN DEFAULT 0"),
+            ("sender_accounts","joins_today",     "INTEGER DEFAULT 0"),
+            ("sender_accounts","last_join_reset", "DATETIME"),
         ]
         for tbl, col, col_type in migrations:
             try:
@@ -49,17 +47,39 @@ async def init_db():
             except Exception:
                 pass  # Column already exists — safe to ignore
 
-        # ── Remove legacy UNIQUE constraint on target_groups.identifier ────────
-        # Old schema had `identifier UNIQUE`, which causes crashes when multiple accounts
-        # sync the same groups or when syncing large dialog lists.
+        # ── FIX: Stamp last_run_at for all existing promo rows with NULL ────────
+        # Rows created by the OLD code had is_enabled=1 and last_run_at=NULL.
+        # This causes the scheduler to fire immediately on boot.
+        # We stamp them with NOW so they must wait one full interval before auto-firing.
         try:
-            res = await conn.execute(text("SELECT sql FROM sqlite_master WHERE type='table' AND name='target_groups'"))
+            now_str = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            await conn.execute(text(
+                f"UPDATE promo_messages SET last_run_at = '{now_str}' WHERE last_run_at IS NULL"
+            ))
+        except Exception as ex:
+            logger.warning(f"Could not stamp last_run_at: {ex}")
+
+        # ── SAFE table rebuild: remove UNIQUE constraint on target_groups.identifier
+        # The old schema had identifier UNIQUE globally — this crashes multi-account sync.
+        # We rebuild ONLY if UNIQUE is detected AND target_groups_clean does NOT yet exist.
+        try:
+            res = await conn.execute(text(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='target_groups'"
+            ))
             table_def = res.fetchone()
-            if table_def and table_def[0] and "UNIQUE" in table_def[0].upper():
-                logger.info("Rebuilding target_groups to remove outdated global UNIQUE constraint...")
-                await conn.execute(text("PRAGMA foreign_keys=OFF;"))
+            has_unique = table_def and table_def[0] and "UNIQUE" in table_def[0].upper()
+
+            # Check if target_groups_clean already exists (from a previous failed run)
+            res2 = await conn.execute(text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='target_groups_clean'"
+            ))
+            clean_exists = res2.fetchone() is not None
+
+            if has_unique and not clean_exists:
+                logger.info("Rebuilding target_groups table to remove UNIQUE constraint...")
+                await conn.execute(text("PRAGMA foreign_keys=OFF"))
                 await conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS target_groups_clean (
+                    CREATE TABLE target_groups_clean (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         account_id INTEGER,
                         chat_id BIGINT,
@@ -75,31 +95,43 @@ async def init_db():
                         slowmode_seconds INTEGER DEFAULT 0,
                         created_at DATETIME,
                         updated_at DATETIME
-                    );
+                    )
                 """))
                 await conn.execute(text("""
-                    INSERT OR IGNORE INTO target_groups_clean
-                    (id, account_id, chat_id, title, identifier, is_joined, is_selected, status, last_sent_at, last_error, failure_count, consecutive_failures, slowmode_seconds, created_at, updated_at)
-                    SELECT id, account_id, chat_id, title, identifier, is_joined, is_selected, status, last_sent_at, last_error, failure_count, consecutive_failures, slowmode_seconds, created_at, updated_at
-                    FROM target_groups;
+                    INSERT INTO target_groups_clean
+                        (id, account_id, chat_id, title, identifier, is_joined, is_selected,
+                         status, last_sent_at, last_error, failure_count, consecutive_failures,
+                         slowmode_seconds, created_at, updated_at)
+                    SELECT id, account_id, chat_id, title, identifier, is_joined, is_selected,
+                         status, last_sent_at, last_error, failure_count, consecutive_failures,
+                         slowmode_seconds, created_at, updated_at
+                    FROM target_groups
                 """))
-                await conn.execute(text("DROP TABLE target_groups;"))
-                await conn.execute(text("ALTER TABLE target_groups_clean RENAME TO target_groups;"))
-                await conn.execute(text("PRAGMA foreign_keys=ON;"))
-                logger.info("target_groups table rebuilt cleanly.")
-        except Exception as ex:
-            logger.warning(f"target_groups table rebuild check: {ex}")
+                await conn.execute(text("DROP TABLE target_groups"))
+                await conn.execute(text("ALTER TABLE target_groups_clean RENAME TO target_groups"))
+                await conn.execute(text("PRAGMA foreign_keys=ON"))
+                logger.info("target_groups rebuilt without UNIQUE constraint.")
+            elif clean_exists:
+                # A previous rebuild was interrupted — finish it
+                try:
+                    await conn.execute(text("DROP TABLE IF EXISTS target_groups"))
+                    await conn.execute(text("ALTER TABLE target_groups_clean RENAME TO target_groups"))
+                    logger.info("Completed interrupted target_groups rebuild.")
+                except Exception:
+                    pass
 
-        # Link any orphaned groups (account_id IS NULL) to first account
+        except Exception as ex:
+            logger.warning(f"target_groups rebuild check: {ex}")
+
+        # ── Link orphaned groups (account_id IS NULL) to first account ───────
         try:
-            res = await conn.execute(text("SELECT id FROM sender_accounts ORDER BY id ASC LIMIT 1"))
+            res = await conn.execute(text(
+                "SELECT id FROM sender_accounts ORDER BY id ASC LIMIT 1"
+            ))
             first_acc = res.fetchone()
             if first_acc:
-                first_acc_id = first_acc[0]
                 await conn.execute(text(
-                    f"UPDATE target_groups SET account_id = {first_acc_id} WHERE account_id IS NULL"
+                    f"UPDATE target_groups SET account_id = {first_acc[0]} WHERE account_id IS NULL"
                 ))
         except Exception:
             pass
-
-
