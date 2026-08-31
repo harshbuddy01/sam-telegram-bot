@@ -403,25 +403,28 @@ async def msg_admin_man_ful_content(message: types.Message, state: FSMContext, s
     except Exception:
         pass
 
-    # Group/Channel Notification
-    from utils.notifications import send_order_notification
-    try:
-        user_obj = await get_user(session, order.user_id)
-        buyer_name = user_obj.full_name if user_obj else "Customer"
-        remaining = await get_available_stock_count(session, variant.id) if variant else 0
-        bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
-        await send_order_notification(
-            bot=bot,
-            order_id=order.id,
-            buyer_name=buyer_name,
-            product_title=prod_title,
-            variant_name=variant.name if variant else "Plan",
-            amount=order.amount,
-            stock_left=remaining,
-            bot_username=bot_me.username or ""
-        )
-    except Exception:
-        pass
+    # Group/Channel Notification (only if not already broadcast)
+    if not getattr(order, "broadcast_sent", False):
+        from utils.notifications import send_order_notification
+        try:
+            user_obj = await get_user(session, order.user_id)
+            buyer_name = user_obj.full_name if user_obj else "Customer"
+            remaining = await get_available_stock_count(session, variant.id) if variant else 0
+            bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
+            await send_order_notification(
+                bot=bot,
+                order_id=order.id,
+                buyer_name=buyer_name,
+                product_title=prod_title,
+                variant_name=variant.name if variant else "Plan",
+                amount=order.amount,
+                stock_left=remaining,
+                bot_username=bot_me.username or ""
+            )
+            order.broadcast_sent = True
+            await session.commit()
+        except Exception:
+            pass
 
 @router.callback_query(F.data.startswith("adm_man_ref_"))
 async def cb_admin_man_ref(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):

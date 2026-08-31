@@ -319,26 +319,42 @@ async def msg_order_manual_input(message: types.Message, state: FSMContext, sess
     quantity = max(1, int(quantity))
     total_amount = round(price * quantity, 2)
 
-    user = await get_user(session, message.from_user.id)
-    if not user or user.balance < total_amount:
+    order_id = data.get("order_id")
+    is_paid = data.get("is_paid", False)
+
+    if is_paid and order_id:
+        from database.crud import get_order_by_id
+        order = await get_order_by_id(session, order_id)
+        if not order:
+            await state.clear()
+            await message.answer("Order not found or expired. Please contact support.")
+            return
+
+        qty_note = f" [QTY: {quantity}]" if quantity > 1 else ""
+        order.customer_input = f"{cust_input}{qty_note}"
+        await session.commit()
         await state.clear()
-        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Insufficient balance to place order. Need {config.CURRENCY_SYMBOL}{total_amount:.2f}, your balance is {config.CURRENCY_SYMBOL}{user.balance if user else 0:.2f}.")
-        return
+    else:
+        user = await get_user(session, message.from_user.id)
+        if not user or user.balance < total_amount:
+            await state.clear()
+            await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Insufficient balance to place order. Need {config.CURRENCY_SYMBOL}{total_amount:.2f}, your balance is {config.CURRENCY_SYMBOL}{user.balance if user else 0:.2f}.")
+            return
 
-    # Deduct balance & create manual order
-    order, err_msg = await create_manual_order(
-        session=session,
-        user_id=message.from_user.id,
-        variant_id=variant_id,
-        amount=price,
-        customer_input=cust_input,
-        quantity=quantity
-    )
-    await state.clear()
+        # Deduct balance & create manual order
+        order, err_msg = await create_manual_order(
+            session=session,
+            user_id=message.from_user.id,
+            variant_id=variant_id,
+            amount=price,
+            customer_input=cust_input,
+            quantity=quantity
+        )
+        await state.clear()
 
-    if err_msg or not order:
-        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Failed to place order: {err_msg}")
-        return
+        if err_msg or not order:
+            await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Failed to place order: {err_msg}")
+            return
 
     qty_line = f"\n{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{quantity} unit(s)</b>" if quantity > 1 else ""
     text = (

@@ -86,7 +86,7 @@ async def main():
 
     # Start Webhook HTTP Server (for Razorpay real-time callbacks & Railway healthchecks)
     port = int(os.getenv("PORT", 8080))
-    webhook_app = create_webhook_app(bot)
+    webhook_app = create_webhook_app(bot, dp=dp)
     webhook_runner = web.AppRunner(webhook_app)
     await webhook_runner.setup()
     site = web.TCPSite(webhook_runner, "0.0.0.0", port)

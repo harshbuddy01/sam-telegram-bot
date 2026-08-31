@@ -96,6 +96,7 @@ class Order(Base):
     status = Column(String(30), default="COMPLETED") # "COMPLETED", "PENDING_DISPATCH", "CANCELLED"
     customer_input = Column(Text, nullable=True) # Target email/phone/username provided by customer
     delivered_content = Column(Text, nullable=True, default="") # Delivered accounts, PINs, or activation links
+    broadcast_sent = Column(Boolean, default=False, nullable=True) # Prevent duplicate broadcast notifications
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     fulfilled_at = Column(DateTime, nullable=True)
 

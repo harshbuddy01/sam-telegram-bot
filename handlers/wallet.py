@@ -372,24 +372,83 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
                     return
                 else:
                     # MANUAL FULFILLMENT or STOCK EMPTY -> Create manual order
-                    manual_order, m_err = await create_manual_order(session, user.telegram_id, target_var.id, target_var.price, customer_input=None, quantity=qty)
-                    manual_confirm_text = (
-                        f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER PLACED!</b>\n"
-                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
-                        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
-                        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
-                        f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
-                        f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Delivery:</b> 1–2 Hours\n\n"
-                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                        f"Our team has received your order and is processing your invitation/activation right now! You will receive your details directly in this chat shortly."
-                    )
-                    kb = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="🛟 Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}")],
-                        [InlineKeyboardButton(text="🏠 Main Menu", callback_data="nav_home")]
-                    ])
-                    await callback.message.edit_text(manual_confirm_text, reply_markup=kb)
-                    return
+                    from utils.states import OrderManualStates
+                    requires_input = getattr(target_var, "requires_customer_input", True)
+                    dispatch_time = getattr(target_var, "manual_dispatch_time", "1–2 Hours") or "1–2 Hours"
+
+                    if requires_input:
+                        manual_order, m_err = await create_manual_order(
+                            session,
+                            user.telegram_id,
+                            target_var.id,
+                            target_var.price,
+                            customer_input="Awaiting customer details...",
+                            quantity=qty
+                        )
+                        await state.set_state(OrderManualStates.waiting_for_input)
+                        await state.update_data(
+                            order_id=manual_order.id,
+                            variant_id=target_var.id,
+                            price=target_var.price,
+                            quantity=qty,
+                            prod_title=prod_title,
+                            var_name=target_var.name,
+                            dispatch_time=dispatch_time,
+                            is_paid=True
+                        )
+
+                        prompt_msg = getattr(target_var, "input_prompt", None) or "Please send your target Email / Account username for activation:"
+                        qty_line = f"\n{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{qty} unit(s)</b>" if qty > 1 else ""
+                        manual_confirm_text = (
+                            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED! (Order #{manual_order.id})</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>ACTIVATION DETAILS REQUIRED</b>\n\n"
+                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>{qty_line}\n"
+                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
+                            f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Delivery Time:</b> within {dispatch_time}\n\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"{ce(CustomEmojis.SPARKLE, '👉')} <b>{prompt_msg}</b>\n\n"
+                            f"<i>(Reply to this message with your details so our team can activate your service!)</i>"
+                        )
+                        kb = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+                            [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                        ])
+                        await callback.message.edit_text(manual_confirm_text, reply_markup=kb)
+                        return
+                    else:
+                        manual_order, m_err = await create_manual_order(
+                            session,
+                            user.telegram_id,
+                            target_var.id,
+                            target_var.price,
+                            customer_input=None,
+                            quantity=qty
+                        )
+                        qty_line = f"\n{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{qty} unit(s)</b>" if qty > 1 else ""
+                        manual_confirm_text = (
+                            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER PLACED!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
+                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>{qty_line}\n"
+                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
+                            f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Delivery:</b> within {dispatch_time}\n\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"Our team has received your order and is preparing your credentials right now! You will receive your details directly in this chat shortly."
+                        )
+                        kb = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+                            [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                        ])
+                        await callback.message.edit_text(manual_confirm_text, reply_markup=kb)
+
+                        from handlers.order import _background_notify_manual
+                        asyncio.create_task(_background_notify_manual(
+                            bot, manual_order, prod_title, target_var.name, callback.from_user, None, manual_order.amount, qty
+                        ))
+                        return
 
         await callback.message.answer(f"{ce(CustomEmojis.CHECK, '✅')} This deposit is already verified and credited to your wallet balance!")
         return
@@ -441,73 +500,86 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
                     kb = get_post_delivery_keyboard(order.id)
                     await callback.message.edit_text(delivery_text, reply_markup=kb)
 
-                    # Group/Channel Notification
-                    remaining = await get_available_stock_count(session, target_var.id)
-                    bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
-                    await send_order_notification(
-                        bot=bot,
-                        order_id=order.id,
-                        buyer_name=callback.from_user.full_name,
-                        product_title=prod_title,
-                        variant_name=target_var.name,
-                        amount=order.amount,
-                        stock_left=remaining,
-                        bot_username=bot_me.username or ""
-                    )
                     return
                 else:
                     # MANUAL FULFILLMENT or STOCK EMPTY -> Create manual order
-                    manual_order, m_err = await create_manual_order(session, user.telegram_id, target_var.id, target_var.price, customer_input=None, quantity=qty)
-                    
-                    manual_confirm_text = (
-                        f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER PLACED!</b>\n"
-                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
-                        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
-                        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
-                        f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
-                        f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Delivery:</b> 1–2 Hours\n\n"
-                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                        f"Our team has received your order and is processing your invitation/activation right now! You will receive your details directly in this chat shortly."
-                    )
-                    kb = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
-                        [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
-                    ])
-                    await callback.message.edit_text(manual_confirm_text, reply_markup=kb)
+                    from utils.states import OrderManualStates
+                    requires_input = getattr(target_var, "requires_customer_input", True)
+                    dispatch_time = getattr(target_var, "manual_dispatch_time", "1–2 Hours") or "1–2 Hours"
 
-                    # Group/Channel Notification
-                    remaining = await get_available_stock_count(session, target_var.id)
-                    bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
-                    await send_order_notification(
-                        bot=bot,
-                        order_id=manual_order.id,
-                        buyer_name=callback.from_user.full_name,
-                        product_title=prod_title,
-                        variant_name=target_var.name,
-                        amount=manual_order.amount,
-                        stock_left=remaining,
-                        bot_username=bot_me.username or ""
-                    )
+                    if requires_input:
+                        manual_order, m_err = await create_manual_order(
+                            session,
+                            user.telegram_id,
+                            target_var.id,
+                            target_var.price,
+                            customer_input="Awaiting customer details...",
+                            quantity=qty
+                        )
+                        await state.set_state(OrderManualStates.waiting_for_input)
+                        await state.update_data(
+                            order_id=manual_order.id,
+                            variant_id=target_var.id,
+                            price=target_var.price,
+                            quantity=qty,
+                            prod_title=prod_title,
+                            var_name=target_var.name,
+                            dispatch_time=dispatch_time,
+                            is_paid=True
+                        )
 
-                    # Alert Admins with Fulfill Button
-                    from keyboards.admin_keyboards import get_admin_order_actions_keyboard
-                    admin_manual_alert = (
-                        f"{ce(CustomEmojis.FIRE, '🚨')} <b>NEW 1-CLICK PAID ORDER TO FULFILL!</b>\n"
-                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
-                        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {user.full_name} (@{user.username or 'NoUser'})\n"
-                        f"{ce(CustomEmojis.KEY, '🆔')} <b>User ID:</b> <code>{user.telegram_id}</code>\n"
-                        f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {target_var.name}\n"
-                        f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid:</b> {config.CURRENCY_SYMBOL}{manual_order.amount:.2f} (Razorpay)\n\n"
-                        f"{ce(CustomEmojis.SPARKLE, '👉')} <i>Click 'Fulfill Order' below to send invite/credentials:</i>"
-                    )
-                    for admin_id in config.ADMIN_IDS:
-                        try:
-                            await bot.send_message(admin_id, admin_manual_alert, reply_markup=get_admin_order_actions_keyboard(manual_order.id))
-                        except Exception:
-                            pass
-                    return
+                        prompt_msg = getattr(target_var, "input_prompt", None) or "Please send your target Email / Account username for activation:"
+                        qty_line = f"\n{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{qty} unit(s)</b>" if qty > 1 else ""
+                        manual_confirm_text = (
+                            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED! (Order #{manual_order.id})</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>ACTIVATION DETAILS REQUIRED</b>\n\n"
+                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>{qty_line}\n"
+                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
+                            f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Delivery Time:</b> within {dispatch_time}\n\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"{ce(CustomEmojis.SPARKLE, '👉')} <b>{prompt_msg}</b>\n\n"
+                            f"<i>(Reply to this message with your details so our team can activate your service!)</i>"
+                        )
+                        kb = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+                            [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                        ])
+                        await callback.message.edit_text(manual_confirm_text, reply_markup=kb)
+                        return
+                    else:
+                        manual_order, m_err = await create_manual_order(
+                            session,
+                            user.telegram_id,
+                            target_var.id,
+                            target_var.price,
+                            customer_input=None,
+                            quantity=qty
+                        )
+                        qty_line = f"\n{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{qty} unit(s)</b>" if qty > 1 else ""
+                        manual_confirm_text = (
+                            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER PLACED!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
+                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>{qty_line}\n"
+                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
+                            f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Delivery:</b> within {dispatch_time}\n\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"Our team has received your order and is preparing your credentials right now! You will receive your details directly in this chat shortly."
+                        )
+                        kb = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+                            [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                        ])
+                        await callback.message.edit_text(manual_confirm_text, reply_markup=kb)
+
+                        from handlers.order import _background_notify_manual
+                        asyncio.create_task(_background_notify_manual(
+                            bot, manual_order, prod_title, target_var.name, callback.from_user, None, manual_order.amount, qty
+                        ))
+                        return
 
         text = (
             f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & CREDITED!</b>\n"

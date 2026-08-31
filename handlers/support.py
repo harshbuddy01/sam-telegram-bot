@@ -47,10 +47,45 @@ async def _get_order_context(session: AsyncSession, order_id: int):
 
 
 @router.callback_query(F.data.startswith("confirm_got_"))
-async def cb_confirm_got(callback: types.CallbackQuery):
+async def cb_confirm_got(callback: types.CallbackQuery, session: AsyncSession):
     """Customer confirms they received the product."""
     await callback.answer("🎉 Great! Enjoy your subscription!", show_alert=True)
     order_id = int(callback.data.split("_")[2])
+
+    # Send broadcast notification if not already sent
+    try:
+        order = await session.get(Order, order_id)
+        if order and not getattr(order, "broadcast_sent", False):
+            from database.crud import get_variant, get_product, get_available_stock_count
+            from utils.notifications import send_order_notification
+            variant = await get_variant(session, order.variant_id) if order.variant_id else None
+            prod_title = "Product"
+            var_name = ""
+            if variant:
+                product = await get_product(session, variant.product_id) if variant.product_id else None
+                prod_title = product.name if product else "Product"
+                var_name = variant.name or ""
+                remaining = await get_available_stock_count(session, variant.id)
+            else:
+                remaining = 0
+
+            bot: Bot = callback.bot
+            bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
+            await send_order_notification(
+                bot=bot,
+                order_id=order.id,
+                buyer_name=callback.from_user.full_name or "Customer",
+                product_title=prod_title,
+                variant_name=var_name,
+                amount=order.amount,
+                stock_left=remaining,
+                bot_username=bot_me.username or ""
+            )
+            order.broadcast_sent = True
+            await session.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to send broadcast for order {order_id}: {e}")
 
     confirmed_text = (
         f"{ce(CustomEmojis.CHECK, '✅')} <b>ORDER #{order_id} — DELIVERY CONFIRMED</b>\n"

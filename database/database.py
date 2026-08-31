@@ -52,6 +52,7 @@ async def init_db():
             "ALTER TABLE orders ADD COLUMN customer_input TEXT",
             "ALTER TABLE orders ADD COLUMN fulfilled_at DATETIME",
             "ALTER TABLE orders ADD COLUMN quantity INTEGER DEFAULT 1",
+            "ALTER TABLE orders ADD COLUMN broadcast_sent BOOLEAN DEFAULT 0",
             "ALTER TABLE deposits ADD COLUMN gateway VARCHAR(50) DEFAULT 'MANUAL_UPI'",
             "ALTER TABLE deposits ADD COLUMN gateway_order_id VARCHAR(100)",
             "ALTER TABLE deposits ADD COLUMN gateway_payment_id VARCHAR(100)",

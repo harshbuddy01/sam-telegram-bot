@@ -157,21 +157,8 @@ async def handle_razorpay_webhook(request: web.Request) -> web.Response:
                         except Exception as e:
                             logger.error(f"Failed to send delivery to user {user.telegram_id}: {e}")
 
-                        # Group/Channel Notification
+                        # Alert Admins (broadcast deferred to user's "I Got It!" confirmation)
                         remaining = await get_available_stock_count(session, target_var.id)
-                        bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
-                        await send_order_notification(
-                            bot=bot,
-                            order_id=order.id,
-                            buyer_name=user.full_name or "Customer",
-                            product_title=prod_title,
-                            variant_name=target_var.name,
-                            amount=order.amount,
-                            stock_left=remaining,
-                            bot_username=bot_me.username or ""
-                        )
-                        
-                        # Alert Admins
                         admin_alert = (
                             f"{ce(CustomEmojis.FIRE, '🔔')} <b>WEBHOOK AUTO-DELIVERED SALE!</b>\n"
                             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -189,65 +176,105 @@ async def handle_razorpay_webhook(request: web.Request) -> web.Response:
                                 pass
 
                         return web.json_response({"status": "delivered_auto"})
-                    
+
                     else:
                         # MANUAL FULFILLMENT or STOCK EMPTY -> Create manual order
-                        manual_order, m_err = await create_manual_order(session, user.telegram_id, target_var.id, target_var.price, customer_input=None, quantity=qty)
-                        
-                        manual_confirm_text = (
-                            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER PLACED!</b>\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
-                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
-                            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
-                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
-                            f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Delivery:</b> 1–2 Hours\n\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                            f"Our team has received your order and is processing your invitation/activation right now! You will receive your details directly in this chat shortly."
-                        )
-                        try:
-                            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-                            kb = InlineKeyboardMarkup(inline_keyboard=[
-                                [InlineKeyboardButton(text="Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
-                                [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
-                            ])
-                            await bot.send_message(user.telegram_id, manual_confirm_text, reply_markup=kb)
-                        except Exception as e:
-                            logger.error(f"Failed to send manual confirm to user {user.telegram_id}: {e}")
+                        requires_input = getattr(target_var, "requires_customer_input", True)
+                        dispatch_time = getattr(target_var, "manual_dispatch_time", "1–2 Hours") or "1–2 Hours"
 
-                        # Notify Group
-                        remaining = await get_available_stock_count(session, target_var.id)
-                        bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
-                        await send_order_notification(
-                            bot=bot,
-                            order_id=manual_order.id,
-                            buyer_name=user.full_name or "Customer",
-                            product_title=prod_title,
-                            variant_name=target_var.name,
-                            amount=manual_order.amount,
-                            stock_left=remaining,
-                            bot_username=bot_me.username or ""
-                        )
+                        if requires_input:
+                            manual_order, m_err = await create_manual_order(
+                                session,
+                                user.telegram_id,
+                                target_var.id,
+                                target_var.price,
+                                customer_input="Awaiting customer details...",
+                                quantity=qty
+                            )
+                            dp = request.app.get("dp")
+                            if dp and hasattr(dp, "storage"):
+                                from aiogram.fsm.context import FSMContext
+                                from aiogram.fsm.storage.base import StorageKey
+                                from utils.states import OrderManualStates
+                                fsm_state = FSMContext(
+                                    storage=dp.storage,
+                                    key=StorageKey(bot_id=bot.id, chat_id=user.telegram_id, user_id=user.telegram_id)
+                                )
+                                await fsm_state.set_state(OrderManualStates.waiting_for_input)
+                                await fsm_state.update_data(
+                                    order_id=manual_order.id,
+                                    variant_id=target_var.id,
+                                    price=target_var.price,
+                                    quantity=qty,
+                                    prod_title=prod_title,
+                                    var_name=target_var.name,
+                                    dispatch_time=dispatch_time,
+                                    is_paid=True
+                                )
 
-                        # Alert Admins with Fulfill Button
-                        from keyboards.admin_keyboards import get_admin_order_actions_keyboard
-                        admin_manual_alert = (
-                            f"{ce(CustomEmojis.FIRE, '🚨')} <b>NEW 1-CLICK PAID ORDER TO FULFILL!</b>\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
-                            f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {user.full_name} (@{user.username or 'NoUser'})\n"
-                            f"{ce(CustomEmojis.KEY, '🆔')} <b>User ID:</b> <code>{user.telegram_id}</code>\n"
-                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {target_var.name}\n"
-                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid:</b> {config.CURRENCY_SYMBOL}{manual_order.amount:.2f} (Razorpay)\n\n"
-                            f"{ce(CustomEmojis.SPARKLE, '👉')} <i>Click 'Fulfill Order' below to send invite/credentials:</i>"
-                        )
-                        for admin_id in config.ADMIN_IDS:
+                            prompt_msg = getattr(target_var, "input_prompt", None) or "Please send your target Email / Account username for activation:"
+                            qty_line = f"\n{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{qty} unit(s)</b>" if qty > 1 else ""
+                            manual_confirm_text = (
+                                f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED! (Order #{manual_order.id})</b>\n"
+                                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                                f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>ACTIVATION DETAILS REQUIRED</b>\n\n"
+                                f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                                f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>{qty_line}\n"
+                                f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
+                                f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Delivery Time:</b> within {dispatch_time}\n\n"
+                                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                                f"{ce(CustomEmojis.SPARKLE, '👉')} <b>{prompt_msg}</b>\n\n"
+                                f"<i>(Reply to this message with your details so our team can activate your service!)</i>"
+                            )
                             try:
-                                await bot.send_message(admin_id, admin_manual_alert, reply_markup=get_admin_order_actions_keyboard(manual_order.id))
-                            except Exception:
-                                pass
+                                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                                kb = InlineKeyboardMarkup(inline_keyboard=[
+                                    [InlineKeyboardButton(text="Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+                                    [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                                ])
+                                await bot.send_message(user.telegram_id, manual_confirm_text, reply_markup=kb)
+                            except Exception as e:
+                                logger.error(f"Failed to send manual confirm to user {user.telegram_id}: {e}")
 
-                        return web.json_response({"status": "placed_manual"})
+                            return web.json_response({"status": "manual_order_pending_details"})
+                        else:
+                            manual_order, m_err = await create_manual_order(
+                                session,
+                                user.telegram_id,
+                                target_var.id,
+                                target_var.price,
+                                customer_input=None,
+                                quantity=qty
+                            )
+                            qty_line = f"\n{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{qty} unit(s)</b>" if qty > 1 else ""
+                            manual_confirm_text = (
+                                f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER PLACED!</b>\n"
+                                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                                f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
+                                f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                                f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>{qty_line}\n"
+                                f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
+                                f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Delivery:</b> within {dispatch_time}\n\n"
+                                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                                f"Our team has received your order and is preparing your credentials right now! You will receive your details directly in this chat shortly."
+                            )
+                            try:
+                                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                                kb = InlineKeyboardMarkup(inline_keyboard=[
+                                    [InlineKeyboardButton(text="Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+                                    [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                                ])
+                                await bot.send_message(user.telegram_id, manual_confirm_text, reply_markup=kb)
+                            except Exception as e:
+                                logger.error(f"Failed to send manual confirm to user {user.telegram_id}: {e}")
+
+                            # Alert Admins with Fulfill Button
+                            from handlers.order import _background_notify_manual
+                            import asyncio
+                            asyncio.create_task(_background_notify_manual(
+                                bot, manual_order, prod_title, target_var.name, user, None, manual_order.amount, qty
+                            ))
+                            return web.json_response({"status": "placed_manual"})
 
             # Normal Top-Up Deposit notification to user
             deposit_msg = (
@@ -407,21 +434,8 @@ async def handle_paypal_webhook(request: web.Request) -> web.Response:
                         except Exception as e:
                             logger.error(f"Failed to send delivery to user {user.telegram_id}: {e}")
 
-                        # Group/Channel Notification
+                        # Alert Admins (broadcast deferred to user's "I Got It!" confirmation)
                         remaining = await get_available_stock_count(session, target_var.id)
-                        bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
-                        await send_order_notification(
-                            bot=bot,
-                            order_id=order.id,
-                            buyer_name=user.full_name or "Customer",
-                            product_title=prod_title,
-                            variant_name=target_var.name,
-                            amount=order.amount,
-                            stock_left=remaining,
-                            bot_username=bot_me.username or ""
-                        )
-
-                        # Alert Admins
                         admin_alert = (
                             f"{ce(CustomEmojis.FIRE, '🔔')} <b>PAYPAL AUTO-DELIVERED SALE!</b>\n"
                             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -441,63 +455,104 @@ async def handle_paypal_webhook(request: web.Request) -> web.Response:
                         return web.json_response({"status": "delivered_auto"})
 
                     else:
+
                         # MANUAL FULFILLMENT or STOCK EMPTY -> Create manual order
-                        manual_order, m_err = await create_manual_order(session, user.telegram_id, target_var.id, target_var.price, customer_input=None, quantity=qty)
+                        requires_input = getattr(target_var, "requires_customer_input", True)
+                        dispatch_time = getattr(target_var, "manual_dispatch_time", "1–2 Hours") or "1–2 Hours"
 
-                        manual_confirm_text = (
-                            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYPAL PAYMENT CONFIRMED & ORDER PLACED!</b>\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
-                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
-                            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
-                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
-                            f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Delivery:</b> 1–2 Hours\n\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                            f"Our team has received your order and is processing your activation right now! You will receive details directly in this chat shortly."
-                        )
-                        try:
-                            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-                            kb = InlineKeyboardMarkup(inline_keyboard=[
-                                [InlineKeyboardButton(text="Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
-                                [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
-                            ])
-                            await bot.send_message(user.telegram_id, manual_confirm_text, reply_markup=kb)
-                        except Exception as e:
-                            logger.error(f"Failed to send manual confirm to user {user.telegram_id}: {e}")
+                        if requires_input:
+                            manual_order, m_err = await create_manual_order(
+                                session,
+                                user.telegram_id,
+                                target_var.id,
+                                target_var.price,
+                                customer_input="Awaiting customer details...",
+                                quantity=qty
+                            )
+                            dp = request.app.get("dp")
+                            if dp and hasattr(dp, "storage"):
+                                from aiogram.fsm.context import FSMContext
+                                from aiogram.fsm.storage.base import StorageKey
+                                from utils.states import OrderManualStates
+                                fsm_state = FSMContext(
+                                    storage=dp.storage,
+                                    key=StorageKey(bot_id=bot.id, chat_id=user.telegram_id, user_id=user.telegram_id)
+                                )
+                                await fsm_state.set_state(OrderManualStates.waiting_for_input)
+                                await fsm_state.update_data(
+                                    order_id=manual_order.id,
+                                    variant_id=target_var.id,
+                                    price=target_var.price,
+                                    quantity=qty,
+                                    prod_title=prod_title,
+                                    var_name=target_var.name,
+                                    dispatch_time=dispatch_time,
+                                    is_paid=True
+                                )
 
-                        # Notify Group
-                        remaining = await get_available_stock_count(session, target_var.id)
-                        bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
-                        await send_order_notification(
-                            bot=bot,
-                            order_id=manual_order.id,
-                            buyer_name=user.full_name or "Customer",
-                            product_title=prod_title,
-                            variant_name=target_var.name,
-                            amount=manual_order.amount,
-                            stock_left=remaining,
-                            bot_username=bot_me.username or ""
-                        )
-
-                        # Alert Admins with Fulfill Button
-                        from keyboards.admin_keyboards import get_admin_order_actions_keyboard
-                        admin_manual_alert = (
-                            f"{ce(CustomEmojis.FIRE, '🚨')} <b>NEW 1-CLICK PAYPAL ORDER TO FULFILL!</b>\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
-                            f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {user.full_name} (@{user.username or 'NoUser'})\n"
-                            f"{ce(CustomEmojis.KEY, '🆔')} <b>User ID:</b> <code>{user.telegram_id}</code>\n"
-                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {target_var.name}\n"
-                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid:</b> {config.CURRENCY_SYMBOL}{manual_order.amount:.2f} (PayPal)\n\n"
-                            f"{ce(CustomEmojis.SPARKLE, '👉')} <i>Click 'Fulfill Order' below to send invite/credentials:</i>"
-                        )
-                        for admin_id in config.ADMIN_IDS:
+                            prompt_msg = getattr(target_var, "input_prompt", None) or "Please send your target Email / Account username for activation:"
+                            qty_line = f"\n{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{qty} unit(s)</b>" if qty > 1 else ""
+                            manual_confirm_text = (
+                                f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED! (Order #{manual_order.id})</b>\n"
+                                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                                f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>ACTIVATION DETAILS REQUIRED</b>\n\n"
+                                f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                                f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>{qty_line}\n"
+                                f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
+                                f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Delivery Time:</b> within {dispatch_time}\n\n"
+                                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                                f"{ce(CustomEmojis.SPARKLE, '👉')} <b>{prompt_msg}</b>\n\n"
+                                f"<i>(Reply to this message with your details so our team can activate your service!)</i>"
+                            )
                             try:
-                                await bot.send_message(admin_id, admin_manual_alert, reply_markup=get_admin_order_actions_keyboard(manual_order.id))
-                            except Exception:
-                                pass
+                                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                                kb = InlineKeyboardMarkup(inline_keyboard=[
+                                    [InlineKeyboardButton(text="Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+                                    [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                                ])
+                                await bot.send_message(user.telegram_id, manual_confirm_text, reply_markup=kb)
+                            except Exception as e:
+                                logger.error(f"Failed to send manual confirm to user {user.telegram_id}: {e}")
 
-                        return web.json_response({"status": "placed_manual"})
+                            return web.json_response({"status": "manual_order_pending_details"})
+                        else:
+                            manual_order, m_err = await create_manual_order(
+                                session,
+                                user.telegram_id,
+                                target_var.id,
+                                target_var.price,
+                                customer_input=None,
+                                quantity=qty
+                            )
+                            qty_line = f"\n{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{qty} unit(s)</b>" if qty > 1 else ""
+                            manual_confirm_text = (
+                                f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYPAL PAYMENT CONFIRMED & ORDER PLACED!</b>\n"
+                                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                                f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
+                                f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                                f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>{qty_line}\n"
+                                f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
+                                f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Delivery:</b> within {dispatch_time}\n\n"
+                                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                                f"Our team has received your order and is processing your activation right now! You will receive details directly in this chat shortly."
+                            )
+                            try:
+                                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                                kb = InlineKeyboardMarkup(inline_keyboard=[
+                                    [InlineKeyboardButton(text="Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+                                    [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                                ])
+                                await bot.send_message(user.telegram_id, manual_confirm_text, reply_markup=kb)
+                            except Exception as e:
+                                logger.error(f"Failed to send manual confirm to user {user.telegram_id}: {e}")
+
+                            # Alert Admins with Fulfill Button
+                            from handlers.order import _background_notify_manual
+                            import asyncio
+                            asyncio.create_task(_background_notify_manual(
+                                bot, manual_order, prod_title, target_var.name, user, None, manual_order.amount, qty
+                            ))
+                            return web.json_response({"status": "placed_manual"})
 
             # Normal Top-Up Deposit notification to user
             deposit_msg = (
@@ -629,21 +684,8 @@ async def handle_oxapay_webhook(request: web.Request) -> web.Response:
                         except Exception as e:
                             logger.error(f"Failed to send delivery to user {user.telegram_id}: {e}")
 
-                        # Group/Channel Notification
+                        # Alert Admins (broadcast deferred to user's "I Got It!" confirmation)
                         remaining = await get_available_stock_count(session, target_var.id)
-                        bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
-                        await send_order_notification(
-                            bot=bot,
-                            order_id=order.id,
-                            buyer_name=user.full_name or "Customer",
-                            product_title=prod_title,
-                            variant_name=target_var.name,
-                            amount=order.amount,
-                            stock_left=remaining,
-                            bot_username=bot_me.username or ""
-                        )
-
-                        # Alert Admins
                         admin_alert = (
                             f"{ce(CustomEmojis.FIRE, '🔔')} <b>CRYPTO AUTO-DELIVERED SALE (OXAPAY)!</b>\n"
                             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -664,62 +706,102 @@ async def handle_oxapay_webhook(request: web.Request) -> web.Response:
 
                     else:
                         # MANUAL FULFILLMENT -> Create manual order
-                        manual_order, m_err = await create_manual_order(session, user.telegram_id, target_var.id, target_var.price, customer_input=None, quantity=qty)
+                        requires_input = getattr(target_var, "requires_customer_input", True)
+                        dispatch_time = getattr(target_var, "manual_dispatch_time", "1–2 Hours") or "1–2 Hours"
 
-                        manual_confirm_text = (
-                            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>CRYPTO PAYMENT CONFIRMED & ORDER PLACED!</b>\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
-                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
-                            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
-                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
-                            f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Delivery:</b> 1–2 Hours\n\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                            f"Our team has received your order and is processing your activation right now! You will receive details directly in this chat shortly."
-                        )
-                        try:
-                            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-                            kb = InlineKeyboardMarkup(inline_keyboard=[
-                                [InlineKeyboardButton(text="Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
-                                [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
-                            ])
-                            await bot.send_message(user.telegram_id, manual_confirm_text, reply_markup=kb)
-                        except Exception as e:
-                            logger.error(f"Failed to send manual confirm to user {user.telegram_id}: {e}")
+                        if requires_input:
+                            manual_order, m_err = await create_manual_order(
+                                session,
+                                user.telegram_id,
+                                target_var.id,
+                                target_var.price,
+                                customer_input="Awaiting customer details...",
+                                quantity=qty
+                            )
+                            dp = request.app.get("dp")
+                            if dp and hasattr(dp, "storage"):
+                                from aiogram.fsm.context import FSMContext
+                                from aiogram.fsm.storage.base import StorageKey
+                                from utils.states import OrderManualStates
+                                fsm_state = FSMContext(
+                                    storage=dp.storage,
+                                    key=StorageKey(bot_id=bot.id, chat_id=user.telegram_id, user_id=user.telegram_id)
+                                )
+                                await fsm_state.set_state(OrderManualStates.waiting_for_input)
+                                await fsm_state.update_data(
+                                    order_id=manual_order.id,
+                                    variant_id=target_var.id,
+                                    price=target_var.price,
+                                    quantity=qty,
+                                    prod_title=prod_title,
+                                    var_name=target_var.name,
+                                    dispatch_time=dispatch_time,
+                                    is_paid=True
+                                )
 
-                        # Notify Group
-                        remaining = await get_available_stock_count(session, target_var.id)
-                        bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
-                        await send_order_notification(
-                            bot=bot,
-                            order_id=manual_order.id,
-                            buyer_name=user.full_name or "Customer",
-                            product_title=prod_title,
-                            variant_name=target_var.name,
-                            amount=manual_order.amount,
-                            stock_left=remaining,
-                            bot_username=bot_me.username or ""
-                        )
-
-                        # Alert Admins with Fulfill Button
-                        from keyboards.admin_keyboards import get_admin_order_actions_keyboard
-                        admin_manual_alert = (
-                            f"{ce(CustomEmojis.FIRE, '🚨')} <b>NEW 1-CLICK CRYPTO ORDER TO FULFILL!</b>\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
-                            f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {user.full_name} (@{user.username or 'NoUser'})\n"
-                            f"{ce(CustomEmojis.KEY, '🆔')} <b>User ID:</b> <code>{user.telegram_id}</code>\n"
-                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {target_var.name}\n"
-                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid:</b> {config.CURRENCY_SYMBOL}{manual_order.amount:.2f} (Crypto / OxaPay)\n\n"
-                            f"{ce(CustomEmojis.SPARKLE, '👉')} <i>Click 'Fulfill Order' below to send invite/credentials:</i>"
-                        )
-                        for admin_id in config.ADMIN_IDS:
+                            prompt_msg = getattr(target_var, "input_prompt", None) or "Please send your target Email / Account username for activation:"
+                            qty_line = f"\n{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{qty} unit(s)</b>" if qty > 1 else ""
+                            manual_confirm_text = (
+                                f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED! (Order #{manual_order.id})</b>\n"
+                                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                                f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>ACTIVATION DETAILS REQUIRED</b>\n\n"
+                                f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                                f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>{qty_line}\n"
+                                f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
+                                f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Delivery Time:</b> within {dispatch_time}\n\n"
+                                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                                f"{ce(CustomEmojis.SPARKLE, '👉')} <b>{prompt_msg}</b>\n\n"
+                                f"<i>(Reply to this message with your details so our team can activate your service!)</i>"
+                            )
                             try:
-                                await bot.send_message(admin_id, admin_manual_alert, reply_markup=get_admin_order_actions_keyboard(manual_order.id))
-                            except Exception:
-                                pass
+                                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                                kb = InlineKeyboardMarkup(inline_keyboard=[
+                                    [InlineKeyboardButton(text="Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+                                    [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                                ])
+                                await bot.send_message(user.telegram_id, manual_confirm_text, reply_markup=kb)
+                            except Exception as e:
+                                logger.error(f"Failed to send manual confirm to user {user.telegram_id}: {e}")
 
-                        return web.Response(text="ok")
+                            return web.Response(text="ok")
+                        else:
+                            manual_order, m_err = await create_manual_order(
+                                session,
+                                user.telegram_id,
+                                target_var.id,
+                                target_var.price,
+                                customer_input=None,
+                                quantity=qty
+                            )
+                            qty_line = f"\n{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{qty} unit(s)</b>" if qty > 1 else ""
+                            manual_confirm_text = (
+                                f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>CRYPTO PAYMENT CONFIRMED & ORDER PLACED!</b>\n"
+                                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                                f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{manual_order.id}\n"
+                                f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                                f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>{qty_line}\n"
+                                f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{manual_order.amount:.2f}</b>\n"
+                                f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Delivery:</b> within {dispatch_time}\n\n"
+                                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                                f"Our team has received your order and is processing your activation right now! You will receive details directly in this chat shortly."
+                            )
+                            try:
+                                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                                kb = InlineKeyboardMarkup(inline_keyboard=[
+                                    [InlineKeyboardButton(text="Contact Support", url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
+                                    [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                                ])
+                                await bot.send_message(user.telegram_id, manual_confirm_text, reply_markup=kb)
+                            except Exception as e:
+                                logger.error(f"Failed to send manual confirm to user {user.telegram_id}: {e}")
+
+                            # Alert Admins with Fulfill Button
+                            from handlers.order import _background_notify_manual
+                            import asyncio
+                            asyncio.create_task(_background_notify_manual(
+                                bot, manual_order, prod_title, target_var.name, user, None, manual_order.amount, qty
+                            ))
+                            return web.Response(text="ok")
 
             # Normal Top-Up Deposit notification to user
             deposit_msg = (
@@ -760,9 +842,10 @@ async def handle_oxapay_webhook(request: web.Request) -> web.Response:
 
     return web.Response(text="ok")
 
-def create_webhook_app(bot: Bot) -> web.Application:
+def create_webhook_app(bot: Bot, dp=None) -> web.Application:
     app = web.Application()
     app["bot"] = bot
+    app["dp"] = dp
     app.router.add_get("/", handle_root)
     app.router.add_get("/health", handle_health)
     app.router.add_get("/webhook/razorpay", handle_razorpay_webhook_get)
