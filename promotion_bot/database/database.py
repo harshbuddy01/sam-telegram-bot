@@ -83,9 +83,20 @@ async def init_db():
         except Exception as ex:
             logger.warning(f"Could not restore groups: {ex}")
 
-        # ── SAFE table rebuild: remove UNIQUE constraint on target_groups.identifier
-        # The old schema had identifier UNIQUE globally — this crashes multi-account sync.
-        # We rebuild ONLY if UNIQUE is detected AND target_groups_clean does NOT yet exist.
+        # ── Drop any UNIQUE index on target_groups (e.g. ix_target_groups_identifier) ──
+        try:
+            res_idx = await conn.execute(text(
+                "SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name='target_groups'"
+            ))
+            indexes = res_idx.fetchall()
+            for idx_name, idx_sql in indexes:
+                if idx_sql and "UNIQUE" in idx_sql.upper():
+                    logger.info(f"Dropping unique index {idx_name} on target_groups: {idx_sql}")
+                    await conn.execute(text(f"DROP INDEX IF EXISTS {idx_name}"))
+        except Exception as ex_idx:
+            logger.warning(f"Could not drop unique index: {ex_idx}")
+
+        # ── SAFE table rebuild: ensure target_groups has NO UNIQUE constraint ─
         try:
             res = await conn.execute(text(
                 "SELECT sql FROM sqlite_master WHERE type='table' AND name='target_groups'"
@@ -93,15 +104,10 @@ async def init_db():
             table_def = res.fetchone()
             has_unique = table_def and table_def[0] and "UNIQUE" in table_def[0].upper()
 
-            # Check if target_groups_clean already exists (from a previous failed run)
-            res2 = await conn.execute(text(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='target_groups_clean'"
-            ))
-            clean_exists = res2.fetchone() is not None
-
-            if has_unique and not clean_exists:
+            if has_unique:
                 logger.info("Rebuilding target_groups table to remove UNIQUE constraint...")
                 await conn.execute(text("PRAGMA foreign_keys=OFF"))
+                await conn.execute(text("DROP TABLE IF EXISTS target_groups_clean"))
                 await conn.execute(text("""
                     CREATE TABLE target_groups_clean (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -135,15 +141,6 @@ async def init_db():
                 await conn.execute(text("ALTER TABLE target_groups_clean RENAME TO target_groups"))
                 await conn.execute(text("PRAGMA foreign_keys=ON"))
                 logger.info("target_groups rebuilt without UNIQUE constraint.")
-            elif clean_exists:
-                # A previous rebuild was interrupted — finish it
-                try:
-                    await conn.execute(text("DROP TABLE IF EXISTS target_groups"))
-                    await conn.execute(text("ALTER TABLE target_groups_clean RENAME TO target_groups"))
-                    logger.info("Completed interrupted target_groups rebuild.")
-                except Exception:
-                    pass
-
         except Exception as ex:
             logger.warning(f"target_groups rebuild check: {ex}")
 

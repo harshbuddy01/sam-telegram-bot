@@ -311,10 +311,10 @@ async def sync_telegram_groups(session: AsyncSession, account_id: int, telegram_
                 matching.status    = "ACTIVE"
             continue
 
-        # New group — use raw INSERT OR IGNORE so constraint errors never break the session
+        # New group for this account
         try:
             await session.execute(text("""
-                INSERT OR IGNORE INTO target_groups
+                INSERT INTO target_groups
                     (account_id, chat_id, title, identifier,
                      is_joined, is_selected, status,
                      failure_count, consecutive_failures, slowmode_seconds,
@@ -330,10 +330,9 @@ async def sync_telegram_groups(session: AsyncSession, account_id: int, telegram_
             existing_chat_ids.add(cid)
             existing_idents.add(ident.lower())
         except Exception as e:
-            # Log but never crash — move on to the next group
             import logging
             logging.getLogger(__name__).warning(
-                f"sync_telegram_groups: skip group {ident} for account #{account_id}: {e}"
+                f"sync_telegram_groups: insert failed for group {ident} on account #{account_id}: {e}"
             )
             continue
 
