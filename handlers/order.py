@@ -302,28 +302,26 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
 
 @router.message(OrderManualStates.waiting_for_input)
 async def msg_order_manual_input(message: types.Message, state: FSMContext, session: AsyncSession, bot: Bot):
-    cust_input = message.text.strip()
+    if message.contact:
+        cust_input = message.contact.phone_number
+    elif message.text:
+        cust_input = message.text.strip()
+    else:
+        await message.answer("Please reply with your activation details (email or phone number) as text.")
+        return
+
     data = await state.get_data()
+    order_id = data.get("order_id")
+    is_paid = data.get("is_paid", False)
     variant_id = data.get("variant_id")
     price = data.get("price")
-    quantity = data.get("quantity", 1)
+    quantity = max(1, int(data.get("quantity", 1)))
     prod_title = data.get("prod_title", "Digital Item")
     var_name = data.get("var_name", "Plan")
     dispatch_time = data.get("dispatch_time", "1–2 Hours")
 
-    if not variant_id or not price:
-        await state.clear()
-        await message.answer("Order session expired. Please choose your item again from the store.")
-        return
-
-    quantity = max(1, int(quantity))
-    total_amount = round(price * quantity, 2)
-
-    order_id = data.get("order_id")
-    is_paid = data.get("is_paid", False)
-
     if is_paid and order_id:
-        from database.crud import get_order_by_id
+        from database.crud import get_order_by_id, get_variant, get_product
         order = await get_order_by_id(session, order_id)
         if not order:
             await state.clear()
@@ -334,7 +332,21 @@ async def msg_order_manual_input(message: types.Message, state: FSMContext, sess
         order.customer_input = f"{cust_input}{qty_note}"
         await session.commit()
         await state.clear()
+
+        if not prod_title or prod_title == "Digital Item":
+            v = await get_variant(session, order.variant_id) if order.variant_id else None
+            if v:
+                p = await get_product(session, v.product_id) if v.product_id else None
+                prod_title = p.title if p else "Digital Item"
+                var_name = v.name or "Plan"
+                dispatch_time = getattr(v, "manual_dispatch_time", "1–2 Hours") or "1–2 Hours"
     else:
+        if not variant_id or not price:
+            await state.clear()
+            await message.answer("Order session expired. Please choose your item again from the store.")
+            return
+
+        total_amount = round(price * quantity, 2)
         user = await get_user(session, message.from_user.id)
         if not user or user.balance < total_amount:
             await state.clear()

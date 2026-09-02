@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Bot Token & Admins
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8617134926:AAGKECEbfficK5g8ThtTfJse1SkC-h3YrR0").strip()
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 
 admin_ids_raw = os.getenv("ADMIN_IDS", "6971497666,6085016731")
 ADMIN_IDS = [int(x.strip()) for x in admin_ids_raw.split(",") if x.strip().isdigit()]
