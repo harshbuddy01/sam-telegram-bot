@@ -205,21 +205,17 @@ async def cmd_start(message: types.Message, bot: Bot, session: AsyncSession, com
             except Exception:
                 pass
     
-    # Primary Admin Dedicated Experience (ID 6971497666 and authorized admins)
+    # Dedicated Admin Interface
     if is_user_admin:
         from database.crud import get_pending_deposits, get_pending_manual_orders
-        from keyboards.admin_keyboards import get_admin_main_keyboard, get_admin_persistent_keyboard
+        from keyboards.admin_keyboards import get_admin_main_keyboard
         pending_deps = len(await get_pending_deposits(session))
         pending_ords = len(await get_pending_manual_orders(session))
         admin_text = (
             f"{ce(CustomEmojis.CROWN, '👑')} <b>ADMINISTRATOR CONTROL PANEL</b>\n"
             f"{UI.SECTION_BAR}\n\n"
-            f"Welcome, Master Admin <b>{message.from_user.first_name}</b> (<code>{message.from_user.id}</code>).\n"
-            f"Your store management hub is active. Use the buttons below to control stock, pending orders, and settings:"
-        )
-        await message.answer(
-            f"{ce(CustomEmojis.FIRE, '⚡')} <i>Admin Mode Active. Quick controls are available in the menu below:</i>",
-            reply_markup=get_admin_persistent_keyboard()
+            f"Welcome, Administrator <b>{message.from_user.first_name}</b>.\n"
+            f"<i>Select a management hub below to manage your store:</i>"
         )
         await message.answer(admin_text, reply_markup=get_admin_main_keyboard(pending_deps, pending_ords))
         return
@@ -247,6 +243,45 @@ async def cmd_start(message: types.Message, bot: Bot, session: AsyncSession, com
 
 @router.callback_query(F.data == "nav_home")
 async def cb_nav_home(callback: types.CallbackQuery, session: AsyncSession):
+    await callback.answer()
+    is_user_admin = config.is_admin(callback.from_user.id)
+    if is_user_admin:
+        from database.crud import get_pending_deposits, get_pending_manual_orders
+        from keyboards.admin_keyboards import get_admin_main_keyboard
+        pending_deps = len(await get_pending_deposits(session))
+        pending_ords = len(await get_pending_manual_orders(session))
+        admin_text = (
+            f"{ce(CustomEmojis.CROWN, '👑')} <b>ADMINISTRATOR CONTROL PANEL</b>\n"
+            f"{UI.SECTION_BAR}\n\n"
+            f"Welcome, Administrator <b>{callback.from_user.first_name}</b>.\n"
+            f"<i>Select a management hub below to manage your store:</i>"
+        )
+        try:
+            await callback.message.edit_text(
+                admin_text,
+                reply_markup=get_admin_main_keyboard(pending_deps, pending_ords)
+            )
+        except Exception:
+            await callback.message.answer(
+                admin_text,
+                reply_markup=get_admin_main_keyboard(pending_deps, pending_ords)
+            )
+        return
+
+    text = await get_welcome_text(callback.from_user.first_name, session)
+    try:
+        await callback.message.edit_text(
+            text,
+            reply_markup=get_main_menu_keyboard(is_admin=False)
+        )
+    except Exception:
+        await callback.message.answer(
+            text,
+            reply_markup=get_main_menu_keyboard(is_admin=False)
+        )
+
+@router.callback_query(F.data == "nav_customer_store")
+async def cb_nav_customer_store(callback: types.CallbackQuery, session: AsyncSession):
     await callback.answer()
     is_user_admin = config.is_admin(callback.from_user.id)
     text = await get_welcome_text(callback.from_user.first_name, session)
@@ -408,10 +443,6 @@ async def msg_btn_admin_hub(message: types.Message, session: AsyncSession):
         f"{ce(CustomEmojis.CROWN, '👑')} <b>ADMINISTRATOR CONTROL PANEL</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"<i>Select a management hub below to manage your store:</i>"
-    )
-    await message.answer(
-        f"{ce(CustomEmojis.FIRE, '⚡')} <i>Admin Mode Active.</i>",
-        reply_markup=get_admin_persistent_keyboard()
     )
     await message.answer(admin_text, reply_markup=get_admin_main_keyboard(pending_deps, pending_ords))
 

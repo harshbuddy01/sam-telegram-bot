@@ -29,11 +29,8 @@ def get_admin_main_keyboard(pending_deposits: int = 0, pending_orders: int = 0) 
             InlineKeyboardButton(text="Broadcast Announcement", callback_data="adm_broadcast", icon_custom_emoji_id=CustomEmojis.FIRE)
         ],
         [
-            InlineKeyboardButton(text="Store Design & Page Customizer", callback_data="adm_customizer", icon_custom_emoji_id=CustomEmojis.SPARKLE)
-        ],
-        [
             InlineKeyboardButton(text="Payment & UPI Settings", callback_data="adm_settings", icon_custom_emoji_id=CustomEmojis.CARD),
-            InlineKeyboardButton(text="Exit to Store", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+            InlineKeyboardButton(text="Customer Store View", callback_data="nav_customer_store", icon_custom_emoji_id=CustomEmojis.CROWN)
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
