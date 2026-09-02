@@ -63,9 +63,12 @@ class CashfreeGateway(BasePaymentGateway):
                 "customer_phone": clean_phone
             },
             "order_meta": {
-                "return_url": f"https://t.me/{getattr(config, 'STORE_NAME', 'SamStore')}?start=deposit_check_{order_id}"
+                "return_url": f"https://t.me/{getattr(config, 'SUPPORT_USERNAME', 'SamStore').lstrip('@')}?start=dep_{order_id}"
             },
-            "order_note": f"Wallet top-up for Telegram user {user_id}"
+            "order_note": f"{config.STORE_NAME} — Order #{order_id}",
+            "order_tags": {
+                "store_name": config.STORE_NAME
+            }
         }
 
         try:
