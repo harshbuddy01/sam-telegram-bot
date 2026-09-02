@@ -560,20 +560,31 @@ class SafeBroadcaster:
 
                     elif status == "flood_wait":
                         wait_seconds = res.get("seconds", 60)
-                        logger.warning(f"[{w['account_phone']}] ⚠️ ({idx}/{w['total_targets']}) FLOODWAIT: {group.identifier} ({wait_seconds}s)")
-
-                        # If wait is longer than 5 minutes (e.g. 15 hours daily quota), don't freeze worker!
+                        # If wait is longer than 5 minutes, schedule automatic resumption after cooldown
                         if wait_seconds > 300:
+                            wait_mins = round(wait_seconds / 60)
                             hours = round(wait_seconds / 3600, 1)
-                            logger.warning(f"[{w['account_phone']}] 🛑 Telegram daily quota reached ({w['success_count']} delivered). Cooldown: {hours}h.")
+                            time_str = f"{hours}h" if hours >= 1.0 else f"{wait_mins}m"
+                            logger.warning(f"[{w['account_phone']}] 🛑 Telegram cooldown notice ({w['success_count']} delivered). Wait: {time_str}.")
+
+                            # Precisely schedule the next auto-repeat tick to resume when cooldown expires
+                            try:
+                                promo_db = await get_or_create_account_promo(session, account_id)
+                                interval_sec = (promo_db.interval_hours or 0.0833) * 3600
+                                promo_db.last_run_at = datetime.datetime.utcnow() + datetime.timedelta(seconds=wait_seconds) - datetime.timedelta(seconds=interval_sec)
+                                promo_db.is_enabled = True
+                                await session.commit()
+                            except Exception as ex_f:
+                                logger.warning(f"Could not set FloodWait next run: {ex_f}")
+
                             await self.notify_admins(
-                                f"⏳ <b>Daily Telegram Quota Reached ({w['account_phone']})</b>\n"
+                                f"⏳ <b>Telegram Cooldown Notice ({w['account_phone']})</b>\n"
                                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                                f"🎉 Successfully delivered to <b>{w['success_count']} groups</b>!\n\n"
-                                f"Telegram has set a cooldown of <b>{hours} hours</b> before this number can post to more groups.\n\n"
-                                f"🛑 <i>Campaign ended cleanly to protect your account. You can switch to another phone number in the meantime!</i>"
+                                f"Delivered so far: <b>{w['success_count']} groups</b>\n\n"
+                                f"Telegram requires a cooldown of <b>{time_str}</b> before this number can post to more groups.\n\n"
+                                f"🤖 <i>The bot will automatically wait {time_str} and resume broadcasting all target groups!</i>"
                             )
-                            w["failed_groups_list"].append({"identifier": group.identifier, "reason": f"Daily limit reached ({hours}h cooldown)"})
+                            w["failed_groups_list"].append({"identifier": group.identifier, "reason": f"Telegram Cooldown ({time_str})"})
                             break
 
                         await self.notify_admins(
@@ -610,13 +621,13 @@ class SafeBroadcaster:
                             {"identifier": group.identifier, "reason": "Telegram Search Rate Limit (PeerFlood)"}
                         )
                         await log_broadcast_result(
-                            session, cycle_id, group.id, group.identifier, "FAILED", "Telegram PeerFlood"
+                            session, cycle_id, group.id, group.identifier, "FAILED", "Telegram Search Rate Limit (PeerFlood)"
                         )
-                        # Alert admin ONCE and safely stop worker to protect account from ban
                         await self.notify_admins(
-                            f"🛡️ <b>Telegram Search Rate Limit Active ({w['account_phone']})</b>\n"
-                            "Telegram has temporarily paused username searches for this account to prevent bans.\n\n"
-                            "Worker paused safely. Please allow ~15 minutes before re-launching."
+                            f"🛡️ <b>Telegram Anti-Spam Notice ({w['account_phone']})</b>\n"
+                            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"Telegram returned <code>PeerFloodError</code> for <code>{group.identifier}</code>.\n\n"
+                            f"💡 <i>Tip: The bot will continue safely to the next groups.</i>"
                         )
                         break
 
@@ -649,8 +660,28 @@ class SafeBroadcaster:
                         w["failed_groups_list"].append({"identifier": group.identifier, "reason": reason})
                         await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", reason)
                         # Mark as BANNED — don't delete so user can review the list
-                        # Groups marked BANNED are auto-skipped in future broadcasts
                         await update_group_status(session, group.id, "BANNED", error=reason)
+
+                    elif status == "error":
+                        w["failed_count"] += 1
+                        logger.warning(f"[{w['account_phone']}] ❌ ({idx}/{w['total_targets']}) ERROR: {group.identifier} - {reason}")
+                        w["failed_groups_list"].append({"identifier": group.identifier, "reason": reason})
+                        await log_broadcast_result(session, cycle_id, group.id, group.identifier, "FAILED", reason)
+
+                        is_rate_limited = "wait" in reason.lower() or "flood" in reason.lower()
+                        if not is_rate_limited and any(
+                            err in reason
+                            for err in [
+                                "Cannot cast InputPeerUser",
+                                "No user has",
+                                "Nobody is using",
+                                "expired or invalid",
+                                "Could not find any entity for ID",
+                            ]
+                        ):
+                            await delete_group(session, group.id)
+                        else:
+                            await update_group_status(session, group.id, "RESTRICTED", error=reason)
 
                     else:
                         w["failed_count"] += 1
@@ -698,6 +729,9 @@ class SafeBroadcaster:
                 else ("STOPPED" if w["should_stop"] else "PAUSED")
             )
 
+            interval_h = 0.0833
+            is_repeating = False
+
             async with AsyncSessionLocal() as session:
                 await finish_cycle(
                     session,
@@ -710,50 +744,89 @@ class SafeBroadcaster:
                 )
                 try:
                     promo_db = await get_or_create_account_promo(session, account_id)
-                    promo_db.last_run_at = datetime.datetime.utcnow()
+                    now_utc = datetime.datetime.utcnow()
+                    # Only stamp last_run_at to now if it wasn't already pushed into the future by FloodWait
+                    if not promo_db.last_run_at or promo_db.last_run_at <= now_utc:
+                        promo_db.last_run_at = now_utc
                     await session.commit()
-                    logger.info(f"Broadcast ended for {w['account_phone']}: updated last_run_at=NOW.")
+                    interval_h = promo_db.interval_hours or 0.0833
+                    is_repeating = bool(promo_db.is_enabled and not w.get("should_stop"))
+                    logger.info(f"Broadcast ended for {w['account_phone']}: interval={interval_h}h, is_repeating={is_repeating}")
                 except Exception as ex_p:
                     logger.warning(f"Could not update last_run_at for {w['account_phone']}: {ex_p}")
 
-            report = self._generate_worker_summary(w, mins, secs, final_status)
+            report = self._generate_worker_summary(w, mins, secs, final_status, interval_hours=interval_h, is_repeating=is_repeating)
             await self.notify_admins(report)
 
             w["is_running"] = False
             w["is_paused"] = False
             w["should_stop"] = False
 
-    def _generate_worker_summary(self, w: dict, mins: int, secs: int, status: str) -> str:
-        remaining_count = len(w["remaining_groups_list"])
-        sent_samples = [f"• <code>{g}</code>" for g in w["sent_groups_list"][:5]]
-        sent_text = "\n".join(sent_samples) if sent_samples else "<i>None</i>"
-        if len(w["sent_groups_list"]) > 5:
-            sent_text += f"\n<i>...and {len(w['sent_groups_list']) - 5} more sent.</i>"
+    def _generate_worker_summary(self, w: dict, mins: int, secs: int, status: str, interval_hours: float = 0.0833, is_repeating: bool = True) -> str:
+        tot = w["total_targets"]
+        succ = w["success_count"]
+        fail = w["failed_count"]
+        skip = w["skipped_count"]
+        pct = round((succ / tot * 100), 1) if tot > 0 else 0.0
 
-        failed_samples = [
-            f"• <b>{f['identifier']}</b>: <code>{f['reason']}</code>"
-            for f in w["failed_groups_list"][:5]
-        ]
-        failed_text = "\n".join(failed_samples) if failed_samples else "<i>None</i>"
-        if len(w["failed_groups_list"]) > 5:
-            failed_text += f"\n<i>...and {len(w['failed_groups_list']) - 5} more failed.</i>"
+        # Group and summarize errors cleanly
+        error_counts = {}
+        for f in w.get("failed_groups_list", []):
+            reason_raw = str(f.get("reason") or "Unknown error")
+            if "slowmode" in reason_raw.lower():
+                cat = "Slowmode Wait"
+            elif "muted" in reason_raw.lower() or "banned from sending" in reason_raw.lower():
+                cat = "Account Mute (@SpamBot)"
+            elif "forbidden" in reason_raw.lower() or "write forbidden" in reason_raw.lower():
+                cat = "Chat Write Restricted / Forbidden"
+            elif "cooldown" in reason_raw.lower():
+                cat = "Telegram Cooldown Notice"
+            elif "flood" in reason_raw.lower() or "wait" in reason_raw.lower():
+                cat = "FloodWait Limit"
+            elif "peer" in reason_raw.lower():
+                cat = "Peer Flood Rate Limit"
+            elif "expired" in reason_raw.lower() or "invalid" in reason_raw.lower() or "not found" in reason_raw.lower():
+                cat = "Invalid / Inaccessible Group Link"
+            elif "private" in reason_raw.lower():
+                cat = "Private Group (Join Required)"
+            else:
+                cat = reason_raw[:35]
+            error_counts[cat] = error_counts.get(cat, 0) + 1
 
-        status_emoji = "🛑 STOPPED" if status == "STOPPED" else "🎉 COMPLETED"
+        if error_counts:
+            err_lines = [f"• <b>{cat}:</b> <code>{cnt} group(s)</code>" for cat, cnt in sorted(error_counts.items(), key=lambda x: -x[1])]
+            err_section = "\n".join(err_lines)
+        else:
+            err_section = "• <i>Zero errors — 100% messages delivered!</i>"
+
+        status_badge = "🛑 STOPPED" if status == "STOPPED" else "🎉 CYCLE COMPLETED"
+
+        # Format repeat label
+        if is_repeating:
+            int_mins = int(round(interval_hours * 60))
+            if int_mins < 60:
+                repeat_label = f"In {int_mins} minute{'s' if int_mins != 1 else ''} (Auto-repeating)"
+            else:
+                int_hours = round(interval_hours, 1)
+                repeat_label = f"In {int_hours} hour{'s' if int_hours != 1.0 else ''} (Auto-repeating)"
+        else:
+            repeat_label = "Disabled (Stopped)"
 
         return (
-            f"📊 <b>CAMPAIGN SUMMARY — {w['account_phone']} ({status_emoji})</b>\n"
+            f"📊 <b>CAMPAIGN SUMMARY — {w['account_phone']}</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"📱 <b>Sender:</b> {w['sender_badge']}\n"
-            f"⏱️ <b>Duration:</b> {mins}m {secs}s\n"
-            f"🎯 <b>Total Targets:</b> {w['total_targets']}\n\n"
-            f"📈 <b>Results:</b>\n"
-            f"• ✅ <b>Delivered Successfully:</b> <code>{w['success_count']} groups</code>\n"
-            f"• ❌ <b>Failed / Banned:</b> <code>{w['failed_count']} groups</code>\n"
-            f"• ⏳ <b>Slowmode Skipped:</b> <code>{w['skipped_count']} groups</code>\n"
-            f"• ⏸️ <b>Remaining:</b> <code>{remaining_count} groups</code>\n\n"
-            f"✅ <b>Delivered Sample:</b>\n{sent_text}\n\n"
-            f"⚠️ <b>Failed Sample:</b>\n{failed_text}\n\n"
-            f"🛡️ <i>Your account is safe. Detailed logs saved in /menu.</i>"
+            f"⏱️ <b>Duration:</b> {mins}m {secs}s | <b>Status:</b> {status_badge}\n"
+            f"🎯 <b>Total Targets:</b> {tot} groups\n\n"
+            f"📈 <b>Delivery Results:</b>\n"
+            f"• ✅ <b>Successfully Delivered:</b> <b>{succ} groups</b> ({pct}%)\n"
+            f"• ❌ <b>Failed / Restricted:</b> <b>{fail} groups</b>\n"
+            f"• ⏳ <b>Slowmode Skipped:</b> <b>{skip} groups</b>\n\n"
+            f"⚠️ <b>Error Breakdown:</b>\n"
+            f"{err_section}\n\n"
+            f"🔄 <b>Next Cycle:</b> <b>{repeat_label}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"<i>To stop repeating, click 'Stop Campaign' in /menu.</i>"
         )
 
     # ==================== GLOBAL MULTI-CAMPAIGN CONTROLS ====================

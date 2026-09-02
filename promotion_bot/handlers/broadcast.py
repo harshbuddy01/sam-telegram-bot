@@ -336,6 +336,9 @@ async def cb_launch_account_broadcast(query: CallbackQuery):
 
     account_id = int(query.data.split("_")[2])
 
+    async with AsyncSessionLocal() as session:
+        await set_account_campaign_enabled(session, account_id, True)
+
     res = await broadcaster.start_account_broadcast(account_id, trigger_type="MANUAL_ADMIN")
 
     if res.get("status") == "already_running":
@@ -363,8 +366,10 @@ async def cb_stop_account_broadcast(query: CallbackQuery):
         return
     account_id = int(query.data.split("_")[2])
     broadcaster.stop_account_broadcast(account_id)
+    async with AsyncSessionLocal() as session:
+        await set_account_campaign_enabled(session, account_id, False)
     try:
-        await query.answer("🛑 Campaign stop requested. Finalizing summary...", show_alert=True)
+        await query.answer("🛑 Campaign stop requested. Repeating auto-broadcast disabled.", show_alert=True)
     except Exception:
         pass
     await cb_account_broadcast_detail(query)

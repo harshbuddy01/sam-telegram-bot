@@ -3,6 +3,7 @@ Group/Channel Notification Utilities
 Sends order alerts, restock alerts, and handles username masking.
 """
 import logging
+from typing import Optional
 from datetime import datetime
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -84,31 +85,45 @@ async def send_restock_alert(
     variant_name: str,
     added_count: int,
     total_stock: int,
-    bot_username: str = ""
+    bot_username: str = "",
+    product_id: Optional[int] = None,
+    variant_id: Optional[int] = None
 ):
     """
-    Post a restock alert to the configured group/channel.
+    Post a restock alert to the configured group/channel with direct 1-click deep link.
     """
     channel_id = config.NOTIFICATION_CHANNEL_ID
     if not channel_id:
         return
 
+    plan_line = f"\n{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <code>{variant_name}</code>" if variant_name else ""
     text = (
-        f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>RESTOCK ALERT: {product_title.upper()}</b> {ce(CustomEmojis.SPARKLE, '🎉')}\n"
+        f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>RESTOCK ALERT — {product_title.upper()}!</b> {ce(CustomEmojis.SPARKLE, '🎉')}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"{ce(CustomEmojis.FIRE, '🔥')} We have just added <b>{added_count} new stock</b> for {product_title}!\n"
-        f"{ce(CustomEmojis.TROPHY, '📊')} <b>Current Total Stock:</b> <code>{total_stock} unit(s)</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"{ce(CustomEmojis.SPARKLE, '👇')} Click the button below to buy or view details instantly:"
+        f"{ce(CustomEmojis.FIRE, '🔥')} <b>{product_title}</b> is back in stock!{plan_line}\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Fresh Stock Added:</b> <code>+{added_count} unit(s)</code>\n"
+        f"{ce(CustomEmojis.TROPHY, '📊')} <b>Live Available Stock:</b> <code>{total_stock} unit(s)</code>\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{ce(CustomEmojis.SPARKLE, '👇')} <i>Click below to buy or view plan details with instant delivery:</i>"
     )
 
     kb = None
     if bot_username:
+        if variant_id:
+            target_url = f"https://t.me/{bot_username}?start=var_{variant_id}"
+            btn_title = f"⚡ Buy Now • {variant_name or product_title}"
+        elif product_id:
+            target_url = f"https://t.me/{bot_username}?start=prod_{product_id}"
+            btn_title = f"⚡ Buy Now • {product_title}"
+        else:
+            target_url = f"https://t.me/{bot_username}?start=shop"
+            btn_title = f"⚡ Buy Now • {product_title}"
+
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
-                text=f"{product_title} • {total_stock} Available",
-                url=f"https://t.me/{bot_username}?start=shop",
-                icon_custom_emoji_id=CustomEmojis.GIFT
+                text=btn_title,
+                url=target_url,
+                icon_custom_emoji_id=CustomEmojis.SHOP
             )]
         ])
 

@@ -33,6 +33,7 @@ async def get_welcome_text(first_name: str, session: AsyncSession = None) -> str
 @router.message(CommandStart())
 async def cmd_start(message: types.Message, bot: Bot, session: AsyncSession, command: CommandObject = None):
     referrer_id = None
+    deep_link_arg = None
     if command and command.args:
         args = command.args.strip()
         if args.startswith("ref_"):
@@ -42,6 +43,8 @@ async def cmd_start(message: types.Message, bot: Bot, session: AsyncSession, com
                     referrer_id = None
             except ValueError:
                 pass
+        else:
+            deep_link_arg = args
 
     user, is_new = await get_or_create_user(
         session=session,
@@ -52,6 +55,112 @@ async def cmd_start(message: types.Message, bot: Bot, session: AsyncSession, com
     )
 
     is_user_admin = config.is_admin(message.from_user.id)
+
+    # ── Handle Direct Product & Variant Deep Links (from Channel/Group Alerts) ──
+    if deep_link_arg:
+        if deep_link_arg.startswith("prod_"):
+            try:
+                prod_id = int(deep_link_arg.split("_")[1])
+                from database.crud import get_product, get_variants_by_product
+                from keyboards.user_keyboards import get_variants_keyboard
+                product = await get_product(session, prod_id)
+                if product:
+                    variants = await get_variants_by_product(session, prod_id)
+                    icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if "<tg-emoji" not in product.title else ""
+                    title_header = f"{icon} <b>{product.title}</b>" if icon else f"<b>{product.title}</b>"
+                    text = f"{title_header}\n{UI.SECTION_BAR}\n\n"
+                    if product.description:
+                        text += f"<blockquote>{product.description}</blockquote>\n\n"
+                    text += (
+                        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Select your plan / duration below:</b>\n"
+                        f"<i>(Click on any plan to inspect specs, warranty & delivery info)</i>"
+                    )
+                    usd_prices = {}
+                    try:
+                        from payments.manager import payment_manager
+                        for var in variants:
+                            _, _, _, usdt_amt = payment_manager.oxapay.calculate_amounts(var.price)
+                            _, _, _, pp_usd = payment_manager.paypal.calculate_amounts(var.price)
+                            usd_prices[var.id] = (usdt_amt, pp_usd)
+                    except Exception:
+                        pass
+                    await message.answer(
+                        text,
+                        reply_markup=get_variants_keyboard(variants, prod_id, product.category_id, usd_prices=usd_prices)
+                    )
+                    return
+            except Exception:
+                pass
+
+        elif deep_link_arg.startswith("var_"):
+            try:
+                var_id = int(deep_link_arg.split("_")[1])
+                from database.crud import get_variant, get_product, get_available_stock_count
+                from keyboards.user_keyboards import get_product_detail_keyboard
+                variant = await get_variant(session, var_id)
+                if variant:
+                    product = await get_product(session, variant.product_id)
+                    is_manual = (getattr(variant, "fulfillment_type", "AUTOMATIC") == "MANUAL")
+                    dispatch_time = getattr(variant, "manual_dispatch_time", "1–2 Hours") or "1–2 Hours"
+                    prod_title_clean = product.title if product else "Digital Item"
+                    prod_icon_clean = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if product else "📦"
+                    prod_display = f"{prod_icon_clean} {prod_title_clean}" if "<tg-emoji" not in prod_title_clean else prod_title_clean
+
+                    stock_count = await get_available_stock_count(session, variant.id)
+                    has_stock = (stock_count > 0) or is_manual
+                    stock_badge = "Available (1–2h Activation)" if is_manual else (f"In Stock ({stock_count} Available)" if has_stock else "Out of Stock")
+                    fulfillment_badge = f"Manual Activation ({dispatch_time})" if is_manual else "100% Instant Delivery"
+
+                    desc_block = f"<blockquote><b>Features &amp; Specifications:</b>\n{variant.detailed_description.strip()}</blockquote>\n\n" if variant.detailed_description else ""
+
+                    from payments.manager import payment_manager
+                    _, _, _, each_usdt = payment_manager.oxapay.calculate_amounts(variant.price)
+
+                    text = await render_template(
+                        session,
+                        "variant_detail",
+                        prod_header=f"{ce(CustomEmojis.DIAMOND, '💎')} <b>{prod_display}</b>",
+                        prod_title=prod_title_clean,
+                        prod_icon=prod_icon_clean,
+                        variant_name=variant.name,
+                        currency=config.CURRENCY_SYMBOL,
+                        price=f"{variant.price:.0f} · ~${each_usdt:.2f} USDT",
+                        variant_type=variant.variant_type,
+                        fulfillment_badge=fulfillment_badge,
+                        stock_badge=stock_badge,
+                        description_block=desc_block,
+                        delivery_time=dispatch_time if is_manual else "Instant (Under 5s)"
+                    )
+                    action_note = f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>Click <b>'ORDER ACTIVATION'</b> to submit details &amp; buy:</i>" if is_manual else f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>Click <b>'PURCHASE NOW'</b> to buy:</i>"
+                    text += f"\n{action_note}"
+                    await message.answer(
+                        text,
+                        reply_markup=get_product_detail_keyboard(
+                            variant_id=variant.id,
+                            price=variant.price,
+                            product_id=variant.product_id,
+                            has_stock=has_stock,
+                            is_manual=is_manual,
+                            is_admin=is_user_admin,
+                            quantity=1,
+                            usd_price=each_usdt
+                        )
+                    )
+                    return
+            except Exception:
+                pass
+
+        elif deep_link_arg in ("shop", "catalog"):
+            from database.crud import get_all_categories
+            from keyboards.user_keyboards import get_categories_keyboard
+            categories = await get_all_categories(session)
+            shop_text = (
+                f"{ce(CustomEmojis.SHOP, '🛍️')} <b>OFFICIAL SUBSCRIPTION STORE</b>\n"
+                f"{UI.SECTION_BAR}\n\n"
+                f"<i>Select a category below to browse premium accounts:</i>"
+            )
+            await message.answer(shop_text, reply_markup=get_categories_keyboard(categories))
+            return
     
     # Primary Admin Dedicated Experience (ID 6971497666 and authorized admins)
     if is_user_admin:

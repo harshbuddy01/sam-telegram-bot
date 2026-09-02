@@ -769,7 +769,9 @@ async def msg_admin_stock_lines(message: types.Message, state: FSMContext, sessi
             variant_name=variant.name if variant else "",
             added_count=added_count,
             total_stock=total_stock,
-            bot_username=bot_me.username or ""
+            bot_username=bot_me.username or "",
+            product_id=variant.product_id if variant else None,
+            variant_id=variant_id
         )
     except Exception:
         pass
@@ -1529,7 +1531,9 @@ async def msg_admin_varedit_stockqty(message: types.Message, state: FSMContext, 
                     variant_name=variant.name,
                     added_count=new_qty,
                     total_stock=variant.stock_quantity,
-                    bot_username=bot_me.username or ""
+                    bot_username=bot_me.username or "",
+                    product_id=variant.product_id,
+                    variant_id=variant.id
                 )
             except Exception as e:
                 logger.warning(f"Restock alert to group failed: {e}")
@@ -1980,7 +1984,9 @@ async def msg_admin_var_manual_stock_qty(message: types.Message, state: FSMConte
                 variant_name=variant_name,
                 added_count=qty,
                 total_stock=qty,
-                bot_username=bot_me.username or ""
+                bot_username=bot_me.username or "",
+                product_id=prod_id,
+                variant_id=variant_id
             )
         except Exception as e:
             logger.warning(f"Restock alert failed: {e}")

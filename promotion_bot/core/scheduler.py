@@ -47,13 +47,15 @@ class PromotionScheduler:
                         interval_hours = promo.interval_hours or 2.0
                         now = datetime.datetime.utcnow()
 
-                        # If last_run_at is NULL, stamp it now and SKIP (wait full interval first)
+                        # If last_run_at is NULL, trigger first cycle immediately
                         if not promo.last_run_at:
                             promo.last_run_at = now
                             await session.commit()
                             logger.info(
-                                f"Scheduler: Stamped {acc.phone} last_run_at=now. "
-                                f"First auto-broadcast in {interval_hours}h."
+                                f"Scheduler: Stamped {acc.phone} last_run_at=now. Launching initial cycle immediately."
+                            )
+                            asyncio.create_task(
+                                broadcaster.start_account_broadcast(acc.id, trigger_type="SCHEDULED")
                             )
                             continue
 

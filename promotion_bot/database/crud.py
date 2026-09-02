@@ -449,6 +449,7 @@ async def update_account_promo(session: AsyncSession, account_id: int, text: str
 async def set_account_interval(session: AsyncSession, account_id: int, interval_hours: float):
     promo = await get_or_create_account_promo(session, account_id)
     promo.interval_hours = interval_hours
+    promo.is_enabled = True
     await session.commit()
 
 async def set_account_campaign_enabled(session: AsyncSession, account_id: int, enabled: bool):
