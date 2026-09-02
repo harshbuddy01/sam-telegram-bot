@@ -79,6 +79,38 @@ async def get_user_referrals_count(session: AsyncSession, telegram_id: int) -> i
     result = await session.execute(stmt)
     return result.scalar() or 0
 
+async def get_users_with_balance(session: AsyncSession, limit: int = 50) -> List[User]:
+    """Get all users who have an active positive wallet balance."""
+    stmt = select(User).where(User.balance > 0).order_by(User.balance.desc()).limit(limit)
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+async def get_recent_users(session: AsyncSession, limit: int = 30) -> List[User]:
+    """Get most recently registered users."""
+    stmt = select(User).order_by(User.created_at.desc()).limit(limit)
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+async def get_total_wallet_liabilities(session: AsyncSession) -> float:
+    """Get total balance held across all user wallets."""
+    stmt = select(func.coalesce(func.sum(User.balance), 0.0))
+    result = await session.execute(stmt)
+    return float(result.scalar() or 0.0)
+
+async def search_users(session: AsyncSession, query: str, limit: int = 20) -> List[User]:
+    """Search users by numeric Telegram ID, username, or full name."""
+    query = query.strip()
+    if query.isdigit():
+        target_id = int(query)
+        stmt = select(User).where((User.telegram_id == target_id) | (User.id == target_id)).limit(limit)
+    else:
+        clean_q = f"%{query.lstrip('@')}%"
+        stmt = select(User).where(
+            (User.username.ilike(clean_q)) | (User.full_name.ilike(clean_q))
+        ).order_by(User.balance.desc()).limit(limit)
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
 # ================= CATEGORY CRUD =================
 
 async def get_active_categories(session: AsyncSession) -> List[Category]:

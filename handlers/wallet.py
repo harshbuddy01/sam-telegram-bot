@@ -69,11 +69,35 @@ async def cb_deposit_amount_selected(callback: types.CallbackQuery, state: FSMCo
 
 @router.callback_query(F.data.startswith("deppay_"))
 async def cb_deposit_gateway_chosen(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
-    parts = callback.data.split("_")
-    gw_name = parts[1].upper()
-    amount = float(parts[2])
-    await callback.answer()
-    await initiate_deposit_payment(callback.message, callback.from_user, amount, session, state, preferred_gateway=gw_name)
+    user_id = callback.from_user.id
+    if user_id in _generating_deposits:
+        await callback.answer("⏳ Generating your payment QR Code... Please wait a moment!", show_alert=False)
+        return
+
+    _generating_deposits.add(user_id)
+    try:
+        parts = callback.data.split("_")
+        gw_name = parts[1].upper()
+        amount = float(parts[2])
+        await callback.answer("⏳ Generating your secure UPI QR Code, please wait...", show_alert=False)
+
+        loading_text = (
+            f"{ce(CustomEmojis.FIRE, '⏳')} <b>GENERATING YOUR SECURE UPI QR CODE...</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{ce(CustomEmojis.WALLET, '💰')} <b>Deposit Amount:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n\n"
+            f"<i>Connecting to official UPI Payment Gateway, please wait a moment...</i>"
+        )
+        try:
+            await callback.message.edit_text(loading_text, reply_markup=None)
+        except Exception:
+            pass
+
+        await initiate_deposit_payment(
+            callback.message, callback.from_user, amount, session, state,
+            preferred_gateway=gw_name, loading_msg=callback.message
+        )
+    finally:
+        _generating_deposits.discard(user_id)
 
 async def prompt_payment_gateway_choice(message: types.Message, amount: float):
     _, _, _, pp_usd = payment_manager.paypal.calculate_amounts(amount)
@@ -137,14 +161,18 @@ async def initiate_deposit_payment(
     amount: float,
     session: AsyncSession,
     state: FSMContext,
-    preferred_gateway: Optional[str] = None
+    preferred_gateway: Optional[str] = None,
+    loading_msg: Optional[types.Message] = None
 ):
     user_id = from_user.id
-    if user_id in _generating_deposits:
+    added_locally = False
+    if user_id not in _generating_deposits:
+        _generating_deposits.add(user_id)
+        added_locally = True
+    elif not loading_msg:
         await message.answer(f"{ce(CustomEmojis.FIRE, '⏳')} A deposit invoice is already being generated for you. Please wait a second!")
         return
 
-    _generating_deposits.add(user_id)
     try:
         import time
         import io
@@ -305,6 +333,11 @@ async def initiate_deposit_payment(
                     [InlineKeyboardButton(text="Cancel & Return", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.LOCK)]
                 ])
                 await message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
+                if loading_msg:
+                    try:
+                        await loading_msg.delete()
+                    except Exception:
+                        pass
                 return
             else:
                 err_msg = res.get("error", "Payment gateway session failed.")
@@ -325,7 +358,8 @@ async def initiate_deposit_payment(
         )
         return
     finally:
-        _generating_deposits.discard(user_id)
+        if added_locally:
+            _generating_deposits.discard(user_id)
 
 @router.callback_query(F.data.startswith("chkdep_"))
 async def cb_check_automated_deposit(callback: types.CallbackQuery, session: AsyncSession, bot: Bot, state: FSMContext = None):
@@ -639,9 +673,8 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
         await callback.message.edit_text(text, reply_markup=kb)
         return
 
-    await callback.message.answer(
-        f"{ce(CustomEmojis.FIRE, '⏳')} <b>Payment Not Detected Yet</b>\n\n"
-        "If you have already paid, please wait a few seconds and tap 'Verify & Credit' again.",
+    await callback.answer(
+        "⏳ Payment not detected yet. If you have already paid, please allow a few seconds for the bank to process and tap 'I Have Paid' again!",
         show_alert=True
     )
 

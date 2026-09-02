@@ -93,31 +93,59 @@ _generating_sessions = set()
 
 @router.callback_query(F.data.startswith("buygw_"))
 async def cb_buy_variant_gateway(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
-    parts = callback.data.split("_")
-    gw_name = parts[1].upper()
-    variant_id = int(parts[2])
-
-    variant = await get_variant(session, variant_id)
-    if not variant:
-        await callback.answer("Product plan not found.", show_alert=True)
+    user_id = callback.from_user.id
+    if user_id in _generating_sessions:
+        await callback.answer("⏳ Generating your payment QR Code... Please wait a moment!", show_alert=False)
         return
 
-    user = await get_user(session, callback.from_user.id)
-    if not user:
-        await callback.answer("User profile not found.", show_alert=True)
-        return
+    _generating_sessions.add(user_id)
+    try:
+        parts = callback.data.split("_")
+        gw_name = parts[1].upper()
+        variant_id = int(parts[2])
 
-    product = await get_product(session, variant.product_id)
-    prod_title = product.title if product else "Digital Item"
-    prod_icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if product else "📦"
+        variant = await get_variant(session, variant_id)
+        if not variant:
+            await callback.answer("Product plan not found.", show_alert=True)
+            return
 
-    # Read quantity from FSM
-    fsm_data = await state.get_data()
-    variant_qty = fsm_data.get("variant_qty", {})
-    qty = max(1, int(variant_qty.get(str(variant_id), 1)))
+        user = await get_user(session, user_id)
+        if not user:
+            await callback.answer("User profile not found.", show_alert=True)
+            return
 
-    await callback.answer("⚡ Initializing checkout session...", show_alert=False)
-    await initiate_1click_checkout(callback.message, user, variant, prod_title, prod_icon, session, preferred_gateway=gw_name, quantity=qty)
+        product = await get_product(session, variant.product_id)
+        prod_title = product.title if product else "Digital Item"
+        prod_icon = format_emoji(product.emoji or Emojis.PRODUCT, product.custom_emoji_id) if product else "📦"
+
+        # Read quantity from FSM
+        fsm_data = await state.get_data()
+        variant_qty = fsm_data.get("variant_qty", {})
+        qty = max(1, int(variant_qty.get(str(variant_id), 1)))
+        total_price = round(variant.price * qty, 2)
+
+        await callback.answer("⏳ Generating your secure UPI QR Code, please wait...", show_alert=False)
+
+        # Immediate loading card that disables buttons to prevent rapid clicks
+        loading_text = (
+            f"{ce(CustomEmojis.FIRE, '⏳')} <b>GENERATING YOUR SECURE UPI QR CODE...</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> {variant.name}\n"
+            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount:</b> <b>{config.CURRENCY_SYMBOL}{total_price:.2f}</b>\n\n"
+            f"<i>Connecting to official UPI Payment Gateway, please wait a moment...</i>"
+        )
+        try:
+            await callback.message.edit_text(loading_text, reply_markup=None)
+        except Exception:
+            pass
+
+        await initiate_1click_checkout(
+            callback.message, user, variant, prod_title, prod_icon, session,
+            preferred_gateway=gw_name, quantity=qty, loading_msg=callback.message
+        )
+    finally:
+        _generating_sessions.discard(user_id)
 
 @router.callback_query(F.data.regexp(r"^buy_\d+$"))
 async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
@@ -194,8 +222,20 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
                 await safe_edit_or_reply(callback.message, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
                 return
 
-            await callback.answer("⚡ Initializing checkout...", show_alert=False)
-            await initiate_1click_checkout(callback.message, user, variant, prod_title, prod_icon, session, quantity=qty)
+            await callback.answer("⏳ Generating your secure UPI QR Code, please wait...", show_alert=False)
+            loading_text = (
+                f"{ce(CustomEmojis.FIRE, '⏳')} <b>GENERATING YOUR SECURE UPI QR CODE...</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> {variant.name}\n"
+                f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount:</b> <b>{config.CURRENCY_SYMBOL}{total_price:.2f}</b>\n\n"
+                f"<i>Connecting to official UPI Payment Gateway, please wait a moment...</i>"
+            )
+            try:
+                await callback.message.edit_text(loading_text, reply_markup=None)
+            except Exception:
+                pass
+            await initiate_1click_checkout(callback.message, user, variant, prod_title, prod_icon, session, quantity=qty, loading_msg=callback.message)
             return
 
         # 2. Check Fulfillment Mode (MANUAL vs AUTOMATIC)
@@ -436,7 +476,8 @@ async def initiate_1click_checkout(
     prod_icon: str,
     session: AsyncSession,
     preferred_gateway: Optional[str] = None,
-    quantity: int = 1
+    quantity: int = 1,
+    loading_msg: Optional[types.Message] = None
 ):
     import time
     import io
@@ -616,6 +657,11 @@ async def initiate_1click_checkout(
                 [InlineKeyboardButton(text="Cancel & Return", callback_data=f"var_{variant.id}", icon_custom_emoji_id=CustomEmojis.LOCK)]
             ])
             await message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
+            if loading_msg:
+                try:
+                    await loading_msg.delete()
+                except Exception:
+                    pass
             return
         else:
             err_msg = res.get("error", "Payment gateway session failed.")

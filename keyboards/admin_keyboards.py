@@ -18,7 +18,7 @@ def get_admin_main_keyboard(pending_deposits: int = 0, pending_orders: int = 0) 
         ],
         [
             InlineKeyboardButton(text="Store Statistics", callback_data="adm_stats", icon_custom_emoji_id=CustomEmojis.TROPHY),
-            InlineKeyboardButton(text="User Balance Adjust", callback_data="adm_users", icon_custom_emoji_id=CustomEmojis.VERIFIED)
+            InlineKeyboardButton(text="Users & Balances Hub", callback_data="adm_users", icon_custom_emoji_id=CustomEmojis.VERIFIED)
         ],
         [
             InlineKeyboardButton(text="Manage Categories", callback_data="adm_cats", icon_custom_emoji_id=CustomEmojis.SHOP),
@@ -447,3 +447,84 @@ def get_admin_cancel_keyboard(callback_data: str = "admin_home") -> InlineKeyboa
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Cancel & Return", callback_data=callback_data, icon_custom_emoji_id=CustomEmojis.CROWN)]
     ])
+
+def get_admin_users_hub_keyboard(users_with_balance: list, page: int = 0) -> InlineKeyboardMarkup:
+    buttons = []
+    
+    # Top action bar
+    buttons.append([
+        InlineKeyboardButton(text="🔍 Search by ID or Name", callback_data="adm_user_search", icon_custom_emoji_id=CustomEmojis.SEARCH),
+        InlineKeyboardButton(text="👥 Recent Signups", callback_data="adm_users_recent", icon_custom_emoji_id=CustomEmojis.VERIFIED)
+    ])
+    
+    items_per_page = 8
+    start_idx = page * items_per_page
+    page_items = users_with_balance[start_idx:start_idx + items_per_page]
+    
+    for u in page_items:
+        clean_name = (u.full_name or u.username or f"User {u.telegram_id}")[:16]
+        btn_text = f"👤 {clean_name} • {config.CURRENCY_SYMBOL}{u.balance:.0f} • ID:{u.telegram_id}"
+        buttons.append([
+            InlineKeyboardButton(text=btn_text, callback_data=f"adm_user_card_{u.telegram_id}", icon_custom_emoji_id=CustomEmojis.WALLET)
+        ])
+    
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(text="⬅️ Previous", callback_data=f"adm_users_page_{page-1}"))
+    if (page + 1) * items_per_page < len(users_with_balance):
+        nav_row.append(InlineKeyboardButton(text="Next ➡️", callback_data=f"adm_users_page_{page+1}"))
+    if nav_row:
+        buttons.append(nav_row)
+
+    buttons.append([
+        InlineKeyboardButton(text="Back to Admin Panel", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_admin_user_card_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    buttons = [
+        [
+            InlineKeyboardButton(text="+₹50", callback_data=f"adm_user_adj_{user_id}_50"),
+            InlineKeyboardButton(text="+₹100", callback_data=f"adm_user_adj_{user_id}_100"),
+            InlineKeyboardButton(text="+₹500", callback_data=f"adm_user_adj_{user_id}_500")
+        ],
+        [
+            InlineKeyboardButton(text="-₹50", callback_data=f"adm_user_adj_{user_id}_-50"),
+            InlineKeyboardButton(text="-₹100", callback_data=f"adm_user_adj_{user_id}_-100"),
+            InlineKeyboardButton(text="0️⃣ Set to ₹0", callback_data=f"adm_user_setzero_{user_id}")
+        ],
+        [
+            InlineKeyboardButton(text="✏️ Custom Amount (+ / -)", callback_data=f"adm_user_custom_{user_id}", icon_custom_emoji_id=CustomEmojis.SPARKLE)
+        ],
+        [
+            InlineKeyboardButton(text="Back to Users Hub", callback_data="adm_users", icon_custom_emoji_id=CustomEmojis.VERIFIED)
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_admin_recent_users_keyboard(recent_users: list, page: int = 0) -> InlineKeyboardMarkup:
+    buttons = []
+    items_per_page = 8
+    start_idx = page * items_per_page
+    page_items = recent_users[start_idx:start_idx + items_per_page]
+    
+    for u in page_items:
+        clean_name = (u.full_name or u.username or f"User {u.telegram_id}")[:16]
+        bal_str = f"{config.CURRENCY_SYMBOL}{u.balance:.0f}" if u.balance > 0 else "₹0"
+        btn_text = f"👤 {clean_name} • {bal_str} • ID:{u.telegram_id}"
+        buttons.append([
+            InlineKeyboardButton(text=btn_text, callback_data=f"adm_user_card_{u.telegram_id}", icon_custom_emoji_id=CustomEmojis.VERIFIED)
+        ])
+    
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(text="⬅️ Previous", callback_data=f"adm_recent_page_{page-1}"))
+    if (page + 1) * items_per_page < len(recent_users):
+        nav_row.append(InlineKeyboardButton(text="Next ➡️", callback_data=f"adm_recent_page_{page+1}"))
+    if nav_row:
+        buttons.append(nav_row)
+
+    buttons.append([
+        InlineKeyboardButton(text="Back to Users Hub", callback_data="adm_users", icon_custom_emoji_id=CustomEmojis.VERIFIED)
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)

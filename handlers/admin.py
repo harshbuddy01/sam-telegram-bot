@@ -44,6 +44,11 @@ from database.crud import (
     cancel_and_refund_order,
     get_user,
     update_user_balance,
+    get_all_users_count,
+    get_users_with_balance,
+    get_recent_users,
+    get_total_wallet_liabilities,
+    search_users,
     get_all_deposits,
     get_deposits_stats,
     get_product,
@@ -71,7 +76,10 @@ from keyboards.admin_keyboards import (
     get_admin_fulfillment_type_keyboard,
     get_admin_cancel_keyboard,
     get_admin_customizer_keyboard,
-    get_admin_template_edit_keyboard
+    get_admin_template_edit_keyboard,
+    get_admin_users_hub_keyboard,
+    get_admin_user_card_keyboard,
+    get_admin_recent_users_keyboard
 )
 from utils.states import (
     AdminCategoryStates,
@@ -2040,42 +2048,252 @@ async def msg_admin_broadcast_content(message: types.Message, state: FSMContext,
 
 # ================= 9. USER MANAGEMENT =================
 
+# ================= 9. USER & WALLET DIRECTORY HUB =================
+
+async def _render_user_card(target, user: User, session: AsyncSession, alert_text: str = None):
+    # Calculate user statistics
+    from database.models import Order
+    stmt_orders = select(func.count(Order.id)).where(
+        Order.user_id == user.telegram_id,
+        Order.status.in_(["PAID", "DELIVERED", "PENDING_DISPATCH", "COMPLETED"])
+    )
+    order_count = (await session.execute(stmt_orders)).scalar() or 0
+
+    stmt_spent = select(func.coalesce(func.sum(Order.amount), 0.0)).where(
+        Order.user_id == user.telegram_id,
+        Order.status.in_(["PAID", "DELIVERED", "PENDING_DISPATCH", "COMPLETED"])
+    )
+    total_spent = float((await session.execute(stmt_spent)).scalar() or 0.0)
+
+    reg_date = user.created_at.strftime("%d %b %Y, %H:%M") if user.created_at else "Earlier"
+    uname_str = f"@{user.username}" if user.username else "<i>No username</i>"
+
+    card_text = (
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>CUSTOMER PROFILE & WALLET CARD</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"• <b>Customer Name:</b> <b>{user.full_name}</b>\n"
+        f"• <b>Username:</b> {uname_str}\n"
+        f"• <b>Telegram Numeric ID:</b> <code>{user.telegram_id}</code>\n"
+        f"• <b>Joined On:</b> {reg_date}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Current Wallet Balance:</b> <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n"
+        f"{ce(CustomEmojis.ORDERS, '📦')} <b>Lifetime Orders:</b> <b>{order_count}</b>\n"
+        f"{ce(CustomEmojis.DIAMOND, '💎')} <b>Total Amount Spent:</b> <b>{config.CURRENCY_SYMBOL}{total_spent:.2f}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<i>Select a quick balance adjustment below or enter a custom amount:</i>"
+    )
+
+    kb = get_admin_user_card_keyboard(user.telegram_id)
+    if isinstance(target, types.CallbackQuery):
+        if alert_text:
+            await target.answer(alert_text, show_alert=False)
+        try:
+            await target.message.edit_text(card_text, reply_markup=kb)
+        except Exception:
+            await target.message.answer(card_text, reply_markup=kb)
+    else:
+        await target.answer(card_text, reply_markup=kb)
+
 @router.callback_query(F.data == "adm_users")
-async def cb_admin_users(callback: types.CallbackQuery, state: FSMContext):
+@router.callback_query(F.data.startswith("adm_users_page_"))
+async def cb_admin_users(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await state.clear()
+    
+    page = 0
+    if callback.data.startswith("adm_users_page_"):
+        page = int(callback.data.split("_")[3])
+
+    total_users = await get_all_users_count(session)
+    users_with_bal = await get_users_with_balance(session, limit=100)
+    total_liabilities = await get_total_wallet_liabilities(session)
+
+    text = (
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>CUSTOMER & WALLET DIRECTORY</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"👥 <b>Total Registered Users:</b> <b>{total_users:,}</b>\n"
+        f"💰 <b>Total Store Wallet Balances:</b> <b>{config.CURRENCY_SYMBOL}{total_liabilities:,.2f}</b>\n"
+        f"💳 <b>Users With Active Balance:</b> <b>{len(users_with_bal)}</b>\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<i>Customers currently holding money in their wallet:</i>"
+    )
+
+    kb = get_admin_users_hub_keyboard(users_with_bal, page=page)
+    try:
+        await callback.message.edit_text(text, reply_markup=kb)
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb)
+    await callback.answer()
+
+@router.callback_query(F.data == "adm_users_recent")
+@router.callback_query(F.data.startswith("adm_recent_page_"))
+async def cb_admin_users_recent(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    
+    page = 0
+    if callback.data.startswith("adm_recent_page_"):
+        page = int(callback.data.split("_")[3])
+
+    recent_users = await get_recent_users(session, limit=50)
+    text = (
+        f"{ce(CustomEmojis.VERIFIED, '👥')} <b>RECENTLY REGISTERED USERS</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<i>Showing recent customer signups. Tap any user to inspect:</i>"
+    )
+    kb = get_admin_recent_users_keyboard(recent_users, page=page)
+    try:
+        await callback.message.edit_text(text, reply_markup=kb)
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb)
+    await callback.answer()
+
+@router.callback_query(F.data == "adm_user_search")
+async def cb_admin_user_search_prompt(callback: types.CallbackQuery, state: FSMContext):
     if not check_admin(callback.from_user.id):
         return
     await callback.answer()
     await state.set_state(AdminUserManagementStates.waiting_for_user_query)
     text = (
-        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>USER WALLET ADJUSTMENT</b>\n"
+        f"{ce(CustomEmojis.SEARCH, '🔍')} <b>SEARCH CUSTOMER DIRECTORY</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"Send the user's <b>Telegram Numeric ID</b> (e.g. <code>6971497666</code>):"
+        f"Send the user's <b>Telegram Numeric ID</b> (e.g. <code>6971497666</code>), <b>@username</b>, or <b>Full Name</b>:"
     )
-    await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard("admin_home"))
+    await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard("adm_users"))
 
 @router.message(AdminUserManagementStates.waiting_for_user_query)
 async def msg_admin_user_query(message: types.Message, state: FSMContext, session: AsyncSession):
     query = message.text.strip()
-    if not query.isdigit():
-        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Please provide a valid numeric Telegram ID.")
+    users = await search_users(session, query, limit=10)
+    
+    if not users:
+        await message.answer(
+            f"{ce(CustomEmojis.LOCK, '⚠️')} No users found matching '<code>{query}</code>'.\n\n"
+            f"Please verify the Telegram ID, username, or name and try again.",
+            reply_markup=get_admin_cancel_keyboard("adm_users")
+        )
         return
 
-    target_id = int(query)
-    user = await get_user(session, target_id)
-    if not user:
-        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} User not found in database. User must send /start to register.")
+    if len(users) == 1:
+        await state.clear()
+        await _render_user_card(message, users[0], session)
         return
 
-    await state.update_data(target_id=target_id)
-    await state.set_state(AdminUserManagementStates.waiting_for_amount_adjust)
-
-    text = (
-        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>USER FOUND:</b> {user.full_name}\n"
-        f"{ce(CustomEmojis.KEY, '🆔')} Telegram ID: <code>{user.telegram_id}</code>\n"
-        f"{ce(CustomEmojis.WALLET, '💰')} Current Balance: <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n\n"
-        f"Send the balance change amount (use <code>+100</code> to add, <code>-50</code> to deduct):"
+    # Multiple users found, show selection buttons
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    buttons = []
+    for u in users:
+        clean_name = (u.full_name or u.username or f"User {u.telegram_id}")[:18]
+        btn_text = f"👤 {clean_name} • ₹{u.balance:.0f} • ID:{u.telegram_id}"
+        buttons.append([
+            InlineKeyboardButton(text=btn_text, callback_data=f"adm_user_card_{u.telegram_id}", icon_custom_emoji_id=CustomEmojis.VERIFIED)
+        ])
+    buttons.append([
+        InlineKeyboardButton(text="Back to Users Hub", callback_data="adm_users", icon_custom_emoji_id=CustomEmojis.VERIFIED)
+    ])
+    await state.clear()
+    await message.answer(
+        f"{ce(CustomEmojis.SEARCH, '🔍')} Found <b>{len(users)} users</b> matching '<code>{query}</code>':",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
-    await message.answer(text, reply_markup=get_admin_cancel_keyboard("admin_home"))
+
+@router.callback_query(F.data.startswith("adm_user_card_"))
+async def cb_admin_user_card_view(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await state.clear()
+    user_id = int(callback.data.split("_")[3])
+    user = await get_user(session, user_id)
+    if not user:
+        await callback.answer("User not found.", show_alert=True)
+        return
+    await _render_user_card(callback, user, session)
+
+@router.callback_query(F.data.startswith("adm_user_adj_"))
+async def cb_admin_user_quick_adjust(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):
+    if not check_admin(callback.from_user.id):
+        return
+    parts = callback.data.split("_")
+    user_id = int(parts[3])
+    delta = float(parts[4])
+
+    user = await update_user_balance(session, user_id, delta)
+    if not user:
+        await callback.answer("User not found.", show_alert=True)
+        return
+
+    sign = "+" if delta > 0 else ""
+    alert_text = f"✅ Balance updated: {sign}₹{delta:.0f} (New: ₹{user.balance:.2f})"
+    
+    # Notify user asynchronously
+    try:
+        await bot.send_message(
+            user_id,
+            f"{ce(CustomEmojis.FIRE, '🔔')} <b>WALLET BALANCE ADJUSTED BY ADMIN</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"Change: <b>{sign}{config.CURRENCY_SYMBOL}{delta:.2f}</b>\n"
+            f"Current Balance: <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>"
+        )
+    except Exception:
+        pass
+
+    await _render_user_card(callback, user, session, alert_text=alert_text)
+
+@router.callback_query(F.data.startswith("adm_user_setzero_"))
+async def cb_admin_user_set_zero(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):
+    if not check_admin(callback.from_user.id):
+        return
+    user_id = int(callback.data.split("_")[3])
+    user = await get_user(session, user_id)
+    if not user:
+        await callback.answer("User not found.", show_alert=True)
+        return
+
+    curr_bal = user.balance
+    if curr_bal <= 0:
+        await callback.answer("User balance is already ₹0.00.", show_alert=True)
+        return
+
+    user = await update_user_balance(session, user_id, -curr_bal)
+    alert_text = f"✅ Reset balance to ₹0.00 (Deducted ₹{curr_bal:.2f})"
+
+    try:
+        await bot.send_message(
+            user_id,
+            f"{ce(CustomEmojis.FIRE, '🔔')} <b>WALLET BALANCE RESET BY ADMIN</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"Current Balance: <b>{config.CURRENCY_SYMBOL}0.00</b>"
+        )
+    except Exception:
+        pass
+
+    await _render_user_card(callback, user, session, alert_text=alert_text)
+
+@router.callback_query(F.data.startswith("adm_user_custom_"))
+async def cb_admin_user_custom_prompt(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    user_id = int(callback.data.split("_")[3])
+    user = await get_user(session, user_id)
+    if not user:
+        await callback.answer("User not found.", show_alert=True)
+        return
+
+    await callback.answer()
+    await state.update_data(target_id=user_id)
+    await state.set_state(AdminUserManagementStates.waiting_for_amount_adjust)
+    
+    text = (
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>CUSTOM BALANCE ADJUSTMENT</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"• Customer: <b>{user.full_name}</b> (ID: <code>{user.telegram_id}</code>)\n"
+        f"• Current Balance: <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>\n\n"
+        f"Send the amount change:\n"
+        f"• Use <code>+150</code> to add ₹150\n"
+        f"• Use <code>-50</code> to deduct ₹50"
+    )
+    await callback.message.edit_text(text, reply_markup=get_admin_cancel_keyboard(f"adm_user_card_{user_id}"))
 
 @router.message(AdminUserManagementStates.waiting_for_amount_adjust)
 async def msg_admin_user_adjust(message: types.Message, state: FSMContext, session: AsyncSession, bot: Bot):
@@ -2091,13 +2309,9 @@ async def msg_admin_user_adjust(message: types.Message, state: FSMContext, sessi
     await state.clear()
 
     user = await update_user_balance(session, target_id, amount_delta)
-
-    await message.answer(
-        f"{ce(CustomEmojis.CHECK, '✅')} <b>Balance Updated!</b>\n\n"
-        f"User: {user.full_name}\n"
-        f"New Balance: <b>{config.CURRENCY_SYMBOL}{user.balance:.2f}</b>",
-        reply_markup=get_admin_cancel_keyboard("admin_home")
-    )
+    if not user:
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} User not found.", reply_markup=get_admin_cancel_keyboard("adm_users"))
+        return
 
     try:
         sign = "+" if amount_delta > 0 else ""
@@ -2110,6 +2324,8 @@ async def msg_admin_user_adjust(message: types.Message, state: FSMContext, sessi
         )
     except Exception:
         pass
+
+    await _render_user_card(message, user, session, alert_text="✅ Balance updated successfully!")
 
 # ================= 10. WIPE / RESET DEMO DATA =================
 
