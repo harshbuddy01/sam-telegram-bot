@@ -13,7 +13,7 @@ class CashfreeGateway(BasePaymentGateway):
         self.secret_key = getattr(config, "CASHFREE_SECRET_KEY", os.getenv("CASHFREE_SECRET_KEY", ""))
         self.environment = getattr(config, "CASHFREE_ENV", os.getenv("CASHFREE_ENV", "PRODUCTION"))
         
-        if self.environment.upper() == "SANDBOX":
+        if self.environment.upper() == "SANDBOX" or (self.app_id and self.app_id.startswith("TEST")):
             self.base_url = "https://sandbox.cashfree.com/pg"
         else:
             self.base_url = "https://api.cashfree.com/pg"
