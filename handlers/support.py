@@ -63,7 +63,7 @@ async def cb_confirm_got(callback: types.CallbackQuery, session: AsyncSession):
             var_name = ""
             if variant:
                 product = await get_product(session, variant.product_id) if variant.product_id else None
-                prod_title = product.name if product else "Product"
+                prod_title = product.title if product else "Product"
                 var_name = variant.name or ""
                 remaining = await get_available_stock_count(session, variant.id)
             else:

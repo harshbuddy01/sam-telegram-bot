@@ -105,6 +105,8 @@ from utils.emojis import (
 import config
 
 router = Router()
+router.message.filter(lambda message: config.is_admin(message.from_user.id))
+router.callback_query.filter(lambda callback: config.is_admin(callback.from_user.id))
 
 def check_admin(user_id: int) -> bool:
     return config.is_admin(user_id)

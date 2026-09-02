@@ -41,17 +41,24 @@ async def _background_notify(bot, order, prod_title, variant, user, remaining, a
         except Exception:
             pass
     try:
-        bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
-        await send_order_notification(
-            bot=bot,
-            order_id=order.id,
-            buyer_name=user.full_name,
-            product_title=prod_title,
-            variant_name=variant.name,
-            amount=amount,
-            stock_left=remaining,
-            bot_username=bot_me.username or ""
-        )
+        from database.database import AsyncSessionLocal
+        from database.models import Order
+        async with AsyncSessionLocal() as session:
+            db_order = await session.get(Order, order.id)
+            if db_order and not getattr(db_order, "broadcast_sent", False):
+                bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
+                await send_order_notification(
+                    bot=bot,
+                    order_id=order.id,
+                    buyer_name=user.full_name,
+                    product_title=prod_title,
+                    variant_name=variant.name,
+                    amount=amount,
+                    stock_left=remaining,
+                    bot_username=bot_me.username or ""
+                )
+                db_order.broadcast_sent = True
+                await session.commit()
     except Exception:
         pass
 
@@ -407,7 +414,7 @@ async def _background_notify_manual(bot: Bot, order, prod_title: str, var_name: 
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
         f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {getattr(user_obj, 'full_name', 'Customer')} (@{getattr(user_obj, 'username', 'NoUser') or 'NoUser'})\n"
-        f"{ce(CustomEmojis.KEY, '🆔')} <b>Telegram ID:</b> <code>{getattr(user_obj, 'id', getattr(user_obj, 'telegram_id', 0))}</code>\n"
+        f"{ce(CustomEmojis.KEY, '🆔')} <b>Telegram ID:</b> <code>{getattr(user_obj, 'telegram_id', getattr(user_obj, 'id', 0))}</code>\n"
         f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_title}\n"
         f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> {var_name}\n"
         f"{qty_section}"

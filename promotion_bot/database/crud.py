@@ -356,6 +356,7 @@ async def update_group_status(
     group.last_error = error
     group.updated_at = datetime.datetime.utcnow()
     if is_success:
+        group.is_joined = True
         group.last_sent_at = datetime.datetime.utcnow()
         group.consecutive_failures = 0
         group.failure_count = max(0, (group.failure_count or 0))

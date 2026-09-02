@@ -384,13 +384,12 @@ async def handle_paypal_webhook(request: web.Request) -> web.Response:
                 logger.info(f"Deposit #{deposit.id} already approved. Skipping duplicate webhook.")
                 return web.json_response({"status": "already_processed"})
 
-            # If event is CHECKOUT.ORDER.APPROVED, verify & capture via PayPal API
-            if event_type == "CHECKOUT.ORDER.APPROVED":
-                status_res = await payment_manager.paypal.verify_payment_status(deposit.gateway_order_id)
-                if not status_res.get("is_paid"):
-                    logger.warning(f"PayPal capture not completed yet for deposit #{deposit.id}: {status_res}")
-                    return web.json_response({"status": "capture_pending"})
-                capture_id = status_res.get("capture_id") or capture_id
+            # Cross-verify payment capture with PayPal API to prevent unauthenticated/forged requests
+            status_res = await payment_manager.paypal.verify_payment_status(deposit.gateway_order_id)
+            if not status_res.get("is_paid"):
+                logger.warning(f"PayPal verification failed for deposit #{deposit.id}: {status_res}")
+                return web.json_response({"status": "verification_failed"}, status=400)
+            capture_id = status_res.get("capture_id") or capture_id
 
             # Process & Credit Deposit
             deposit, user = await credit_user_deposit_automated(session, deposit.gateway_order_id, capture_id or "PAYPAL_AUTO")
@@ -641,6 +640,13 @@ async def handle_oxapay_webhook(request: web.Request) -> web.Response:
             if deposit.status in ("APPROVED", "SUCCESS"):
                 logger.info(f"Deposit #{deposit.id} already approved. Skipping duplicate OxaPay webhook.")
                 return web.Response(text="ok")
+
+            # Verify status directly with OxaPay API to prevent unauthenticated/forged requests
+            from payments.manager import payment_manager
+            verification = await payment_manager.oxapay.verify_payment_status(deposit.gateway_order_id or track_id)
+            if not verification.get("is_paid", False):
+                logger.warning(f"OxaPay webhook received for #{deposit.id}, but API verification returned not paid: {verification}")
+                return web.Response(text="unverified", status=400)
 
             # Credit deposit
             deposit, user = await credit_user_deposit_automated(session, deposit.gateway_order_id or track_id, tx_id or f"OXA_{track_id}")

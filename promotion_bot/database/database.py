@@ -13,6 +13,16 @@ engine = create_async_engine(
     future=True
 )
 
+from sqlalchemy import event
+
+@event.listens_for(engine.sync_engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA busy_timeout=5000")
+    cursor.close()
+
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
@@ -48,18 +58,7 @@ async def init_db():
             except Exception:
                 pass  # Column already exists — safe to ignore
 
-        # ── FIX: Force-disable scheduler for ALL existing accounts ────────────
-        # Old code created promo_messages with is_enabled=1 as default.
-        # SQLite ALTER TABLE DEFAULT only affects NEW rows, not existing ones.
-        # So we must explicitly UPDATE all existing rows to turn scheduler OFF.
-        # Users must go to ⏰ Scheduler and tap "Enable" to re-activate per account.
-        try:
-            now_str = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-            await conn.execute(text(
-                "UPDATE promo_messages SET is_enabled = 0, last_run_at = :now WHERE 1=1"
-            ), {"now": now_str})
-        except Exception as ex:
-            logger.warning(f"Could not update promo_messages scheduler state: {ex}")
+        # ── Safe column migrations complete ─────────────────────────────────
 
         # ── FIX: Repair any inverted HTML tags from old emoji extractor ───────
         try:

@@ -213,7 +213,7 @@ class RazorpayGateway(BasePaymentGateway):
         Verifies Razorpay Webhook HMAC SHA256 Signature.
         """
         if not self.webhook_secret:
-            return True # If no secret set, accept in dev
+            return False
         
         expected_sig = hmac.new(
             self.webhook_secret.encode("utf-8"),

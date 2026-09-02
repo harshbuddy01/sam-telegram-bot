@@ -336,16 +336,59 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
         await callback.message.answer("Deposit invoice not found.")
         return
 
+    # IDOR Protection: verify invoice ownership
+    if deposit.user_id != callback.from_user.id and not config.is_admin(callback.from_user.id):
+        await callback.answer("Unauthorized: You do not own this deposit invoice.", show_alert=True)
+        return
+
     if deposit.status in ("APPROVED", "SUCCESS"):
         user = await get_user(session, callback.from_user.id)
         if deposit.target_variant_id:
             from database.crud import get_variant, fulfill_order, create_manual_order, get_product, get_available_stock_count
+            from database.models import Order
+            from sqlalchemy import select
+            import datetime
+
             target_var = await get_variant(session, deposit.target_variant_id)
             if target_var:
-                is_manual = (getattr(target_var, "fulfillment_type", "AUTOMATIC") == "MANUAL")
                 prod = await get_product(session, target_var.product_id)
                 prod_title = prod.title if prod else "Digital Item"
 
+                # Check if an order was already fulfilled for this deposit to prevent duplicate creation
+                recent_order_stmt = select(Order).where(
+                    Order.user_id == user.telegram_id,
+                    Order.variant_id == target_var.id
+                ).order_by(Order.id.desc()).limit(1)
+                existing_order = (await session.execute(recent_order_stmt)).scalar_one_or_none()
+
+                if existing_order and (datetime.datetime.utcnow() - existing_order.created_at).total_seconds() < 7200:
+                    # Order already exists — display existing order receipt
+                    if existing_order.delivered_content:
+                        delivery_text = (
+                            f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>PAYMENT CONFIRMED & ORDER DELIVERED!</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{existing_order.id}\n"
+                            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b>\n"
+                            f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <b>{target_var.name}</b>\n"
+                            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> <b>{config.CURRENCY_SYMBOL}{existing_order.amount:.2f}</b>\n\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"{ce(CustomEmojis.KEY, '🔑')} <b>YOUR DELIVERED ACCOUNT / CODE:</b>\n"
+                            f"<i>(Tap the box below to copy automatically)</i>\n\n"
+                            f"<pre><code>{existing_order.delivered_content}</code></pre>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Full Warranty:</b> Covered throughout validity!\n"
+                            f"{ce(CustomEmojis.HEART, '❤️')} <i>Thank you for shopping with {config.STORE_NAME}!</i>"
+                        )
+                        kb = get_post_delivery_keyboard(existing_order.id)
+                        await callback.message.edit_text(delivery_text, reply_markup=kb)
+                        return
+                    else:
+                        await callback.message.answer(
+                            f"{ce(CustomEmojis.CHECK, '✅')} Your Order #{existing_order.id} is already placed and being processed by our team!"
+                        )
+                        return
+
+                is_manual = (getattr(target_var, "fulfillment_type", "AUTOMATIC") == "MANUAL")
                 order = None
                 qty = max(1, int(round(deposit.amount / target_var.price))) if target_var.price > 0 else 1
                 if not is_manual:

@@ -623,6 +623,7 @@ class SafeBroadcaster:
                     elif status == "account_banned" or "banned from sending messages" in reason.lower():
                         w["failed_count"] += 1
                         logger.error(f"[{w['account_phone']}] 🚨 ACCOUNT MUTED GLOBALLY BY TELEGRAM!")
+                        await update_sender_account_status(session, account_id, "MUTED")
                         w["failed_groups_list"].append(
                             {"identifier": group.identifier, "reason": "Muted Globally by Telegram (@SpamBot)"}
                         )
@@ -672,8 +673,8 @@ class SafeBroadcaster:
                         else:
                             await update_group_status(session, group.id, "RESTRICTED", error=reason)
 
-                # Batch cooldown & jitter
-                if w["success_count"] > 0 and w["success_count"] % batch_size == 0 and idx < w["total_targets"]:
+                # Batch cooldown & jitter (only trigger on the successful send that hits the batch boundary)
+                if status == "ok" and w["success_count"] > 0 and w["success_count"] % batch_size == 0 and idx < w["total_targets"]:
                     logger.info(f"Anti-ban batch cooldown for {w['account_phone']}: pausing {batch_cooldown}s...")
                     await asyncio.sleep(batch_cooldown)
                 elif idx < w["total_targets"]:

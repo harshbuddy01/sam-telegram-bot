@@ -23,8 +23,8 @@ class PromotionScheduler:
                     accounts = await get_all_sender_accounts(session)
 
                 if is_enabled.lower() != "true":
-                    logger.debug("Broadcast paused globally. Sleeping 2h.")
-                    await self._sleep_interval(7200)
+                    logger.debug("Broadcast paused globally. Sleeping 15s.")
+                    await self._sleep_interval(15)
                     continue
 
                 for acc in accounts:
