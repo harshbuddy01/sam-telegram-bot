@@ -13,7 +13,8 @@ from database.crud import (
     deselect_all_groups,
     sync_telegram_groups,
     get_group_stats_for_account,
-    get_or_create_account_promo
+    get_or_create_account_promo,
+    set_account_campaign_enabled
 )
 from core.client import tg_manager
 from core.broadcaster import broadcaster

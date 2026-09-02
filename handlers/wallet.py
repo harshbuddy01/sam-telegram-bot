@@ -1,3 +1,4 @@
+import asyncio
 from typing import Optional, Dict, Any, List
 from aiogram import Router, F, types, Bot
 from aiogram.fsm.context import FSMContext
@@ -327,7 +328,7 @@ async def initiate_deposit_payment(
         _generating_deposits.discard(user_id)
 
 @router.callback_query(F.data.startswith("chkdep_"))
-async def cb_check_automated_deposit(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):
+async def cb_check_automated_deposit(callback: types.CallbackQuery, session: AsyncSession, bot: Bot, state: FSMContext = None):
     await callback.answer("Checking payment status with gateway...", show_alert=False)
     deposit_id = int(callback.data.split("_")[1])
     deposit = await get_deposit(session, deposit_id)
@@ -428,17 +429,18 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
                             customer_input="Awaiting customer details...",
                             quantity=qty
                         )
-                        await state.set_state(OrderManualStates.waiting_for_input)
-                        await state.update_data(
-                            order_id=manual_order.id,
-                            variant_id=target_var.id,
-                            price=target_var.price,
-                            quantity=qty,
-                            prod_title=prod_title,
-                            var_name=target_var.name,
-                            dispatch_time=dispatch_time,
-                            is_paid=True
-                        )
+                        if state:
+                            await state.set_state(OrderManualStates.waiting_for_input)
+                            await state.update_data(
+                                order_id=manual_order.id,
+                                variant_id=target_var.id,
+                                price=target_var.price,
+                                quantity=qty,
+                                prod_title=prod_title,
+                                var_name=target_var.name,
+                                dispatch_time=dispatch_time,
+                                is_paid=True
+                            )
 
                         prompt_msg = getattr(target_var, "input_prompt", None) or "Please send your target Email / Account username for activation:"
                         qty_line = f"\n{ce(CustomEmojis.SPARKLE, '🔢')} <b>Quantity:</b> <b>{qty} unit(s)</b>" if qty > 1 else ""

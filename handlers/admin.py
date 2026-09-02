@@ -1,4 +1,7 @@
+import logging
 from aiogram import Router, F, types, Bot
+
+logger = logging.getLogger(__name__)
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
