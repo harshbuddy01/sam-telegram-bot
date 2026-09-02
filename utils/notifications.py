@@ -8,7 +8,7 @@ from datetime import datetime
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import config
-from utils.emojis import CustomEmojis, ce
+from utils.emojis import CustomEmojis, ce, clean_button_text
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +24,8 @@ def mask_username(name: str) -> str:
         return "Anonymous"
     name = name.strip()
     if len(name) <= 2:
-        return name[0] + "*"
-    elif len(name) <= 4:
-        return name[0] + "*" * (len(name) - 2) + name[-1]
-    else:
-        return name[0] + "*" * (len(name) - 2) + name[-2:]
+        return name[0] + "*" if name else "User"
+    return f"{name[0]}{'*' * (len(name) - 2)}{name[-1]}"
 
 
 async def send_order_notification(
@@ -42,35 +39,40 @@ async def send_order_notification(
     bot_username: str = ""
 ):
     """
-    Post an order notification to the configured group/channel.
-    Matches the Quantum-xD style card with masked buyer name.
+    Post an order confirmation alert to the configured group/channel.
+    Only sends if NOTIFICATION_CHANNEL_ID is set in config.
     """
     channel_id = config.NOTIFICATION_CHANNEL_ID
     if not channel_id:
         return
 
-    masked_name = mask_username(buyer_name)
-    now = datetime.utcnow()
-    time_str = now.strftime("%I:%M %p, %d %b %Y")
-
-    stock_text = f"Only {stock_left} remaining!" if stock_left <= 10 else f"{stock_left} in stock"
+    masked = mask_username(buyer_name)
+    now_str = datetime.now().strftime("%I:%M %p, %d %b %Y")
+    clean_prod = clean_button_text(product_title) or "Product"
+    clean_var = clean_button_text(variant_name) if variant_name else ""
 
     text = (
-        f"{ce(CustomEmojis.SHOP, '🛍️')} <b>New Order Received!</b> {ce(CustomEmojis.SHOP, '🛍️')}\n\n"
-        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Buyer:</b> <code>{masked_name}</code>\n"
-        f"{ce(CustomEmojis.GIFT, '📦')} <b>Product:</b> {product_title}\n"
-        f"{ce(CustomEmojis.DIAMOND, '💎')} <b>Variant:</b> {variant_name}\n"
-        f"{ce(CustomEmojis.WALLET, '💰')} <b>Paid Amount:</b> {config.CURRENCY_SYMBOL}{amount:.1f}\n"
-        f"{ce(CustomEmojis.FIRE, '🔥')} <b>Stock Left:</b> {stock_text}\n"
-        f"{ce(CustomEmojis.STAR, '📅')} <b>Time:</b> {time_str}\n\n"
-        f"{ce(CustomEmojis.CHECK, '✅')} <b>Thank you for choosing us!</b>"
+        f"{ce(CustomEmojis.FIRE, '🚨')} <b>NEW ORDER COMPLETED!</b> {ce(CustomEmojis.FIRE, '🚨')}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{clean_prod}</b>\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Buyer:</b> <code>{masked}</code>\n"
+        f"{ce(CustomEmojis.GIFT, '🎁')} <b>Variant:</b> {clean_var}\n"
+        f"{ce(CustomEmojis.DIAMOND, '💎')} <b>Paid:</b> <b>{config.CURRENCY_SYMBOL}{amount:.1f}</b>\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Payment Mode:</b> Instant Auto-Fulfillment\n"
+        f"{ce(CustomEmojis.FIRE, '🔥')} <b>Stock Left:</b> <code>{stock_left} in stock</code>\n"
+        f"{ce(CustomEmojis.STAR, '📅')} <b>Time:</b> {now_str}\n\n"
+        f"{ce(CustomEmojis.CHECK, '✅')} <i>Credentials securely delivered to buyer!</i>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     )
 
-    # Deep-link button to the bot
     kb = None
     if bot_username:
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Buy Now", url=f"https://t.me/{bot_username}?start=shop", icon_custom_emoji_id=CustomEmojis.SHOP)]
+            [InlineKeyboardButton(
+                text=f"🛒 Buy {clean_prod} Now",
+                url=f"https://t.me/{bot_username}?start=shop",
+                icon_custom_emoji_id=CustomEmojis.SHOP
+            )]
         ])
 
     try:
@@ -96,11 +98,14 @@ async def send_restock_alert(
     if not channel_id:
         return
 
-    plan_line = f"\n{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <code>{variant_name}</code>" if variant_name else ""
+    clean_prod = clean_button_text(product_title) or "Product"
+    clean_var = clean_button_text(variant_name) if variant_name else ""
+
+    plan_line = f"\n{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan:</b> <code>{clean_var}</code>" if clean_var else ""
     text = (
-        f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>RESTOCK ALERT — {product_title.upper()}!</b> {ce(CustomEmojis.SPARKLE, '🎉')}\n"
+        f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>RESTOCK ALERT — {clean_prod.upper()}!</b> {ce(CustomEmojis.SPARKLE, '🎉')}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"{ce(CustomEmojis.FIRE, '🔥')} <b>{product_title}</b> is back in stock!{plan_line}\n"
+        f"{ce(CustomEmojis.FIRE, '🔥')} <b>{clean_prod}</b> is back in stock!{plan_line}\n"
         f"{ce(CustomEmojis.SHOP, '📦')} <b>Fresh Stock Added:</b> <code>+{added_count} unit(s)</code>\n"
         f"{ce(CustomEmojis.TROPHY, '📊')} <b>Live Available Stock:</b> <code>{total_stock} unit(s)</code>\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -111,13 +116,13 @@ async def send_restock_alert(
     if bot_username:
         if variant_id:
             target_url = f"https://t.me/{bot_username}?start=var_{variant_id}"
-            btn_title = f"⚡ Buy Now • {variant_name or product_title}"
+            btn_title = f"⚡ Buy Now • {clean_var or clean_prod}"
         elif product_id:
             target_url = f"https://t.me/{bot_username}?start=prod_{product_id}"
-            btn_title = f"⚡ Buy Now • {product_title}"
+            btn_title = f"⚡ Buy Now • {clean_prod}"
         else:
             target_url = f"https://t.me/{bot_username}?start=shop"
-            btn_title = f"⚡ Buy Now • {product_title}"
+            btn_title = f"⚡ Buy Now • {clean_prod}"
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(

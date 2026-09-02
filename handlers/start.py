@@ -161,6 +161,49 @@ async def cmd_start(message: types.Message, bot: Bot, session: AsyncSession, com
             )
             await message.answer(shop_text, reply_markup=get_categories_keyboard(categories))
             return
+
+        else:
+            # Smart product lookup by name/slug (e.g. /start spotify, /start netflix, /start capcut)
+            try:
+                from database.crud import get_all_products, get_variants_by_product
+                from keyboards.user_keyboards import get_variants_keyboard
+                from utils.emojis import clean_button_text
+                query_name = deep_link_arg.replace("_", " ").replace("-", " ").strip().lower()
+                all_prods = await get_all_products(session)
+                matched_prod = None
+                for p in all_prods:
+                    p_clean = clean_button_text(p.title).lower()
+                    if query_name in p_clean or p_clean in query_name:
+                        matched_prod = p
+                        break
+                if matched_prod:
+                    variants = await get_variants_by_product(session, matched_prod.id)
+                    icon = format_emoji(matched_prod.emoji or Emojis.PRODUCT, matched_prod.custom_emoji_id) if "<tg-emoji" not in matched_prod.title else ""
+                    clean_title = clean_button_text(matched_prod.title)
+                    title_header = f"{icon} <b>{clean_title}</b>" if icon else f"<b>{clean_title}</b>"
+                    text = f"{title_header}\n{UI.SECTION_BAR}\n\n"
+                    if matched_prod.description:
+                        text += f"<blockquote>{matched_prod.description}</blockquote>\n\n"
+                    text += (
+                        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Select your plan / duration below:</b>\n"
+                        f"<i>(Click on any plan to inspect specs, warranty & delivery info)</i>"
+                    )
+                    usd_prices = {}
+                    try:
+                        from payments.manager import payment_manager
+                        for var in variants:
+                            _, _, _, usdt_amt = payment_manager.oxapay.calculate_amounts(var.price)
+                            _, _, _, pp_usd = payment_manager.paypal.calculate_amounts(var.price)
+                            usd_prices[var.id] = (usdt_amt, pp_usd)
+                    except Exception:
+                        pass
+                    await message.answer(
+                        text,
+                        reply_markup=get_variants_keyboard(variants, matched_prod.id, matched_prod.category_id, usd_prices=usd_prices)
+                    )
+                    return
+            except Exception:
+                pass
     
     # Primary Admin Dedicated Experience (ID 6971497666 and authorized admins)
     if is_user_admin:
