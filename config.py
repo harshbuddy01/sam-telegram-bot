@@ -24,14 +24,10 @@ GROUP_LINK = os.getenv("GROUP_LINK", "https://t.me/+qNcj-Lx4pQZmMjE1")
 NOTIFICATION_CHANNEL_ID = int(os.getenv("NOTIFICATION_CHANNEL_ID", "-1004403882109"))
 REFERRAL_BONUS_PERCENT = float(os.getenv("REFERRAL_BONUS_PERCENT", "5.0"))
 
-# Automated Payment Gateways (Razorpay & Cashfree & PayPal)
+# Automated Payment Gateways (Razorpay & PayPal)
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
 RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "SamStoreSecret2026")
-
-CASHFREE_APP_ID = os.getenv("CASHFREE_APP_ID", "")
-CASHFREE_SECRET_KEY = os.getenv("CASHFREE_SECRET_KEY", "")
-CASHFREE_ENV = os.getenv("CASHFREE_ENV", "PRODUCTION")
 
 # PayPal Settings
 PAYPAL_CLIENT_ID = os.getenv("PAYPAL_CLIENT_ID", "").strip('"\' ')

@@ -1,17 +1,15 @@
 from typing import Optional, Dict, Any
 from payments.manual_upi import ManualUPIGateway
-from payments.cashfree import CashfreeGateway
 from payments.razorpay import RazorpayGateway
 from payments.paypal import PayPalGateway
 from payments.oxapay import OxaPayGateway
 
 class PaymentManager:
     """
-    Central Payment Gateway Manager supporting Razorpay, PayPal, OxaPay (Crypto), Cashfree & Manual UPI.
+    Central Payment Gateway Manager supporting Razorpay, PayPal, OxaPay (Crypto) & Manual UPI.
     """
     def __init__(self):
         self.manual_upi = ManualUPIGateway()
-        self.cashfree = CashfreeGateway()
         self.razorpay = RazorpayGateway()
         self.paypal = PayPalGateway()
         self.oxapay = OxaPayGateway()
@@ -24,8 +22,6 @@ class PaymentManager:
             return "PAYPAL"
         elif self.oxapay.is_configured:
             return "OXAPAY"
-        elif self.cashfree.is_configured:
-            return "CASHFREE"
         return "MANUAL_UPI"
 
     def get_available_gateways(self) -> list[str]:
@@ -36,8 +32,6 @@ class PaymentManager:
             gateways.append("PAYPAL")
         if self.oxapay.is_configured:
             gateways.append("OXAPAY")
-        if self.cashfree.is_configured:
-            gateways.append("CASHFREE")
         if not gateways:
             gateways.append("MANUAL_UPI")
         return gateways
@@ -74,15 +68,6 @@ class PaymentManager:
             )
         elif gw == "RAZORPAY" and self.razorpay.is_configured:
             return await self.razorpay.create_payment_order(
-                user_id=user_id,
-                amount=amount,
-                order_id=order_id,
-                customer_name=customer_name,
-                customer_phone=customer_phone,
-                customer_email=customer_email
-            )
-        elif gw == "CASHFREE" and self.cashfree.is_configured:
-            return await self.cashfree.create_payment_order(
                 user_id=user_id,
                 amount=amount,
                 order_id=order_id,

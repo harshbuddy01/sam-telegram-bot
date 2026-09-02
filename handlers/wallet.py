@@ -252,8 +252,8 @@ async def initiate_deposit_payment(
                 )
                 return
 
-        # 3. Razorpay / Cashfree Automated Flow
-        elif active_gateway in ("RAZORPAY", "CASHFREE") or payment_manager.razorpay.is_configured:
+        # 3. Razorpay Automated Flow
+        elif active_gateway == "RAZORPAY" or payment_manager.razorpay.is_configured:
             res = await payment_manager.razorpay.create_qr_code(
                 user_id=user_id,
                 amount=amount,
@@ -506,8 +506,6 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
         status_res = await payment_manager.paypal.verify_payment_status(deposit.gateway_order_id)
     elif deposit.gateway == "RAZORPAY" and deposit.gateway_order_id:
         status_res = await payment_manager.razorpay.verify_payment_status(deposit.gateway_order_id)
-    elif deposit.gateway == "CASHFREE" and deposit.gateway_order_id:
-        status_res = await payment_manager.cashfree.verify_payment_status(deposit.gateway_order_id)
 
     if status_res.get("is_paid"):
         dep, user = await credit_user_deposit_automated(session, deposit.gateway_order_id, status_res.get("capture_id", "AUTO_VERIFIED"))

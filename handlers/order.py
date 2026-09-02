@@ -561,8 +561,8 @@ async def initiate_1click_checkout(
             )
             return
 
-    # 3. Razorpay / Cashfree 1-Click Flow
-    elif active_gateway in ("RAZORPAY", "CASHFREE") or payment_manager.razorpay.is_configured:
+    # 3. Razorpay 1-Click Flow
+    elif active_gateway == "RAZORPAY" or payment_manager.razorpay.is_configured:
         res = await payment_manager.razorpay.create_qr_code(
             user_id=user.telegram_id,
             amount=amount,

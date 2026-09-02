@@ -84,7 +84,7 @@ def get_admin_settings_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="Change Payee Name", callback_data="adm_set_upi_name", icon_custom_emoji_id=CustomEmojis.VERIFIED)
         ],
         [
-            InlineKeyboardButton(text="Automated Gateway (Razorpay/Cashfree)", callback_data="adm_gateways", icon_custom_emoji_id=CustomEmojis.FIRE)
+            InlineKeyboardButton(text="Automated Gateway (Razorpay)", callback_data="adm_gateways", icon_custom_emoji_id=CustomEmojis.FIRE)
         ],
         [
             InlineKeyboardButton(text="Change Support Handle", callback_data="adm_set_support", icon_custom_emoji_id=CustomEmojis.SUPPORT),
@@ -142,7 +142,7 @@ def get_admin_payments_keyboard(deposits: list) -> InlineKeyboardMarkup:
     buttons = []
     for dep in deposits[:20]:
         status_icon = "🟢" if dep.status in ("APPROVED", "SUCCESS") else ("⏳" if dep.status == "PENDING" else "❌")
-        gateway_badge = "Rzp" if dep.gateway == "RAZORPAY" else ("CF" if dep.gateway == "CASHFREE" else "UPI")
+        gateway_badge = "Rzp" if dep.gateway == "RAZORPAY" else "UPI"
         buttons.append([
             InlineKeyboardButton(
                 text=f"{status_icon} #{dep.id} • ₹{dep.amount:.0f} • {gateway_badge} • ID:{dep.user_id}",
