@@ -282,7 +282,14 @@ def get_product_detail_keyboard(
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_deposit_preset_keyboard() -> InlineKeyboardMarkup:
+def get_deposit_currency_choice_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🇮🇳 Indian Rupee (INR ₹) • Instant UPI", callback_data="dep_curr_inr", icon_custom_emoji_id=CustomEmojis.FIRE)],
+        [InlineKeyboardButton(text="🌐 International (USD $) • PayPal & Crypto", callback_data="dep_curr_usd", icon_custom_emoji_id=CustomEmojis.CARD)],
+        [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+    ])
+
+def get_deposit_inr_preset_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [
             InlineKeyboardButton(text=f"{config.CURRENCY_SYMBOL}50", callback_data="depamt_50", icon_custom_emoji_id=CustomEmojis.DIAMOND),
@@ -295,12 +302,53 @@ def get_deposit_preset_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text=f"{config.CURRENCY_SYMBOL}2,000", callback_data="depamt_2000", icon_custom_emoji_id=CustomEmojis.CROWN),
         ],
         [
-            InlineKeyboardButton(text="Enter Custom Amount", callback_data="depamt_custom", icon_custom_emoji_id=CustomEmojis.SPARKLE)
+            InlineKeyboardButton(text="✏️ Custom INR Amount", callback_data="depamt_custom", icon_custom_emoji_id=CustomEmojis.SPARKLE)
         ],
         [
+            InlineKeyboardButton(text="🌐 Switch to USD ($)", callback_data="dep_curr_usd", icon_custom_emoji_id=CustomEmojis.CARD),
             InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
         ]
     ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_deposit_usd_preset_keyboard() -> InlineKeyboardMarkup:
+    rate = getattr(config, "PAYPAL_USD_TO_INR_RATE", 90.0)
+    buttons = [
+        [
+            InlineKeyboardButton(text=f"$5.00 (₹{int(5 * rate)})", callback_data="depusdamt_5", icon_custom_emoji_id=CustomEmojis.DIAMOND),
+            InlineKeyboardButton(text=f"$10.00 (₹{int(10 * rate)})", callback_data="depusdamt_10", icon_custom_emoji_id=CustomEmojis.DIAMOND),
+        ],
+        [
+            InlineKeyboardButton(text=f"$20.00 (₹{int(20 * rate)})", callback_data="depusdamt_20", icon_custom_emoji_id=CustomEmojis.FIRE),
+            InlineKeyboardButton(text=f"$50.00 (₹{int(50 * rate)})", callback_data="depusdamt_50", icon_custom_emoji_id=CustomEmojis.CROWN),
+        ],
+        [
+            InlineKeyboardButton(text="✏️ Custom USD Amount (Min $2)", callback_data="depusdamt_custom", icon_custom_emoji_id=CustomEmojis.SPARKLE)
+        ],
+        [
+            InlineKeyboardButton(text="🇮🇳 Switch to INR (₹)", callback_data="dep_curr_inr", icon_custom_emoji_id=CustomEmojis.FIRE),
+            InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_deposit_preset_keyboard() -> InlineKeyboardMarkup:
+    return get_deposit_inr_preset_keyboard()
+
+def get_international_gateway_choice_keyboard(inr_amount: float, usd_amount: float) -> InlineKeyboardMarkup:
+    buttons = []
+    from payments.manager import payment_manager
+    if payment_manager.paypal.is_configured:
+        buttons.append([
+            InlineKeyboardButton(text=f"Pay ${usd_amount:.2f} via PayPal & Cards", callback_data=f"deppay_paypal_{int(inr_amount)}", icon_custom_emoji_id=CustomEmojis.CARD)
+        ])
+    if payment_manager.oxapay.is_configured:
+        buttons.append([
+            InlineKeyboardButton(text=f"Pay ${usd_amount:.2f} via Crypto (OxaPay)", callback_data=f"deppay_oxapay_{int(inr_amount)}", icon_custom_emoji_id=CustomEmojis.DIAMOND)
+        ])
+    buttons.append([
+        InlineKeyboardButton(text="Back to USD Presets", callback_data="dep_curr_usd", icon_custom_emoji_id=CustomEmojis.WALLET)
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_deposit_verification_keyboard(deposit_id: int) -> InlineKeyboardMarkup:

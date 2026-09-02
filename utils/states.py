@@ -2,6 +2,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 class DepositStates(StatesGroup):
     waiting_for_amount = State()
+    waiting_for_usd_amount = State()
     waiting_for_proof = State()
 
 class SearchStates(StatesGroup):

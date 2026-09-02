@@ -14,7 +14,16 @@ from database.crud import (
 )
 from utils.qr_generator import generate_upi_qr
 from utils.states import DepositStates
-from keyboards.user_keyboards import get_deposit_preset_keyboard, get_deposit_verification_keyboard, get_back_button, get_post_delivery_keyboard
+from keyboards.user_keyboards import (
+    get_deposit_currency_choice_keyboard,
+    get_deposit_inr_preset_keyboard,
+    get_deposit_usd_preset_keyboard,
+    get_deposit_preset_keyboard,
+    get_international_gateway_choice_keyboard,
+    get_deposit_verification_keyboard,
+    get_back_button,
+    get_post_delivery_keyboard
+)
 from payments.manager import payment_manager
 from utils.emojis import Emojis, UI, CustomEmojis, ce
 from utils.notifications import send_order_notification
@@ -28,18 +37,66 @@ async def cb_deposit_menu(callback: types.CallbackQuery, state: FSMContext, sess
     await callback.answer()
     user = await get_user(session, callback.from_user.id)
     current_balance = user.balance if user else 0.0
+    rate = getattr(config, "PAYPAL_USD_TO_INR_RATE", 90.0)
+    usd_equiv = current_balance / rate if rate > 0 else 0.0
 
     text = (
-        f"{ce(CustomEmojis.WALLET, '💳')} <b>DEPOSIT / WALLET TOP-UP</b>\n"
+        f"{ce(CustomEmojis.WALLET, '💳')} <b>ADD MONEY / WALLET TOP-UP</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"<blockquote>"
-        f"{ce(CustomEmojis.WALLET, '💰')} <b>Your Current Balance:</b> <b>{config.CURRENCY_SYMBOL}{current_balance:.2f}</b>\n"
-        f"{ce(CustomEmojis.FIRE, '⚡')} <b>Payment Method:</b> Any UPI App (GPay / PhonePe / Paytm / CRED / BHIM)\n"
-        f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Processing:</b> Instant verification & auto-credit"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Current Balance:</b> <b>{config.CURRENCY_SYMBOL}{current_balance:.2f}</b> (≈ ${usd_equiv:.2f} USD)\n"
+        f"{ce(CustomEmojis.CHECK, '🛡️')} <b>Security:</b> Instant automated verification & delivery"
+        f"</blockquote>\n\n"
+        f"<i>Please choose your payment currency / region below:</i>\n\n"
+        f"🇮🇳 <b>India (INR — ₹):</b>\n"
+        f"• Instant UPI QR (GPay, PhonePe, Paytm, CRED, BHIM)\n"
+        f"• Debit / Credit Cards & NetBanking via Razorpay\n\n"
+        f"🌐 <b>International (USD — $):</b>\n"
+        f"• PayPal & International Credit/Debit Cards\n"
+        f"• Crypto via OxaPay (USDT, BTC, Solana, TRX)"
+    )
+    await callback.message.edit_text(text, reply_markup=get_deposit_currency_choice_keyboard())
+
+@router.callback_query(F.data == "dep_curr_inr")
+async def cb_deposit_currency_inr(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
+    await state.clear()
+    await callback.answer()
+    user = await get_user(session, callback.from_user.id)
+    current_balance = user.balance if user else 0.0
+
+    text = (
+        f"{ce(CustomEmojis.WALLET, '🇮🇳')} <b>DOMESTIC UPI & INR PORTAL</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"<blockquote>"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Current Balance:</b> <b>{config.CURRENCY_SYMBOL}{current_balance:.2f}</b>\n"
+        f"{ce(CustomEmojis.FIRE, '⚡')} <b>Payment Gateway:</b> Instant Automated UPI / Razorpay\n"
+        f"{ce(CustomEmojis.CHECK, '🛡️')} <b>Processing:</b> Instant auto-credit to your account"
         f"</blockquote>\n\n"
         f"<i>Select a quick top-up amount below or enter a custom amount:</i>"
     )
-    await callback.message.edit_text(text, reply_markup=get_deposit_preset_keyboard())
+    await callback.message.edit_text(text, reply_markup=get_deposit_inr_preset_keyboard())
+
+@router.callback_query(F.data == "dep_curr_usd")
+async def cb_deposit_currency_usd(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
+    await state.clear()
+    await callback.answer()
+    user = await get_user(session, callback.from_user.id)
+    current_balance = user.balance if user else 0.0
+    rate = getattr(config, "PAYPAL_USD_TO_INR_RATE", 90.0)
+    usd_equiv = current_balance / rate if rate > 0 else 0.0
+
+    text = (
+        f"{ce(CustomEmojis.CARD, '🌐')} <b>INTERNATIONAL USD ($) PORTAL</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"<blockquote>"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Current Balance:</b> <b>{config.CURRENCY_SYMBOL}{current_balance:.2f}</b> (≈ ${usd_equiv:.2f} USD)\n"
+        f"{ce(CustomEmojis.STAR, '🪙')} <b>Exchange Rate:</b> $1.00 USD = {config.CURRENCY_SYMBOL}{rate:.2f} INR\n"
+        f"{ce(CustomEmojis.CARD, '🅿️')} <b>Gateways:</b> PayPal (Cards) & OxaPay (USDT/Crypto)\n"
+        f"{ce(CustomEmojis.CHECK, '🛡️')} <b>Processing:</b> Instant wallet credit upon payment"
+        f"</blockquote>\n\n"
+        f"<i>Select an amount in USD below or enter a custom dollar amount:</i>"
+    )
+    await callback.message.edit_text(text, reply_markup=get_deposit_usd_preset_keyboard())
 
 _generating_deposits = set()
 
@@ -53,25 +110,57 @@ async def cb_deposit_amount_selected(callback: types.CallbackQuery, state: FSMCo
         await callback.message.edit_text(
             f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>ENTER CUSTOM DEPOSIT AMOUNT</b>\n"
             f"{UI.SECTION_BAR}\n\n"
-            f"Please reply with the exact amount you wish to add in {config.CURRENCY_SYMBOL} (e.g. <code>150</code> or <code>750</code>):\n\n"
+            f"Please reply with the exact amount you wish to add in <b>{config.CURRENCY_SYMBOL} (INR)</b> (e.g. <code>150</code> or <code>750</code>):\n\n"
             f"<i>Minimum deposit amount is {config.CURRENCY_SYMBOL}10.</i>",
-            reply_markup=get_back_button("nav_deposit")
+            reply_markup=get_back_button("dep_curr_inr")
         )
         return
 
     amount = float(amt_str)
-    # Check if multiple gateways are available to give user a choice
-    available_gateways = payment_manager.get_available_gateways()
-    if len(available_gateways) > 1:
-        await prompt_payment_gateway_choice(callback.message, amount)
-    else:
-        await initiate_deposit_payment(callback.message, callback.from_user, amount, session, state)
+    # Direct UPI / Razorpay flow for domestic INR presets
+    await initiate_deposit_payment(callback.message, callback.from_user, amount, session, state, preferred_gateway="RAZORPAY")
+
+@router.callback_query(F.data.startswith("depusdamt_"))
+async def cb_deposit_usd_amount_selected(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
+    await callback.answer()
+    val = callback.data.split("_")[1]
+    rate = getattr(config, "PAYPAL_USD_TO_INR_RATE", 90.0)
+
+    if val == "custom":
+        await state.set_state(DepositStates.waiting_for_usd_amount)
+        await callback.message.edit_text(
+            f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>ENTER CUSTOM USD ($) AMOUNT</b>\n"
+            f"{UI.SECTION_BAR}\n\n"
+            f"Please reply with the exact amount you wish to deposit in <b>USD ($)</b> (e.g. <code>5</code>, <code>15</code>, or <code>50</code>):\n\n"
+            f"• <b>Minimum Deposit:</b> <b>$2.00 USD</b>\n"
+            f"• <b>Exchange Rate:</b> $1.00 USD = {config.CURRENCY_SYMBOL}{rate:.2f} INR",
+            reply_markup=get_back_button("dep_curr_usd")
+        )
+        return
+
+    usd_amount = float(val)
+    inr_amount = round(usd_amount * rate, 2)
+    await prompt_international_gateway_choice(callback.message, inr_amount, usd_amount)
+
+async def prompt_international_gateway_choice(message: types.Message, inr_amount: float, usd_amount: float):
+    rate = getattr(config, "PAYPAL_USD_TO_INR_RATE", 90.0)
+    text = (
+        f"{ce(CustomEmojis.CARD, '🌐')} <b>SELECT INTERNATIONAL GATEWAY</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"<blockquote>"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Deposit Amount:</b> <b>${usd_amount:.2f} USD</b>\n"
+        f"{ce(CustomEmojis.DIAMOND, '💎')} <b>Wallet Credited:</b> <b>+{config.CURRENCY_SYMBOL}{inr_amount:.2f}</b>\n"
+        f"{ce(CustomEmojis.STAR, '🪙')} <b>Conversion Rate:</b> $1.00 USD = {config.CURRENCY_SYMBOL}{rate:.2f}\n"
+        f"</blockquote>\n\n"
+        f"<i>Select your payment gateway below to proceed:</i>"
+    )
+    await message.edit_text(text, reply_markup=get_international_gateway_choice_keyboard(inr_amount, usd_amount))
 
 @router.callback_query(F.data.startswith("deppay_"))
 async def cb_deposit_gateway_chosen(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
     user_id = callback.from_user.id
     if user_id in _generating_deposits:
-        await callback.answer("⏳ Generating your payment QR Code... Please wait a moment!", show_alert=False)
+        await callback.answer("⏳ Generating your payment invoice... Please wait a moment!", show_alert=False)
         return
 
     _generating_deposits.add(user_id)
@@ -79,13 +168,13 @@ async def cb_deposit_gateway_chosen(callback: types.CallbackQuery, state: FSMCon
         parts = callback.data.split("_")
         gw_name = parts[1].upper()
         amount = float(parts[2])
-        await callback.answer("⏳ Generating your secure UPI QR Code, please wait...", show_alert=False)
+        await callback.answer("⏳ Generating your secure invoice, please wait...", show_alert=False)
 
         loading_text = (
-            f"{ce(CustomEmojis.FIRE, '⏳')} <b>GENERATING YOUR SECURE UPI QR CODE...</b>\n"
+            f"{ce(CustomEmojis.FIRE, '⏳')} <b>GENERATING SECURE INVOICE...</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"{ce(CustomEmojis.WALLET, '💰')} <b>Deposit Amount:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n\n"
-            f"<i>Connecting to official UPI Payment Gateway, please wait a moment...</i>"
+            f"<i>Connecting to official Payment Gateway, please wait a moment...</i>"
         )
         try:
             await callback.message.edit_text(loading_text, reply_markup=None)
@@ -98,39 +187,6 @@ async def cb_deposit_gateway_chosen(callback: types.CallbackQuery, state: FSMCon
         )
     finally:
         _generating_deposits.discard(user_id)
-
-async def prompt_payment_gateway_choice(message: types.Message, amount: float):
-    _, _, _, pp_usd = payment_manager.paypal.calculate_amounts(amount)
-    _, _, _, oxa_usd = payment_manager.oxapay.calculate_amounts(amount)
-
-    text = (
-        f"{ce(CustomEmojis.DIAMOND, '💎')} <b>SELECT DEPOSIT PAYMENT METHOD</b>\n"
-        f"{UI.SECTION_BAR}\n\n"
-        f"{ce(CustomEmojis.WALLET, '💰')} <b>Deposit Amount:</b> <b>{config.CURRENCY_SYMBOL}{amount:.2f}</b>\n\n"
-        f"<i>Select your preferred payment method below for instant automated credit:</i>\n\n"
-        f"<blockquote>"
-        f"{ce(CustomEmojis.FIRE, '⚡')} <b>Instant UPI:</b> {config.CURRENCY_SYMBOL}{amount:.0f} (GPay / PhonePe / Paytm / CRED)\n"
-        f"{ce(CustomEmojis.CARD, '🅿️')} <b>PayPal & Cards:</b> ${pp_usd:.2f} USD (Visa / Mastercard / Amex)\n"
-        f"{ce(CustomEmojis.STAR, '🪙')} <b>Crypto (OxaPay):</b> ${oxa_usd:.2f} USDT (USDT / BTC / SOL / TRX)"
-        f"</blockquote>"
-    )
-    buttons = []
-    if payment_manager.razorpay.is_configured:
-        buttons.append([
-            InlineKeyboardButton(text=f"Instant UPI / Razorpay ({config.CURRENCY_SYMBOL}{amount:.0f})", callback_data=f"deppay_razorpay_{int(amount)}", icon_custom_emoji_id=CustomEmojis.FIRE)
-        ])
-    if payment_manager.paypal.is_configured:
-        buttons.append([
-            InlineKeyboardButton(text=f"PayPal & Cards (${pp_usd:.2f} USD)", callback_data=f"deppay_paypal_{int(amount)}", icon_custom_emoji_id=CustomEmojis.CARD)
-        ])
-    if payment_manager.oxapay.is_configured:
-        buttons.append([
-            InlineKeyboardButton(text=f"Crypto via OxaPay (${oxa_usd:.2f} USDT)", callback_data=f"deppay_oxapay_{int(amount)}", icon_custom_emoji_id=CustomEmojis.DIAMOND)
-        ])
-    buttons.append([
-        InlineKeyboardButton(text="Back to Presets", callback_data="nav_deposit", icon_custom_emoji_id=CustomEmojis.WALLET)
-    ])
-    await message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
 @router.message(DepositStates.waiting_for_amount)
 async def msg_custom_deposit_amount(message: types.Message, state: FSMContext, session: AsyncSession):
@@ -148,12 +204,28 @@ async def msg_custom_deposit_amount(message: types.Message, state: FSMContext, s
         return
 
     await state.clear()
-    available_gateways = payment_manager.get_available_gateways()
-    if len(available_gateways) > 1:
-        sent_msg = await message.answer("Preparing payment options...")
-        await prompt_payment_gateway_choice(sent_msg, amount)
-    else:
-        await initiate_deposit_payment(message, message.from_user, amount, session, state)
+    await initiate_deposit_payment(message, message.from_user, amount, session, state, preferred_gateway="RAZORPAY")
+
+@router.message(DepositStates.waiting_for_usd_amount)
+async def msg_custom_deposit_usd_amount(message: types.Message, state: FSMContext, session: AsyncSession):
+    clean_text = message.text.strip().replace("$", "").replace("USD", "").replace("usd", "").strip()
+    rate = getattr(config, "PAYPAL_USD_TO_INR_RATE", 90.0)
+    try:
+        usd_amount = float(clean_text)
+        if usd_amount < 2.0:
+            await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Minimum international deposit is <b>$2.00 USD</b>. Please enter an amount of $2 or more:")
+            return
+        if usd_amount > 1000.0:
+            await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Maximum single international deposit is $1,000 USD. Please enter a valid amount:")
+            return
+    except ValueError:
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Invalid number. Please reply with numbers only (e.g. <code>5</code> or <code>25</code>):")
+        return
+
+    await state.clear()
+    inr_amount = round(usd_amount * rate, 2)
+    sent_msg = await message.answer("Preparing payment options...")
+    await prompt_international_gateway_choice(sent_msg, inr_amount, usd_amount)
 
 async def initiate_deposit_payment(
     message: types.Message,
