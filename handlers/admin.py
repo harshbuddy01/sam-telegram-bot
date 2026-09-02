@@ -6,6 +6,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
+from database.models import User, Order, Product, Variant, Category
 from database.crud import (
     get_all_users_count,
     get_all_user_ids,
@@ -2052,7 +2053,6 @@ async def msg_admin_broadcast_content(message: types.Message, state: FSMContext,
 
 async def _render_user_card(target, user: User, session: AsyncSession, alert_text: str = None):
     # Calculate user statistics
-    from database.models import Order
     stmt_orders = select(func.count(Order.id)).where(
         Order.user_id == user.telegram_id,
         Order.status.in_(["PAID", "DELIVERED", "PENDING_DISPATCH", "COMPLETED"])
