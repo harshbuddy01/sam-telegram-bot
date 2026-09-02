@@ -314,7 +314,15 @@ async def cb_nav_support(callback: types.CallbackQuery, session: AsyncSession):
         buttons.append([InlineKeyboardButton(text="Join Official Channel", url=config.CHANNEL_LINK, icon_custom_emoji_id=CustomEmojis.TELEGRAM if hasattr(CustomEmojis, 'TELEGRAM') else None)])
     buttons.append([InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)])
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
-    await callback.message.edit_text(text, reply_markup=kb)
+    try:
+        await callback.message.edit_text(text, reply_markup=kb)
+    except Exception as e:
+        if "message is not modified" in str(e).lower():
+            return
+        try:
+            await callback.message.answer(text, reply_markup=kb)
+        except Exception:
+            pass
 
 @router.callback_query(F.data == "nav_guide")
 async def cb_nav_guide(callback: types.CallbackQuery, session: AsyncSession):

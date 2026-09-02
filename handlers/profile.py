@@ -8,7 +8,20 @@ from utils.emojis import Emojis, UI, CustomEmojis, ce, format_emoji
 from utils.templates import render_template
 import config
 
+from typing import Optional
+
 router = Router()
+
+async def _safe_edit(callback: types.CallbackQuery, text: str, reply_markup: Optional[InlineKeyboardMarkup] = None):
+    try:
+        await callback.message.edit_text(text, reply_markup=reply_markup)
+    except Exception as e:
+        if "message is not modified" in str(e).lower():
+            return
+        try:
+            await callback.message.answer(text, reply_markup=reply_markup)
+        except Exception:
+            pass
 
 @router.callback_query(F.data == "nav_profile")
 async def cb_nav_profile(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):
@@ -33,7 +46,7 @@ async def cb_nav_profile(callback: types.CallbackQuery, session: AsyncSession, b
         referral_percent=config.REFERRAL_BONUS_PERCENT
     )
 
-    await callback.message.edit_text(text, reply_markup=get_profile_keyboard())
+    await _safe_edit(callback, text, reply_markup=get_profile_keyboard())
 
 @router.callback_query(F.data == "view_orders")
 async def cb_view_orders(callback: types.CallbackQuery, session: AsyncSession):
@@ -52,7 +65,7 @@ async def cb_view_orders(callback: types.CallbackQuery, session: AsyncSession):
             [InlineKeyboardButton(text="Explore Store Now", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP)],
             [InlineKeyboardButton(text="Back to Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
         ])
-        await callback.message.edit_text(text, reply_markup=kb)
+        await _safe_edit(callback, text, reply_markup=kb)
         return
 
     orders_icon = ce(CustomEmojis.ORDERS, "📦")
@@ -62,7 +75,7 @@ async def cb_view_orders(callback: types.CallbackQuery, session: AsyncSession):
         f"Tap on any order below to inspect your delivered credentials, PINs & warranty info:\n"
     )
 
-    await callback.message.edit_text(text, reply_markup=get_orders_list_keyboard(orders))
+    await _safe_edit(callback, text, reply_markup=get_orders_list_keyboard(orders))
 
 @router.callback_query(F.data.startswith("orderdetail_"))
 async def cb_order_detail(callback: types.CallbackQuery, session: AsyncSession):
@@ -129,7 +142,7 @@ async def cb_order_detail(callback: types.CallbackQuery, session: AsyncSession):
     )
 
     from keyboards.user_keyboards import get_order_detail_keyboard
-    await callback.message.edit_text(text, reply_markup=get_order_detail_keyboard(order.id))
+    await _safe_edit(callback, text, reply_markup=get_order_detail_keyboard(order.id))
 
 @router.callback_query(F.data == "nav_refer")
 async def cb_nav_refer(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):
@@ -161,4 +174,4 @@ async def cb_nav_refer(callback: types.CallbackQuery, session: AsyncSession, bot
         [InlineKeyboardButton(text="Share With Friends", url=f"https://t.me/share/url?url={ref_link}&text=Get%20discounted%20OTT%20and%20AI%20subscriptions%20instantly%20on%20{config.STORE_NAME}!", icon_custom_emoji_id=CustomEmojis.REFER)],
         [InlineKeyboardButton(text="Back to Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
     ])
-    await callback.message.edit_text(text, reply_markup=kb)
+    await _safe_edit(callback, text, reply_markup=kb)
