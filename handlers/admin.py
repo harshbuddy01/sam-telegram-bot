@@ -1877,7 +1877,9 @@ async def msg_admin_var_dispatch(message: types.Message, state: FSMContext, sess
             requires_customer_input=False
         )
 
-        await state.set_data({"variant_id": variant.id, "prod_id": prod_id, "variant_name": variant.name, "prod_title": variant.product.title if variant.product else name})
+        prod_obj = await get_product(session, prod_id) if prod_id else None
+        prod_title = prod_obj.title if prod_obj else name
+        await state.set_data({"variant_id": variant.id, "prod_id": prod_id, "variant_name": variant.name, "prod_title": prod_title})
         await state.set_state(AdminVariantStates.waiting_for_stock_qty)
 
         await message.answer(
@@ -1920,7 +1922,9 @@ async def msg_admin_var_input_prompt(message: types.Message, state: FSMContext, 
     )
 
     # Save variant_id and prod_id, then ask for initial stock slot count
-    await state.set_data({"variant_id": variant.id, "prod_id": prod_id, "variant_name": variant.name, "prod_title": variant.product.title if variant.product else name})
+    prod_obj = await get_product(session, prod_id) if prod_id else None
+    prod_title = prod_obj.title if prod_obj else name
+    await state.set_data({"variant_id": variant.id, "prod_id": prod_id, "variant_name": variant.name, "prod_title": prod_title})
     await state.set_state(AdminVariantStates.waiting_for_stock_qty)
 
     await message.answer(

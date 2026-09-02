@@ -45,7 +45,7 @@ class Product(Base):
     image_url = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
 
-    category = relationship("Category", back_populates="products")
+    category = relationship("Category", back_populates="products", lazy="selectin")
     variants = relationship("Variant", back_populates="product", cascade="all, delete-orphan", passive_deletes=True)
 
 class Variant(Base):
@@ -65,7 +65,7 @@ class Variant(Base):
     stock_quantity = Column(Integer, default=50) # Manual fulfillment slots available
     is_active = Column(Boolean, default=True)
 
-    product = relationship("Product", back_populates="variants")
+    product = relationship("Product", back_populates="variants", lazy="selectin")
     stocks = relationship("Stock", back_populates="variant", cascade="all, delete-orphan", passive_deletes=True)
     orders = relationship("Order", back_populates="variant", passive_deletes=True)
 
@@ -101,7 +101,7 @@ class Order(Base):
     fulfilled_at = Column(DateTime, nullable=True)
 
     user = relationship("User", back_populates="orders")
-    variant = relationship("Variant", back_populates="orders")
+    variant = relationship("Variant", back_populates="orders", lazy="selectin")
 
 class Deposit(Base):
     __tablename__ = "deposits"
