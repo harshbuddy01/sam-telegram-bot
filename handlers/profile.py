@@ -100,14 +100,53 @@ async def cb_order_detail(callback: types.CallbackQuery, session: AsyncSession):
     status = getattr(order, "status", "COMPLETED")
     key_icon = ce(CustomEmojis.KEY, "🔑")
     warranty_icon = ce(CustomEmojis.WARRANTY, "🛡️")
+
+    from utils.validity import get_order_validity_info
+    from database.crud import get_available_stock_count
+
+    is_expired = False
+    can_renew = False
+    plan_price = variant.price if variant else 0.0
+    support_msg = ""
     
     if status == "COMPLETED":
-        status_line = f"{ce(CustomEmojis.CHECK, '🟢')} <b>Status:</b> Completed & Delivered"
-        middle_block = (
-            f"{key_icon} <b>DELIVERED CREDENTIALS / KEY:</b>\n"
-            f"<pre><code>{order.delivered_content}</code></pre>\n"
-        )
-        footer_line = f"{warranty_icon} <i>Under 100% Replacement Warranty! Contact support ({config.SUPPORT_USERNAME}) for help.</i>"
+        val_info = get_order_validity_info(order)
+        is_expired = val_info["is_expired"]
+
+        if is_expired:
+            status_line = f"{ce(CustomEmojis.LOCK, '🔴')} <b>Status:</b> Subscription Expired ({val_info['expiry_short']})"
+            middle_block = (
+                f"{ce(CustomEmojis.LOCK, '🔒')} <b>DELIVERED CREDENTIALS:</b>\n"
+                f"<pre><code>{order.delivered_content}</code></pre>\n\n"
+                f"<blockquote>"
+                f"<b>Subscription Validity Ended:</b>\n"
+                f"Your subscription concluded on <b>{val_info['expiry_short']}</b>. "
+                f"Credentials for this order are no longer active or under warranty coverage.\n\n"
+                f"<i>Tap below to reclaim and renew this plan in 1 click!</i>"
+                f"</blockquote>"
+            )
+            footer_line = f"{ce(CustomEmojis.FIRE, '⚡')} <i>Renew now to continue enjoying uninterrupted service!</i>"
+
+            # Check live stock for renewal button
+            if variant:
+                stock_cnt = await get_available_stock_count(session, variant.id)
+                is_manual = (getattr(variant, "fulfillment_type", "AUTOMATIC") == "MANUAL")
+                can_renew = (stock_cnt > 0) or is_manual
+                support_msg = f"Hi! I want to renew Order #{order.id} ({prod_title} - {var_name}), but it is currently out of stock. When will it be available?"
+        else:
+            status_line = f"{ce(CustomEmojis.CHECK, '🟢')} <b>Status:</b> Active & Protected by Warranty"
+            middle_block = (
+                f"{key_icon} <b>DELIVERED CREDENTIALS / KEY:</b>\n"
+                f"<pre><code>{order.delivered_content}</code></pre>\n\n"
+                f"<blockquote>"
+                f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>SUBSCRIPTION VALIDITY & WARRANTY:</b>\n"
+                f"• <b>Duration:</b> {val_info['duration_days']} Days\n"
+                f"• <b>Expiration Date:</b> <b>{val_info['expiry_short']}</b>\n"
+                f"• <b>Time Remaining:</b> <b>{val_info['remaining_str']}</b>\n"
+                f"• <b>Replacement Warranty:</b> 100% Covered\n"
+                f"</blockquote>"
+            )
+            footer_line = f"{warranty_icon} <i>Under 100% Replacement Warranty! Contact support ({config.SUPPORT_USERNAME}) for help.</i>"
     elif status == "PENDING_DISPATCH":
         status_line = f"{ce(CustomEmojis.FIRE, '⏳')} <b>Status:</b> In Progress (Manual Activation within 1–2h)"
         middle_block = (
@@ -136,13 +175,20 @@ async def cb_order_detail(callback: types.CallbackQuery, session: AsyncSession):
         f"{ce(CustomEmojis.STAR, '📅')} <b>Ordered On:</b> {date_str}\n"
         f"{status_line}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"{middle_block}"
+        f"{middle_block}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"{footer_line}"
     )
 
     from keyboards.user_keyboards import get_order_detail_keyboard
-    await _safe_edit(callback, text, reply_markup=get_order_detail_keyboard(order.id))
+    await _safe_edit(callback, text, reply_markup=get_order_detail_keyboard(
+        order.id,
+        variant_id=variant.id if variant else None,
+        is_expired=is_expired,
+        can_renew=can_renew,
+        price=plan_price,
+        support_text=support_msg
+    ))
 
 @router.callback_query(F.data == "nav_refer")
 async def cb_nav_refer(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):

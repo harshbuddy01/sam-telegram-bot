@@ -63,6 +63,7 @@ class Variant(Base):
     detailed_description = Column(Text, nullable=True) # Full description displayed before payment
     requires_customer_input = Column(Boolean, default=True) # If True, prompts customer for email/phone; if False, delivers immediate receipt and notifies admin to dispatch
     stock_quantity = Column(Integer, default=50) # Manual fulfillment slots available
+    validity_days = Column(Integer, default=30, nullable=True) # Duration in days (e.g. 30, 90, 180, 365)
     is_active = Column(Boolean, default=True)
 
     product = relationship("Product", back_populates="variants", lazy="selectin")
@@ -97,6 +98,8 @@ class Order(Base):
     customer_input = Column(Text, nullable=True) # Target email/phone/username provided by customer
     delivered_content = Column(Text, nullable=True, default="") # Delivered accounts, PINs, or activation links
     broadcast_sent = Column(Boolean, default=False, nullable=True) # Prevent duplicate broadcast notifications
+    expires_at = Column(DateTime, nullable=True, index=True) # Subscription expiration date
+    expiry_notified_stage = Column(Integer, default=0, nullable=True) # 0=None, 1=5-Day, 2=2-Day, 3=Expired
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     fulfilled_at = Column(DateTime, nullable=True)
 

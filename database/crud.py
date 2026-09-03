@@ -558,6 +558,9 @@ async def fulfill_order(
 
     # Create single order for the whole quantity
     now = datetime.datetime.utcnow()
+    from utils.validity import parse_validity_days
+    v_days = getattr(variant, "validity_days", None) or parse_validity_days(getattr(variant, "name", ""))
+    order_expires_at = now + datetime.timedelta(days=v_days)
     order = Order(
         user_id=user_id,
         variant_id=variant_id,
@@ -566,6 +569,8 @@ async def fulfill_order(
         status="COMPLETED",
         customer_input=None,
         delivered_content=delivered,
+        expires_at=order_expires_at,
+        expiry_notified_stage=0,
         created_at=now,
         fulfilled_at=now
     )
@@ -670,9 +675,14 @@ async def fulfill_manual_order(
     if not order or order.status != "PENDING_DISPATCH":
         return None, None
 
+    now = datetime.datetime.utcnow()
     order.delivered_content = delivered_content.strip()
     order.status = "COMPLETED"
-    order.fulfilled_at = datetime.datetime.utcnow()
+    order.fulfilled_at = now
+    from utils.validity import parse_validity_days
+    v_days = getattr(order.variant, "validity_days", None) or (parse_validity_days(getattr(order.variant, "name", "")) if order.variant else 30)
+    order.expires_at = now + datetime.timedelta(days=v_days)
+    order.expiry_notified_stage = 0
 
     user = await get_user(session, order.user_id)
     await session.commit()

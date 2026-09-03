@@ -379,23 +379,38 @@ def get_profile_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_orders_list_keyboard(orders: list[Order]) -> InlineKeyboardMarkup:
+    from utils.validity import get_order_validity_info
     buttons = []
     for order in orders:
-        created_str = order.created_at.strftime("%d/%m")
         status = getattr(order, "status", "COMPLETED")
-        badge = "🟢" if status == "COMPLETED" else ("⏳" if status == "PENDING_DISPATCH" else "❌")
         
         # Format clean product title
         prod_title = "Item"
         if order.variant and order.variant.product:
             raw_title = clean_button_text(order.variant.product.title)
             prod_title = raw_title.replace("Premium", "").replace("Subscription", "").strip()
-            if len(prod_title) > 16:
-                prod_title = prod_title[:15] + "…"
+            if len(prod_title) > 14:
+                prod_title = prod_title[:13] + "…"
         elif order.variant:
-            prod_title = clean_button_text(order.variant.name)[:14]
+            prod_title = clean_button_text(order.variant.name)[:12]
 
-        btn_text = f"{badge} #{order.id} • {prod_title} • {config.CURRENCY_SYMBOL}{order.amount:.0f} ({created_str})"
+        if status == "PENDING_DISPATCH":
+            badge = "⏳"
+            time_tag = "Processing"
+        elif status != "COMPLETED":
+            badge = "❌"
+            time_tag = "Cancelled"
+        else:
+            val_info = get_order_validity_info(order)
+            badge = val_info["badge"]
+            if val_info["is_expired"]:
+                time_tag = "Expired"
+            elif val_info["days_remaining"] <= 5:
+                time_tag = f"{val_info['days_remaining']}d left!"
+            else:
+                time_tag = f"{val_info['days_remaining']}d left"
+
+        btn_text = f"{badge} #{order.id} • {prod_title} • {time_tag}"
 
         buttons.append([
             InlineKeyboardButton(
@@ -411,13 +426,47 @@ def get_orders_list_keyboard(orders: list[Order]) -> InlineKeyboardMarkup:
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_order_detail_keyboard(order_id: int) -> InlineKeyboardMarkup:
-    """Buttons displayed on the order detail receipt screen."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Need Help / Report Issue", callback_data=f"need_help_{order_id}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
-        [InlineKeyboardButton(text="Back to Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)],
-        [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+def get_order_detail_keyboard(
+    order_id: int,
+    variant_id: Optional[int] = None,
+    is_expired: bool = False,
+    can_renew: bool = False,
+    price: float = 0.0,
+    support_text: str = ""
+) -> InlineKeyboardMarkup:
+    """Buttons displayed on the order detail receipt screen with smart renewal/support."""
+    buttons = []
+    if is_expired and variant_id:
+        if can_renew:
+            buttons.append([
+                InlineKeyboardButton(
+                    text=f"🔄 Reclaim & Renew Plan ({config.CURRENCY_SYMBOL}{price:.0f})",
+                    callback_data=f"buy_{variant_id}",
+                    icon_custom_emoji_id=CustomEmojis.FIRE
+                )
+            ])
+        else:
+            import urllib.parse
+            encoded_text = urllib.parse.quote(support_text)
+            support_url = f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}?text={encoded_text}"
+            buttons.append([
+                InlineKeyboardButton(
+                    text="🛟 Out of Stock — Contact Support",
+                    url=support_url,
+                    icon_custom_emoji_id=CustomEmojis.SUPPORT
+                )
+            ])
+
+    buttons.append([
+        InlineKeyboardButton(text="Need Help / Report Issue", callback_data=f"need_help_{order_id}", icon_custom_emoji_id=CustomEmojis.SUPPORT)
     ])
+    buttons.append([
+        InlineKeyboardButton(text="Back to Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)
+    ])
+    buttons.append([
+        InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_back_button(callback_data: str = "nav_home") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[

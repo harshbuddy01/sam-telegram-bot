@@ -57,6 +57,9 @@ async def init_db():
             "ALTER TABLE deposits ADD COLUMN gateway_order_id VARCHAR(100)",
             "ALTER TABLE deposits ADD COLUMN gateway_payment_id VARCHAR(100)",
             "ALTER TABLE deposits ADD COLUMN target_variant_id INTEGER",
+            "ALTER TABLE variants ADD COLUMN validity_days INTEGER DEFAULT 30",
+            "ALTER TABLE orders ADD COLUMN expires_at DATETIME",
+            "ALTER TABLE orders ADD COLUMN expiry_notified_stage INTEGER DEFAULT 0",
             "UPDATE products SET title = REPLACE(title, '❤️', '') WHERE title LIKE '%❤️%'",
             "UPDATE categories SET name = REPLACE(name, '❤️', '') WHERE name LIKE '%❤️%'",
         ]

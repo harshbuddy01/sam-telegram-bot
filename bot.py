@@ -96,6 +96,10 @@ async def main():
     except Exception as e:
         logger.warning(f"Could not bind webhook server on port {port}: {e}")
 
+    # Start automated subscription expiry reminder background service
+    from utils.expiry_notifier import start_expiry_reminder_scheduler
+    asyncio.create_task(start_expiry_reminder_scheduler(bot))
+
     logger.info("Polling for updates...")
 
     # Polling loop with automatic reconnection
