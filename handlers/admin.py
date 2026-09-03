@@ -656,18 +656,39 @@ async def cb_admin_dep_detail(callback: types.CallbackQuery, session: AsyncSessi
         reply_markup=get_deposit_approval_keyboard(deposit.id) if deposit.status == "PENDING" else get_admin_cancel_keyboard("adm_deposits")
     )
 
+async def render_admin_stock_manage(target_message: types.Message, variant_id: int, session: AsyncSession):
+    variant = await get_variant(session, variant_id)
+    if not variant:
+        await target_message.answer("Plan not found.")
+        return
+
+    stock_count = await get_available_stock_count(session, variant_id)
+    is_manual = (getattr(variant, "fulfillment_type", "AUTOMATIC") == "MANUAL")
+    prod_title = variant.product.title if variant.product else "Product"
+
+    text = (
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>INVENTORY CONTROLS FOR:</b>\n"
+        f"<b>{prod_title} — {variant.name}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Price:</b> {config.CURRENCY_SYMBOL}{variant.price:.2f}\n"
+        f"{ce(CustomEmojis.DIAMOND, '🏷️')} <b>Type:</b> {variant.variant_type}\n"
+        f"{ce(CustomEmojis.FIRE, '🚀')} <b>Fulfillment Mode:</b> {ce(CustomEmojis.FIRE, '⏱️') + ' Manual Dispatch (1-2h)' if is_manual else ce(CustomEmojis.FIRE, '⚡') + ' Automated Instant Stock'}\n"
+        f"{ce(CustomEmojis.TROPHY, '📊')} <b>Current Available Stock:</b> <b>{stock_count} items</b>\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    )
+    try:
+        await target_message.edit_text(text, reply_markup=get_admin_variant_stock_actions_keyboard(variant_id, is_manual, stock_count))
+    except Exception:
+        await target_message.answer(text, reply_markup=get_admin_variant_stock_actions_keyboard(variant_id, is_manual, stock_count))
+
 @router.callback_query(F.data.startswith("adm_stock_clear_"))
 async def cb_admin_stock_clear(callback: types.CallbackQuery, session: AsyncSession):
     if not check_admin(callback.from_user.id):
         return
-    await callback.answer()
     variant_id = int(callback.data.split("_")[3])
     await delete_unsold_stock_by_variant(session, variant_id)
-    await callback.message.answer(
-        f"{ce(CustomEmojis.CHECK, '✅')} All unsold stock lines for Plan #{variant_id} cleared successfully!"
-    )
-    callback.data = f"adm_stock_manage_{variant_id}"
-    await cb_admin_stock_manage(callback, session)
+    await callback.answer(f"✅ All unsold stock cleared for Plan #{variant_id}!", show_alert=True)
+    await render_admin_stock_manage(callback.message, variant_id, session)
 
 # ================= 4. INVENTORY & STOCK MANAGEMENT =================
 
@@ -702,26 +723,7 @@ async def cb_admin_stock_manage(callback: types.CallbackQuery, session: AsyncSes
         return
     await callback.answer()
     variant_id = int(callback.data.split("_")[3])
-    variant = await get_variant(session, variant_id)
-    if not variant:
-        await callback.message.answer("Plan not found.")
-        return
-
-    stock_count = await get_available_stock_count(session, variant_id)
-    is_manual = (getattr(variant, "fulfillment_type", "AUTOMATIC") == "MANUAL")
-    prod_title = variant.product.title if variant.product else "Product"
-
-    text = (
-        f"{ce(CustomEmojis.SHOP, '📦')} <b>INVENTORY CONTROLS FOR:</b>\n"
-        f"<b>{prod_title} — {variant.name}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"{ce(CustomEmojis.WALLET, '💰')} <b>Price:</b> {config.CURRENCY_SYMBOL}{variant.price:.2f}\n"
-        f"{ce(CustomEmojis.DIAMOND, '🏷️')} <b>Type:</b> {variant.variant_type}\n"
-        f"{ce(CustomEmojis.FIRE, '🚀')} <b>Fulfillment Mode:</b> {ce(CustomEmojis.FIRE, '⏱️') + ' Manual Dispatch (1-2h)' if is_manual else ce(CustomEmojis.FIRE, '⚡') + ' Automated Instant Stock'}\n"
-        f"{ce(CustomEmojis.TROPHY, '📊')} <b>Current Available Stock:</b> <b>{stock_count} items</b>\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    )
-    await callback.message.edit_text(text, reply_markup=get_admin_variant_stock_actions_keyboard(variant_id, is_manual, stock_count))
+    await render_admin_stock_manage(callback.message, variant_id, session)
 
 @router.callback_query(F.data.startswith("adm_stock_add_"))
 async def cb_admin_stock_add(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):

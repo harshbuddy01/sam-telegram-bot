@@ -235,7 +235,10 @@ async def cb_group_selection_page(query: CallbackQuery):
     parts = query.data.split("_")
     account_id = int(parts[2])
     page = int(parts[3])
+    await _render_group_selection_page(query, account_id, page)
 
+
+async def _render_group_selection_page(query: CallbackQuery, account_id: int, page: int):
     async with AsyncSessionLocal() as session:
         groups, total_pages = await get_groups_paginated(session, account_id, page=page, per_page=10)
         selected = await get_selected_groups(session, account_id)
@@ -292,8 +295,7 @@ async def cb_toggle_single_group(query: CallbackQuery):
     async with AsyncSessionLocal() as session:
         await toggle_group_selection(session, group_id)
 
-    query.data = f"bc_page_{account_id}_{page}"
-    await cb_group_selection_page(query)
+    await _render_group_selection_page(query, account_id, page)
 
 
 @router.callback_query(F.data.startswith("bc_selall_"))
@@ -307,8 +309,7 @@ async def cb_select_all(query: CallbackQuery):
     async with AsyncSessionLocal() as session:
         await select_all_groups(session, account_id)
 
-    query.data = f"bc_page_{account_id}_{page}"
-    await cb_group_selection_page(query)
+    await _render_group_selection_page(query, account_id, page)
 
 
 @router.callback_query(F.data.startswith("bc_deselall_"))
@@ -322,8 +323,7 @@ async def cb_deselect_all(query: CallbackQuery):
     async with AsyncSessionLocal() as session:
         await deselect_all_groups(session, account_id)
 
-    query.data = f"bc_page_{account_id}_{page}"
-    await cb_group_selection_page(query)
+    await _render_group_selection_page(query, account_id, page)
 
 
 @router.callback_query(F.data.startswith("bc_launch_"))
