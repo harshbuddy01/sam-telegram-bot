@@ -5,6 +5,7 @@ logger = logging.getLogger(__name__)
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.models import User, Order, Product, Variant, Category
 from database.crud import (
@@ -2065,7 +2066,7 @@ async def _render_user_card(target, user: User, session: AsyncSession, alert_tex
     )
     total_spent = float((await session.execute(stmt_spent)).scalar() or 0.0)
 
-    reg_date = user.created_at.strftime("%d %b %Y, %H:%M") if user.created_at else "Earlier"
+    reg_date = user.joined_at.strftime("%d %b %Y, %H:%M") if getattr(user, "joined_at", None) else "Earlier"
     uname_str = f"@{user.username}" if user.username else "<i>No username</i>"
 
     card_text = (

@@ -87,7 +87,7 @@ async def get_users_with_balance(session: AsyncSession, limit: int = 50) -> List
 
 async def get_recent_users(session: AsyncSession, limit: int = 30) -> List[User]:
     """Get most recently registered users."""
-    stmt = select(User).order_by(User.created_at.desc()).limit(limit)
+    stmt = select(User).order_by(User.joined_at.desc()).limit(limit)
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
