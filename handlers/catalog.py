@@ -31,11 +31,17 @@ import config
 
 router = Router()
 
+async def safe_answer(callback: types.CallbackQuery, *args, **kwargs):
+    try:
+        await callback.answer(*args, **kwargs)
+    except Exception:
+        pass
+
 # ================= PRODUCT SEARCH =================
 
 @router.callback_query(F.data == "nav_search")
 async def cb_nav_search(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer()
+    await safe_answer(callback)
     await state.set_state(SearchStates.waiting_for_query)
     text = (
         f"{ce(CustomEmojis.SEARCH, '🔍')} <b>SEARCH SUBSCRIPTION STORE</b>\n"
@@ -133,7 +139,7 @@ async def cb_nav_shop(callback: types.CallbackQuery, session: AsyncSession):
 
 @router.callback_query(F.data.startswith("cat_"))
 async def cb_category_products(callback: types.CallbackQuery, session: AsyncSession):
-    await callback.answer()
+    await safe_answer(callback)
     category_id = int(callback.data.split("_")[1])
     category = await get_category(session, category_id)
 
@@ -183,7 +189,7 @@ async def cb_category_products(callback: types.CallbackQuery, session: AsyncSess
 
 @router.callback_query(F.data.startswith("prodpage_"))
 async def cb_products_page(callback: types.CallbackQuery, session: AsyncSession):
-    await callback.answer()
+    await safe_answer(callback)
     _, cat_id_str, page_str = callback.data.split("_")
     category_id = int(cat_id_str)
     page = int(page_str)
@@ -231,11 +237,11 @@ async def cb_products_page(callback: types.CallbackQuery, session: AsyncSession)
 
 @router.callback_query(F.data == "noop")
 async def cb_noop(callback: types.CallbackQuery):
-    await callback.answer()
+    await safe_answer(callback)
 
 @router.callback_query(F.data.startswith("prod_"))
 async def cb_product_variants(callback: types.CallbackQuery, session: AsyncSession, state: FSMContext):
-    await callback.answer()
+    await safe_answer(callback)
     product_id = int(callback.data.split("_")[1])
     product = await get_product(session, product_id)
 
@@ -400,7 +406,7 @@ async def cb_variant_detail(callback: types.CallbackQuery, session: AsyncSession
     Detailed Product Card Screen:
     Displays rich specifications, pricing card, warranty, rules, and stock status.
     """
-    await callback.answer()
+    await safe_answer(callback)
     variant_id = int(callback.data.split("_")[1])
     variant = await get_variant(session, variant_id)
 

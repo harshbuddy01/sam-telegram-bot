@@ -9,7 +9,8 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.exceptions import TelegramServerError, TelegramNetworkError, TelegramRetryAfter
+from aiogram.types import ErrorEvent
+from aiogram.exceptions import TelegramServerError, TelegramNetworkError, TelegramRetryAfter, TelegramBadRequest
 
 import config
 from database.database import init_db, AsyncSessionLocal
@@ -69,6 +70,15 @@ async def main():
     dp.include_router(profile.router)
     dp.include_router(admin.router)
     dp.include_router(support.router)
+
+    # Global Error Handler: gracefully catch expired queries when restarting
+    @dp.error()
+    async def global_error_handler(event: ErrorEvent):
+        exc = event.exception
+        if isinstance(exc, TelegramBadRequest) and ("query is too old" in str(exc).lower() or "query id is invalid" in str(exc).lower()):
+            logger.info(f"Gracefully handled stale callback query from restart: {exc}")
+            return True
+        logger.error(f"Cause exception while process update: {exc}", exc_info=exc)
 
     # Run database initialization
     await on_startup()
