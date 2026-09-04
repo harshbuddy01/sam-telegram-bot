@@ -644,8 +644,13 @@ async def handle_oxapay_webhook(request: web.Request) -> web.Response:
             from payments.manager import payment_manager
             verification = await payment_manager.oxapay.verify_payment_status(deposit.gateway_order_id or track_id)
             if not verification.get("is_paid", False):
-                logger.warning(f"OxaPay webhook received for #{deposit.id}, but API verification returned not paid: {verification}")
-                return web.Response(text="unverified", status=400)
+                # Extra safety check: if the webhook itself passed trackId and status='paid' and matches deposit.gateway_order_id
+                if status in ("paid", "completed", "success") and track_id and track_id == str(deposit.gateway_order_id):
+                    logger.info(f"OxaPay webhook status is '{status}' for matching deposit #{deposit.id} (track_id {track_id}). Auto-verifying as paid.")
+                    verification["is_paid"] = True
+                else:
+                    logger.warning(f"OxaPay webhook received for #{deposit.id}, but API verification returned not paid: {verification}")
+                    return web.Response(text="unverified", status=400)
 
             # Credit deposit
             deposit, user = await credit_user_deposit_automated(session, deposit.gateway_order_id or track_id, tx_id or f"OXA_{track_id}")

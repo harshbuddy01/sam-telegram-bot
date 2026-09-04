@@ -150,7 +150,13 @@ class OxaPayGateway(BasePaymentGateway):
                 async with session.get(url_v1, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                     if resp.status == 200:
                         data = await resp.json()
-                        status = str(data.get("status") or data.get("data", {}).get("status") or "").lower()
+                        raw_status = None
+                        if isinstance(data.get("data"), dict) and "status" in data["data"]:
+                            raw_status = data["data"]["status"]
+                        elif "status" in data and not str(data["status"]).isdigit():
+                            raw_status = data["status"]
+
+                        status = str(raw_status or "").lower()
                         logger.info(f"OxaPay payment verification (v1) for track_id {track_id}: status={status}")
                         if status in ("paid", "completed", "success"):
                             return {"is_paid": True, "status": "PAID", "data": data}
@@ -165,7 +171,13 @@ class OxaPayGateway(BasePaymentGateway):
                 async with session.post(url_legacy, json=payload, headers={"Content-Type": "application/json"}, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                     if resp.status == 200:
                         data = await resp.json()
-                        status = str(data.get("status") or "").lower()
+                        raw_status = None
+                        if isinstance(data.get("data"), dict) and "status" in data["data"]:
+                            raw_status = data["data"]["status"]
+                        elif "status" in data and not str(data["status"]).isdigit():
+                            raw_status = data["status"]
+
+                        status = str(raw_status or "").lower()
                         result = data.get("result")
                         logger.info(f"OxaPay payment verification (legacy) for track_id {track_id}: status={status}, result={result}")
                         if status in ("paid", "completed", "success") or (result == 100 and status == "paid"):
