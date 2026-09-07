@@ -136,3 +136,67 @@ async def send_restock_alert(
         await bot.send_message(channel_id, text, reply_markup=kb, parse_mode="HTML")
     except Exception as e:
         logger.warning(f"Failed to send restock alert to channel {channel_id}: {e}")
+
+async def send_public_vouch_notification(
+    bot: Bot,
+    order_id: int,
+    buyer_name: str,
+    username: Optional[str],
+    product_title: str,
+    variant_name: str,
+    rating: int,
+    review_tags: Optional[str] = None,
+    review_text: Optional[str] = None,
+    bot_username: str = ""
+):
+    """
+    Publish an official verified review/vouch card to the Public Feedback/Vouches Channel.
+    """
+    channel_id = getattr(config, "FEEDBACK_CHANNEL_ID", None) or getattr(config, "NOTIFICATION_CHANNEL_ID", None)
+    if not channel_id:
+        return
+
+    masked = mask_username(buyer_name or username or "Customer")
+    clean_prod = clean_button_text(product_title) or "Subscription"
+    clean_var = clean_button_text(variant_name) if variant_name else ""
+    stars_str = "⭐" * max(1, min(5, rating))
+    now_str = datetime.now().strftime("%d %b %Y, %I:%M %p")
+
+    tags_line = f"\n{ce(CustomEmojis.FIRE, '🏷️')} <b>Highlights:</b> {review_tags}" if review_tags else ""
+    quote_line = f"\n\n💬 <i>\"{review_text}\"</i>" if review_text else ""
+
+    text = (
+        f"{ce(CustomEmojis.CROWN, '👑')} <b>VERIFIED CUSTOMER VOUCH #{order_id}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{ce(CustomEmojis.STAR, '⭐')} <b>Rating:</b> <b>{stars_str}</b> ({rating}.0 / 5.0)\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{clean_prod}</b> ({clean_var})\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> <code>{masked}</code> • <b>Verified Purchase</b> {ce(CustomEmojis.CHECK, '✅')}"
+        f"{tags_line}"
+        f"{quote_line}\n\n"
+        f"{ce(CustomEmojis.STAR, '📅')} <b>Date:</b> {now_str}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{ce(CustomEmojis.WARRANTY, '🛡️')} <i>100% Genuine & Verified Purchase via @{bot_username or 'SamStoreBot'}</i>"
+    )
+
+    kb = None
+    if bot_username:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"🛒 Order {clean_prod}",
+                    url=f"https://t.me/{bot_username}?start=shop",
+                    icon_custom_emoji_id=CustomEmojis.SHOP
+                ),
+                InlineKeyboardButton(
+                    text="🛍️ Open Store Bot",
+                    url=f"https://t.me/{bot_username}",
+                    icon_custom_emoji_id=CustomEmojis.CROWN
+                )
+            ]
+        ])
+
+    try:
+        await bot.send_message(channel_id, text, reply_markup=kb, parse_mode="HTML")
+    except Exception as e:
+        logger.warning(f"Failed to send public vouch notification to channel {channel_id}: {e}")
+

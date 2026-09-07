@@ -3,18 +3,25 @@ Post-Delivery Support & Issue Resolution Handler
 Provides interactive order issue selection and generates 1-tap pre-filled Telegram deep links
 so the admin receives the exact Order ID, product name, date, and issue without confusion.
 """
+import logging
 import urllib.parse
 from typing import Optional
 from aiogram import Router, F, types, Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.fsm.context import FSMContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from database.models import Order, Variant, Product
-from database.crud import get_variant, get_product
+from database.crud import get_variant, get_product, save_order_feedback
 from utils.emojis import CustomEmojis, UI, ce, format_emoji
+from utils.states import CustomerOrderStates
+from utils.notifications import send_public_vouch_notification
+from keyboards.user_keyboards import get_order_rating_keyboard, get_review_tags_keyboard
 import config
+
+logger = logging.getLogger(__name__)
 
 router = Router()
 
@@ -275,4 +282,238 @@ async def cb_help_access(callback: types.CallbackQuery, session: AsyncSession):
         await callback.message.edit_text(text, reply_markup=kb)
     except Exception:
         await callback.message.answer(text, reply_markup=kb)
+
+
+# ==========================================
+# CUSTOMER RATING & PUBLIC VOUCH SYSTEM
+# ==========================================
+
+TAG_MAP = {
+    "fast": "⚡ Fast Delivery",
+    "smooth": "🔥 Smooth Activation",
+    "value": "👑 Best Value",
+    "genuine": "🛡️ 100% Genuine"
+}
+
+@router.callback_query(F.data.startswith("rate_order_"))
+async def cb_rate_order(callback: types.CallbackQuery, session: AsyncSession):
+    """Customer initiates rating for an order."""
+    await callback.answer()
+    order_id = int(callback.data.split("_")[2])
+    order = await session.get(Order, order_id)
+    if not order:
+        await callback.message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Order not found.")
+        return
+
+    if getattr(order, "rating", None):
+        stars_str = "⭐" * int(order.rating)
+        await callback.answer(f"You already rated this order with {stars_str}! Thank you!", show_alert=True)
+        return
+
+    text = (
+        f"{ce(CustomEmojis.STAR, '⭐')} <b>RATE YOUR EXPERIENCE</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order Reference:</b> <code>#{order_id}</code>\n\n"
+        f"How would you rate your subscription activation?\n"
+        f"Your verified review will be officially published to our community Vouch Channel!"
+    )
+    try:
+        await callback.message.edit_text(text, reply_markup=get_order_rating_keyboard(order_id))
+    except Exception:
+        await callback.message.answer(text, reply_markup=get_order_rating_keyboard(order_id))
+
+
+@router.callback_query(F.data.startswith("rate_val_"))
+async def cb_rate_val(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
+    """Customer selects star rating (e.g. 5, 4, 3 stars)."""
+    await callback.answer()
+    parts = callback.data.split("_")
+    order_id = int(parts[2])
+    stars = int(parts[3])
+
+    await state.update_data(rate_order_id=order_id, rate_stars=stars, rate_tags=[])
+
+    stars_display = "⭐" * stars
+    text = (
+        f"{ce(CustomEmojis.STAR, '⭐')} <b>YOUR RATING: {stars_display} ({stars}/5)</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"Tap any compliments below that describe your experience, or add a written note:\n"
+        f"<i>(When ready, click <b>🚀 Submit Review</b> below)</i>"
+    )
+    try:
+        await callback.message.edit_text(text, reply_markup=get_review_tags_keyboard(order_id, stars, []))
+    except Exception:
+        await callback.message.answer(text, reply_markup=get_review_tags_keyboard(order_id, stars, []))
+
+
+@router.callback_query(F.data.startswith("rate_tag_"))
+async def cb_rate_tag(callback: types.CallbackQuery, state: FSMContext):
+    """Toggle a compliment tag in review."""
+    await callback.answer()
+    parts = callback.data.split("_")
+    order_id = int(parts[2])
+    code = parts[3]
+    tag_label = TAG_MAP.get(code, code)
+
+    data = await state.get_data()
+    stars = data.get("rate_stars", 5)
+    selected_tags = list(data.get("rate_tags", []))
+
+    if tag_label in selected_tags:
+        selected_tags.remove(tag_label)
+    else:
+        selected_tags.append(tag_label)
+
+    await state.update_data(rate_tags=selected_tags)
+
+    stars_display = "⭐" * stars
+    tags_preview = " • ".join(selected_tags) if selected_tags else "<i>None selected yet</i>"
+    text = (
+        f"{ce(CustomEmojis.STAR, '⭐')} <b>YOUR RATING: {stars_display} ({stars}/5)</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"<b>Selected Highlights:</b> {tags_preview}\n\n"
+        f"Tap tags to toggle, add a written note, or click <b>🚀 Submit Review</b>:"
+    )
+    try:
+        await callback.message.edit_text(text, reply_markup=get_review_tags_keyboard(order_id, stars, selected_tags))
+    except Exception:
+        await callback.message.answer(text, reply_markup=get_review_tags_keyboard(order_id, stars, selected_tags))
+
+
+@router.callback_query(F.data.startswith("rate_write_"))
+async def cb_rate_write(callback: types.CallbackQuery, state: FSMContext):
+    """Customer wants to type a custom written review."""
+    await callback.answer()
+    order_id = int(callback.data.split("_")[2])
+    await state.set_state(CustomerOrderStates.waiting_for_review_text)
+    await state.update_data(rate_order_id=order_id)
+
+    prompt = (
+        f"{ce(CustomEmojis.SPARKLE, '✍️')} <b>LEAVE A WRITTEN REVIEW</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"Please reply directly to this message with a short note or comment about your experience:\n\n"
+        f"<i>(Example: 'Instant delivery, worked smoothly on my device! Recommended.')</i>"
+    )
+    cancel_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Skip Note & Submit", callback_data=f"rate_sub_{order_id}", icon_custom_emoji_id=CustomEmojis.CHECK)]
+    ])
+    await callback.message.answer(prompt, reply_markup=cancel_kb)
+
+
+@router.message(CustomerOrderStates.waiting_for_review_text, F.text)
+async def msg_cust_review_text(message: types.Message, state: FSMContext, session: AsyncSession, bot: Bot):
+    """Customer submits their written review note."""
+    review_content = message.text.strip()
+    data = await state.get_data()
+    order_id = data.get("rate_order_id")
+    stars = data.get("rate_stars", 5)
+    selected_tags = list(data.get("rate_tags", []))
+    await state.clear()
+
+    if not order_id:
+        await message.answer("Review session expired. You can review from your Order History.")
+        return
+
+    await _finalize_and_publish_review(
+        target_obj=message,
+        bot=bot,
+        session=session,
+        order_id=order_id,
+        stars=stars,
+        tags=selected_tags,
+        review_text=review_content,
+        user=message.from_user,
+        is_callback=False
+    )
+
+
+@router.callback_query(F.data.startswith("rate_sub_"))
+async def cb_rate_sub(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
+    """Customer submits review directly."""
+    await callback.answer()
+    order_id = int(callback.data.split("_")[2])
+    data = await state.get_data()
+    stars = data.get("rate_stars", 5)
+    selected_tags = list(data.get("rate_tags", []))
+    await state.clear()
+
+    await _finalize_and_publish_review(
+        target_obj=callback.message,
+        bot=bot,
+        session=session,
+        order_id=order_id,
+        stars=stars,
+        tags=selected_tags,
+        review_text=None,
+        user=callback.from_user,
+        is_callback=True
+    )
+
+
+async def _finalize_and_publish_review(
+    target_obj,
+    bot: Bot,
+    session: AsyncSession,
+    order_id: int,
+    stars: int,
+    tags: list[str],
+    review_text: Optional[str],
+    user: types.User,
+    is_callback: bool = False
+):
+    tags_str = ", ".join(tags) if tags else None
+    order = await save_order_feedback(session, order_id, stars, tags_str, review_text)
+    if not order:
+        await target_obj.answer("Order not found.")
+        return
+
+    # Publish public vouch to configured channel
+    order_ctx, prod_title, var_name, _, _ = await _get_order_context(session, order_id)
+    bot_me = getattr(bot, '_cached_me', None) or await bot.get_me()
+
+    if not getattr(order, "vouch_sent", False):
+        try:
+            await send_public_vouch_notification(
+                bot=bot,
+                order_id=order.id,
+                buyer_name=user.full_name or "Customer",
+                username=user.username,
+                product_title=prod_title,
+                variant_name=var_name,
+                rating=stars,
+                review_tags=tags_str,
+                review_text=review_text,
+                bot_username=bot_me.username or ""
+            )
+            order.vouch_sent = True
+            await session.commit()
+        except Exception as e:
+            logger.warning(f"Failed to post public vouch for order {order_id}: {e}")
+
+    stars_display = "⭐" * stars
+    thank_you_text = (
+        f"{ce(CustomEmojis.SPARKLE, '🎉')} <b>THANK YOU FOR YOUR VERIFIED REVIEW!</b>\n"
+        f"{UI.SECTION_BAR}\n\n"
+        f"{ce(CustomEmojis.STAR, '⭐')} <b>Your Rating:</b> <b>{stars_display} ({stars}/5)</b>\n"
+        f"Your vouch has been recorded and officially published to our community channel!\n\n"
+        f"{ce(CustomEmojis.HEART, '❤️')} <i>We appreciate your support and look forward to serving you again!</i>"
+    )
+    vouch_link = config.FEEDBACK_CHANNEL_LINK
+    buttons = []
+    if vouch_link:
+        buttons.append([InlineKeyboardButton(text="🌟 View in Vouch Channel", url=vouch_link, icon_custom_emoji_id=CustomEmojis.FIRE)])
+    buttons.append([
+        InlineKeyboardButton(text="Continue Shopping", callback_data="nav_shop", icon_custom_emoji_id=CustomEmojis.SHOP),
+        InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)
+    ])
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    if is_callback:
+        try:
+            await target_obj.edit_text(thank_you_text, reply_markup=kb)
+        except Exception:
+            await target_obj.answer(thank_you_text, reply_markup=kb)
+    else:
+        await target_obj.answer(thank_you_text, reply_markup=kb)
+
 

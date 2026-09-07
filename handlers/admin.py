@@ -72,6 +72,7 @@ from keyboards.admin_keyboards import (
     get_admin_variant_stock_actions_keyboard,
     get_admin_pending_orders_keyboard,
     get_admin_manual_order_detail_keyboard,
+    get_admin_otp_received_keyboard,
     get_deposit_approval_keyboard,
     get_admin_settings_keyboard,
     get_admin_gateway_settings_keyboard,
@@ -342,6 +343,57 @@ async def cb_admin_ord_view(callback: types.CallbackQuery, session: AsyncSession
         f"<i>Click 'Fulfill' to send the login details/link, or 'Cancel & Refund' to refund customer's balance:</i>"
     )
     await callback.message.edit_text(text, reply_markup=get_admin_manual_order_detail_keyboard(order.id))
+
+@router.callback_query(F.data.startswith("adm_man_reqotp_"))
+async def cb_admin_man_reqotp(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):
+    if not check_admin(callback.from_user.id):
+        return
+    order_id = int(callback.data.split("_")[3])
+    order = await get_order_by_id(session, order_id)
+    if not order or order.status != "PENDING_DISPATCH":
+        await callback.answer("Order is no longer pending dispatch!", show_alert=True)
+        return
+
+    import datetime
+    order.otp_requested_at = datetime.datetime.utcnow()
+    await session.commit()
+
+    variant = order.variant
+    product = await get_product(session, variant.product_id) if variant else None
+    prod_title = product.title if product else "Digital Service"
+    var_name = variant.name if variant else "Plan"
+
+    from keyboards.user_keyboards import get_customer_otp_prompt_keyboard
+    otp_prompt_text = (
+        f"{ce(CustomEmojis.FIRE, '🔔')} <b>URGENT: OTP REQUIRED FOR ACTIVATION!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b> ({var_name})\n"
+        f"{ce(CustomEmojis.CARD, '📱')} <b>Target Mobile / Details:</b> <code>{order.customer_input or 'Your Mobile'}</code>\n\n"
+        f"Our activation team is logging in right now! An SMS / WhatsApp OTP has just been sent to your number.\n\n"
+        f"{ce(CustomEmojis.FIRE, '⏱️')} <b>OTP expires in 2–3 minutes!</b>\n"
+        f"{ce(CustomEmojis.SPARKLE, '👇')} <i>Click below immediately and enter your OTP:</i>"
+    )
+
+    try:
+        await bot.send_message(order.user_id, otp_prompt_text, reply_markup=get_customer_otp_prompt_keyboard(order.id))
+        await callback.answer(f"📲 OTP request sent to customer for Order #{order_id}!", show_alert=True)
+        
+        req_time = order.otp_requested_at.strftime("%H:%M:%S UTC")
+        updated_text = (
+            f"📋 <b>MANUAL ORDER DETAILS #{order.id}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{ce(CustomEmojis.FIRE, '🔔')} <b>LIVE OTP REQUESTED AT {req_time}!</b>\n"
+            f"<i>Waiting for customer to enter the OTP code...</i>\n\n"
+            f"{ce(CustomEmojis.SHOP, '📦')} <b>Item:</b> {prod_title} — {var_name}\n"
+            f"{ce(CustomEmojis.WALLET, '💰')} <b>Amount Paid:</b> {config.CURRENCY_SYMBOL}{order.amount:.2f}\n"
+            f"📧 <b>CUSTOMER DETAILS:</b> <code>{order.customer_input or 'None'}</code>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"<i>You will receive a high-priority alert the moment customer submits the code.</i>"
+        )
+        await callback.message.edit_text(updated_text, reply_markup=get_admin_manual_order_detail_keyboard(order.id))
+    except Exception as e:
+        await callback.answer(f"Failed to message customer: {e}", show_alert=True)
 
 @router.callback_query(F.data.startswith("adm_man_ful_"))
 async def cb_admin_man_ful(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):

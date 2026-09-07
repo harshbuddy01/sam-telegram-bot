@@ -475,9 +475,66 @@ def get_back_button(callback_data: str = "nav_home") -> InlineKeyboardMarkup:
     ])
 
 def get_post_delivery_keyboard(order_id: int) -> InlineKeyboardMarkup:
-    """Buttons shown after successful product delivery — I Got It / Need Help."""
+    """Buttons shown after successful product delivery — Rating / I Got It / Need Help."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="I Got It!", callback_data=f"confirm_got_{order_id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
-        [InlineKeyboardButton(text="I Need Help", callback_data=f"need_help_{order_id}", icon_custom_emoji_id=CustomEmojis.SUPPORT)],
-        [InlineKeyboardButton(text="View in Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)]
+        [
+            InlineKeyboardButton(text="⭐ Rate & Review (Vouch)", callback_data=f"rate_order_{order_id}", icon_custom_emoji_id=CustomEmojis.STAR),
+            InlineKeyboardButton(text="I Got It!", callback_data=f"confirm_got_{order_id}", icon_custom_emoji_id=CustomEmojis.CHECK)
+        ],
+        [
+            InlineKeyboardButton(text="I Need Help", callback_data=f"need_help_{order_id}", icon_custom_emoji_id=CustomEmojis.SUPPORT),
+            InlineKeyboardButton(text="View in Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)
+        ]
+    ])
+
+def get_order_rating_keyboard(order_id: int) -> InlineKeyboardMarkup:
+    """Star rating buttons for customer review."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="⭐⭐⭐⭐⭐ (5/5)", callback_data=f"rate_val_{order_id}_5", icon_custom_emoji_id=CustomEmojis.STAR),
+            InlineKeyboardButton(text="⭐⭐⭐⭐ (4/5)", callback_data=f"rate_val_{order_id}_4", icon_custom_emoji_id=CustomEmojis.STAR)
+        ],
+        [
+            InlineKeyboardButton(text="⭐⭐⭐ (3/5)", callback_data=f"rate_val_{order_id}_3", icon_custom_emoji_id=CustomEmojis.STAR),
+            InlineKeyboardButton(text="🛟 Need Help Instead", callback_data=f"need_help_{order_id}", icon_custom_emoji_id=CustomEmojis.SUPPORT)
+        ],
+        [
+            InlineKeyboardButton(text="Back to Order", callback_data=f"orderdetail_{order_id}", icon_custom_emoji_id=CustomEmojis.ORDERS)
+        ]
+    ])
+
+def get_review_tags_keyboard(order_id: int, rating: int, selected_tags: list[str] = None) -> InlineKeyboardMarkup:
+    """Interactive compliment tags for the review."""
+    selected_tags = selected_tags or []
+    def tag_btn(label: str, code: str):
+        is_sel = label in selected_tags
+        prefix = "✅ " if is_sel else ""
+        return InlineKeyboardButton(text=f"{prefix}{label}", callback_data=f"rate_tag_{order_id}_{code}", icon_custom_emoji_id=CustomEmojis.FIRE)
+
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            tag_btn("⚡ Fast Delivery", "fast"),
+            tag_btn("🔥 Smooth Activation", "smooth")
+        ],
+        [
+            tag_btn("👑 Best Value", "value"),
+            tag_btn("🛡️ 100% Genuine", "genuine")
+        ],
+        [
+            InlineKeyboardButton(text="✍️ Add Written Note", callback_data=f"rate_write_{order_id}", icon_custom_emoji_id=CustomEmojis.SPARKLE),
+            InlineKeyboardButton(text="🚀 Submit Review", callback_data=f"rate_sub_{order_id}", icon_custom_emoji_id=CustomEmojis.CHECK)
+        ]
+    ])
+
+def get_customer_otp_prompt_keyboard(order_id: int) -> InlineKeyboardMarkup:
+    """Button sent to customer when admin requests live OTP."""
+    import config
+    clean_sup = config.SUPPORT_USERNAME.lstrip('@')
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🔑 Enter OTP Now", callback_data=f"cust_otp_enter_{order_id}", icon_custom_emoji_id=CustomEmojis.KEY)
+        ],
+        [
+            InlineKeyboardButton(text="Need Help / Support", url=f"https://t.me/{clean_sup}", icon_custom_emoji_id=CustomEmojis.SUPPORT)
+        ]
     ])

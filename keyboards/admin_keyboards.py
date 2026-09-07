@@ -223,10 +223,11 @@ def get_admin_pending_orders_keyboard(orders: list[Order]) -> InlineKeyboardMark
 def get_admin_manual_order_detail_keyboard(order_id: int) -> InlineKeyboardMarkup:
     buttons = [
         [
-            InlineKeyboardButton(text="Fulfill & Send Credentials", callback_data=f"adm_man_ful_{order_id}", icon_custom_emoji_id=CustomEmojis.KEY),
-            InlineKeyboardButton(text="Cancel & Refund", callback_data=f"adm_man_ref_{order_id}", icon_custom_emoji_id=CustomEmojis.LOCK)
+            InlineKeyboardButton(text="📲 Request OTP", callback_data=f"adm_man_reqotp_{order_id}", icon_custom_emoji_id=CustomEmojis.FIRE),
+            InlineKeyboardButton(text="Fulfill & Send Credentials", callback_data=f"adm_man_ful_{order_id}", icon_custom_emoji_id=CustomEmojis.KEY)
         ],
         [
+            InlineKeyboardButton(text="Cancel & Refund", callback_data=f"adm_man_ref_{order_id}", icon_custom_emoji_id=CustomEmojis.LOCK),
             InlineKeyboardButton(text="Back to Pending Orders", callback_data="adm_pending_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)
         ]
     ]
@@ -234,6 +235,19 @@ def get_admin_manual_order_detail_keyboard(order_id: int) -> InlineKeyboardMarku
 
 # Alias for backward compatibility
 get_admin_order_actions_keyboard = get_admin_manual_order_detail_keyboard
+
+def get_admin_otp_received_keyboard(order_id: int) -> InlineKeyboardMarkup:
+    """Action buttons shown when admin receives live customer OTP."""
+    buttons = [
+        [
+            InlineKeyboardButton(text="✅ Activated & Complete", callback_data=f"adm_man_ful_{order_id}", icon_custom_emoji_id=CustomEmojis.CHECK),
+            InlineKeyboardButton(text="🔄 Ask Again (Wrong OTP)", callback_data=f"adm_man_reqotp_{order_id}", icon_custom_emoji_id=CustomEmojis.FIRE)
+        ],
+        [
+            InlineKeyboardButton(text="Cancel & Refund", callback_data=f"adm_man_ref_{order_id}", icon_custom_emoji_id=CustomEmojis.LOCK)
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_admin_categories_keyboard(categories: list[Category]) -> InlineKeyboardMarkup:
     buttons = []

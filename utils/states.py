@@ -11,6 +11,10 @@ class SearchStates(StatesGroup):
 class OrderManualStates(StatesGroup):
     waiting_for_input = State()
 
+class CustomerOrderStates(StatesGroup):
+    waiting_for_otp = State()
+    waiting_for_review_text = State()
+
 class AdminManualOrderStates(StatesGroup):
     waiting_for_fulfillment_content = State()
 

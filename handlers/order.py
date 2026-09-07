@@ -11,13 +11,15 @@ from database.crud import (
     create_manual_order,
     get_available_stock_count,
     create_deposit,
-    create_deposit_gateway
+    create_deposit_gateway,
+    get_order_by_id,
+    save_order_otp
 )
-from utils.states import OrderManualStates
+from utils.states import OrderManualStates, CustomerOrderStates
 from utils.emojis import Emojis, UI, format_emoji, CustomEmojis, ce
 from utils.templates import render_template
 from utils.notifications import send_order_notification
-from keyboards.user_keyboards import get_post_delivery_keyboard
+from keyboards.user_keyboards import get_post_delivery_keyboard, get_customer_otp_prompt_keyboard
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import config
 
@@ -465,6 +467,90 @@ async def _background_notify_manual(bot: Bot, order, prod_title: str, var_name: 
     for admin_id in config.ADMIN_IDS:
         try:
             await bot.send_message(admin_id, admin_alert, reply_markup=get_admin_order_actions_keyboard(order.id))
+        except Exception:
+            pass
+
+@router.callback_query(F.data.startswith("cust_otp_enter_"))
+async def cb_cust_otp_enter(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
+    """Customer clicks 'Enter OTP Now' button in chat."""
+    await callback.answer()
+    order_id = int(callback.data.split("_")[3])
+    order = await get_order_by_id(session, order_id)
+    if not order or order.status != "PENDING_DISPATCH":
+        await callback.message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Order #{order_id} is no longer awaiting OTP or has already been fulfilled.")
+        return
+
+    await state.set_state(CustomerOrderStates.waiting_for_otp)
+    await state.update_data(otp_order_id=order_id)
+
+    prompt = (
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>SUBMIT ACTIVATION OTP</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order Reference:</b> <code>#{order.id}</code>\n\n"
+        f"Please reply directly with the <b>4-digit or 6-digit OTP code</b> sent to your mobile number:\n\n"
+        f"<i>(Example: 492015)</i>"
+    )
+    cancel_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Cancel / Back", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+    ])
+    await callback.message.answer(prompt, reply_markup=cancel_kb)
+
+@router.message(CustomerOrderStates.waiting_for_otp, F.text)
+async def msg_cust_otp_submit(message: types.Message, state: FSMContext, session: AsyncSession, bot: Bot):
+    """Customer sends their OTP text code."""
+    otp_code = message.text.strip()
+    data = await state.get_data()
+    order_id = data.get("otp_order_id")
+    await state.clear()
+
+    order = await get_order_by_id(session, order_id)
+    if not order or order.status != "PENDING_DISPATCH":
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Order #{order_id} is no longer awaiting OTP or already fulfilled.")
+        return
+
+    # Save OTP to database
+    await save_order_otp(session, order.id, otp_code)
+
+    # Thank customer
+    confirm_text = (
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>OTP SUBMITTED SUCCESSFULLY!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>Submitted Code:</b> <code>{otp_code}</code>\n\n"
+        f"Our activation team has received your code and is completing your subscription right now! Please stay tuned."
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="View in Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)],
+        [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+    ])
+    await message.answer(confirm_text, reply_markup=kb)
+
+    # Dispatch Priority Alert to all Admins
+    variant = order.variant
+    product = await get_product(session, variant.product_id) if variant else None
+    prod_title = product.title if product else "Digital Service"
+    var_name = variant.name if variant else "Plan"
+
+    from keyboards.admin_keyboards import get_admin_otp_received_keyboard
+    admin_otp_alert = (
+        f"{ce(CustomEmojis.FIRE, '🚨')} <b>LIVE OTP RECEIVED FOR ORDER #{order.id}!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_title} — {var_name}\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {message.from_user.full_name} (@{message.from_user.username or 'NoUser'})\n"
+        f"{ce(CustomEmojis.CARD, '📱')} <b>Target Mobile:</b> <code>{order.customer_input or 'N/A'}</code>\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>CUSTOMER OTP CODE:</b>\n"
+        f"<pre><code>{otp_code}</code></pre>\n"
+        f"<i>(Tap the code above to copy automatically)</i>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{ce(CustomEmojis.FIRE, '⏱️')} <i>Received just now — Active for ~2–3 minutes!</i>\n"
+        f"Click below to complete and fulfill the order:"
+    )
+
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, admin_otp_alert, reply_markup=get_admin_otp_received_keyboard(order.id))
         except Exception:
             pass
 

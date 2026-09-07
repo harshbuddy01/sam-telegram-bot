@@ -100,6 +100,17 @@ class Order(Base):
     broadcast_sent = Column(Boolean, default=False, nullable=True) # Prevent duplicate broadcast notifications
     expires_at = Column(DateTime, nullable=True, index=True) # Subscription expiration date
     expiry_notified_stage = Column(Integer, default=0, nullable=True) # 0=None, 1=5-Day, 2=2-Day, 3=Expired
+    
+    # Real-Time OTP Handshake fields
+    otp_code = Column(String(20), nullable=True) # Live OTP entered by customer
+    otp_requested_at = Column(DateTime, nullable=True) # Timestamp when admin requested OTP
+
+    # Customer Feedback & Public Vouch fields
+    rating = Column(Integer, nullable=True) # 1 to 5 stars
+    review_text = Column(Text, nullable=True) # Customer's review comment
+    review_tags = Column(String(255), nullable=True) # e.g. "⚡ Instant Delivery, 🔥 Smooth Activation"
+    vouch_sent = Column(Boolean, default=False, nullable=True) # Prevent duplicate public vouch postings
+
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     fulfilled_at = Column(DateTime, nullable=True)
 

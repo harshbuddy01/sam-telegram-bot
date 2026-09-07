@@ -200,8 +200,83 @@ async def run_tests():
     print(f"  -> Available Payment Gateways: {gateways}")
     assert "RAZORPAY" in gateways or "PAYPAL" in gateways or "OXAPAY" in gateways or "MANUAL_UPI" in gateways
 
+    # 10. Test Real-Time OTP Handshake Engine
+    print("\n[10/11] Testing Real-Time OTP Handshake Engine...")
+    async with AsyncSessionLocal() as session:
+        from database.crud import save_order_otp, get_order_by_id
+        from keyboards.admin_keyboards import get_admin_otp_received_keyboard, get_admin_manual_order_detail_keyboard
+        from keyboards.user_keyboards import get_customer_otp_prompt_keyboard
+
+        # Create a pending manual order for OTP test
+        otp_order, _ = await create_manual_order(
+            session=session,
+            user_id=test_uid,
+            variant_id=v_manual.id,
+            amount=v_manual.price,
+            customer_input="+91 9876543210"
+        )
+        assert otp_order is not None, "Failed to create manual order for OTP test"
+
+        # Verify Admin manual order keyboard contains Request OTP button
+        admin_kb = get_admin_manual_order_detail_keyboard(otp_order.id)
+        btn_callbacks = [b.callback_data for row in admin_kb.inline_keyboard for b in row]
+        assert f"adm_man_reqotp_{otp_order.id}" in btn_callbacks, "Request OTP button missing in admin keyboard!"
+        print(f"  -> Verified '📲 Request OTP' button present in Admin panel for Order #{otp_order.id}")
+
+        # Verify Customer OTP prompt keyboard contains Enter OTP button
+        cust_kb = get_customer_otp_prompt_keyboard(otp_order.id)
+        cust_btn_callbacks = [b.callback_data for row in cust_kb.inline_keyboard for b in row if b.callback_data]
+        assert f"cust_otp_enter_{otp_order.id}" in cust_btn_callbacks, "Enter OTP button missing in customer prompt!"
+        print(f"  -> Verified '🔑 Enter OTP Now' button present in Customer prompt")
+
+        # Test customer submitting live OTP (e.g. 582910)
+        updated_otp_order = await save_order_otp(session, otp_order.id, "582910")
+        assert updated_otp_order.otp_code == "582910", "OTP code was not saved properly!"
+        assert updated_otp_order.otp_requested_at is not None, "otp_requested_at was not set!"
+        print(f"  -> Saved Live OTP '582910' for Order #{otp_order.id} successfully")
+
+        # Verify Admin received OTP keyboard actions (Complete / Ask Again / Cancel)
+        otp_recv_kb = get_admin_otp_received_keyboard(otp_order.id)
+        recv_callbacks = [b.callback_data for row in otp_recv_kb.inline_keyboard for b in row]
+        assert f"adm_man_ful_{otp_order.id}" in recv_callbacks, "Complete button missing in OTP received keyboard!"
+        assert f"adm_man_reqotp_{otp_order.id}" in recv_callbacks, "Ask Again button missing in OTP received keyboard!"
+        print(f"  -> Verified Admin actions on OTP: [✅ Complete] & [🔄 Ask Again (Wrong OTP)]")
+
+    # 11. Test Customer Rating & Public Vouch System
+    print("\n[11/11] Testing Customer Rating & Public Vouch System...")
+    async with AsyncSessionLocal() as session:
+        from database.crud import save_order_feedback
+        from keyboards.user_keyboards import get_order_rating_keyboard, get_review_tags_keyboard, get_post_delivery_keyboard
+
+        # Check post-delivery keyboard has Rate & Review button
+        post_kb = get_post_delivery_keyboard(otp_order.id)
+        post_callbacks = [b.callback_data for row in post_kb.inline_keyboard for b in row]
+        assert f"rate_order_{otp_order.id}" in post_callbacks, "Rate & Review button missing in post-delivery keyboard!"
+        print(f"  -> Verified '⭐ Rate & Review (Vouch)' button present on delivered orders")
+
+        # Check star rating keyboard
+        rate_kb = get_order_rating_keyboard(otp_order.id)
+        rate_callbacks = [b.callback_data for row in rate_kb.inline_keyboard for b in row if b.callback_data]
+        assert f"rate_val_{otp_order.id}_5" in rate_callbacks, "5-Star rating button missing!"
+        print(f"  -> Verified 5-Star rating keyboard generated successfully")
+
+        # Test recording 5-star review with compliment tags
+        review_tags = "⚡ Fast Delivery, 🔥 Smooth Activation"
+        review_text = "Super fast activation, Hotstar worked smoothly!"
+        vouched_order = await save_order_feedback(
+            session=session,
+            order_id=otp_order.id,
+            rating=5,
+            review_tags=review_tags,
+            review_text=review_text
+        )
+        assert vouched_order.rating == 5, "Rating was not saved!"
+        assert vouched_order.review_tags == review_tags, "Review tags were not saved!"
+        assert vouched_order.review_text == review_text, "Review text was not saved!"
+        print(f"  -> Saved verified 5-Star review with tags: '{review_tags}'")
+
     print("\n==============================================")
-    print("   ALL TESTS & VERIFICATIONS PASSED (9/9)!   ")
+    print("   ALL TESTS & VERIFICATIONS PASSED (11/11)!  ")
     print("==============================================")
 
 if __name__ == "__main__":

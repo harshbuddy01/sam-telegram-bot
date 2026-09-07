@@ -15,6 +15,7 @@ ENV/
 *.db
 *.db-journal
 *.db-wal
+*.db-shm
 
 # Test Assets
 test_*.png

@@ -60,6 +60,12 @@ async def init_db():
             "ALTER TABLE variants ADD COLUMN validity_days INTEGER DEFAULT 30",
             "ALTER TABLE orders ADD COLUMN expires_at DATETIME",
             "ALTER TABLE orders ADD COLUMN expiry_notified_stage INTEGER DEFAULT 0",
+            "ALTER TABLE orders ADD COLUMN otp_code VARCHAR(20)",
+            "ALTER TABLE orders ADD COLUMN otp_requested_at DATETIME",
+            "ALTER TABLE orders ADD COLUMN rating INTEGER",
+            "ALTER TABLE orders ADD COLUMN review_text TEXT",
+            "ALTER TABLE orders ADD COLUMN review_tags VARCHAR(255)",
+            "ALTER TABLE orders ADD COLUMN vouch_sent BOOLEAN DEFAULT 0",
             "UPDATE products SET title = REPLACE(title, '❤️', '') WHERE title LIKE '%❤️%'",
             "UPDATE categories SET name = REPLACE(name, '❤️', '') WHERE name LIKE '%❤️%'",
         ]

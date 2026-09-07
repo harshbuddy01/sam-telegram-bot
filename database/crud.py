@@ -1369,3 +1369,33 @@ async def clear_all_catalog_data(session: AsyncSession):
     await session.execute(delete(Product))
     await session.execute(delete(Category))
     await session.commit()
+
+async def save_order_otp(session: AsyncSession, order_id: int, otp_code: str) -> Optional[Order]:
+    """Saves live customer-submitted OTP to Order record."""
+    order = await get_order_by_id(session, order_id)
+    if order:
+        order.otp_code = str(otp_code).strip()
+        order.otp_requested_at = datetime.datetime.utcnow()
+        await session.commit()
+        await session.refresh(order)
+    return order
+
+async def save_order_feedback(
+    session: AsyncSession,
+    order_id: int,
+    rating: int,
+    review_tags: Optional[str] = None,
+    review_text: Optional[str] = None
+) -> Optional[Order]:
+    """Records customer rating and review for an order."""
+    order = await get_order_by_id(session, order_id)
+    if order:
+        order.rating = max(1, min(5, int(rating)))
+        if review_tags:
+            order.review_tags = review_tags.strip()
+        if review_text:
+            order.review_text = review_text.strip()
+        await session.commit()
+        await session.refresh(order)
+    return order
+
