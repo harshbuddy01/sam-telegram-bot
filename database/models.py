@@ -64,6 +64,8 @@ class Variant(Base):
     requires_customer_input = Column(Boolean, default=True) # If True, prompts customer for email/phone; if False, delivers immediate receipt and notifies admin to dispatch
     stock_quantity = Column(Integer, default=50) # Manual fulfillment slots available
     validity_days = Column(Integer, default=30, nullable=True) # Duration in days (e.g. 30, 90, 180, 365)
+    otp_mode = Column(String(30), default="NONE") # "NONE", "ADMIN_ASKS_CUSTOMER", "CUSTOMER_ASKS_ADMIN", "BOTH"
+    max_otp_requests = Column(Integer, default=5, nullable=True) # Max times customer can request OTP
     is_active = Column(Boolean, default=True)
 
     product = relationship("Product", back_populates="variants", lazy="selectin")
@@ -101,9 +103,13 @@ class Order(Base):
     expires_at = Column(DateTime, nullable=True, index=True) # Subscription expiration date
     expiry_notified_stage = Column(Integer, default=0, nullable=True) # 0=None, 1=5-Day, 2=2-Day, 3=Expired
     
-    # Real-Time OTP Handshake fields
-    otp_code = Column(String(20), nullable=True) # Live OTP entered by customer
-    otp_requested_at = Column(DateTime, nullable=True) # Timestamp when admin requested OTP
+    # Real-Time Dual-Direction OTP Handshake fields
+    otp_code = Column(String(20), nullable=True) # Live OTP code
+    otp_requested_at = Column(DateTime, nullable=True) # Timestamp of initial request
+    otp_requests_count = Column(Integer, default=0, nullable=True) # Counter for rate limiting
+    last_otp_request_at = Column(DateTime, nullable=True) # Last request timestamp for cooldown
+    last_otp_direction = Column(String(20), nullable=True) # "TO_CUSTOMER", "TO_ADMIN"
+    otp_status = Column(String(20), default="IDLE", nullable=True) # "IDLE", "PENDING_CUSTOMER", "PENDING_ADMIN", "DELIVERED"
 
     # Customer Feedback & Public Vouch fields
     rating = Column(Integer, nullable=True) # 1 to 5 stars
@@ -138,6 +144,13 @@ class Deposit(Base):
 class BotTemplate(Base):
     __tablename__ = "bot_templates"
 
-    key = Column(String(50), primary_key=True, index=True) # e.g. "welcome_text", "category_products_header", "product_item_format", "variant_detail", "checkout_text", "delivery_text", "profile_text", "support_text"
+    key = Column(String(50), primary_key=True, index=True)
     content = Column(Text, nullable=False)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+class BotSetting(Base):
+    __tablename__ = "bot_settings"
+
+    key = Column(String(50), primary_key=True, index=True) # e.g. "admin_status" ("ONLINE" / "AWAY")
+    value = Column(Text, nullable=False)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)

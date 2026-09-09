@@ -583,7 +583,7 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
                             f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Full Warranty:</b> Covered throughout validity!\n"
                             f"{ce(CustomEmojis.HEART, '❤️')} <i>Thank you for shopping with {config.STORE_NAME}!</i>"
                         )
-                        kb = get_post_delivery_keyboard(existing_order.id)
+                        kb = get_post_delivery_keyboard(existing_order.id, otp_mode=getattr(target_var, "otp_mode", None))
                         await callback.message.edit_text(delivery_text, reply_markup=kb)
                         return
                     else:
@@ -614,7 +614,7 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
                         f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Full Warranty:</b> Covered throughout validity!\n"
                         f"{ce(CustomEmojis.HEART, '❤️')} <i>Thank you for shopping with {config.STORE_NAME}!</i>"
                     )
-                    kb = get_post_delivery_keyboard(order.id)
+                    kb = get_post_delivery_keyboard(order.id, otp_mode=getattr(target_var, "otp_mode", None))
                     await callback.message.edit_text(delivery_text, reply_markup=kb)
                     return
                 else:
@@ -743,7 +743,7 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
                         f"{ce(CustomEmojis.WARRANTY, '🛡️')} <b>Full Warranty:</b> Covered throughout validity!\n"
                         f"{ce(CustomEmojis.HEART, '❤️')} <i>Thank you for shopping with {config.STORE_NAME}!</i>"
                     )
-                    kb = get_post_delivery_keyboard(order.id)
+                    kb = get_post_delivery_keyboard(order.id, otp_mode=getattr(target_var, "otp_mode", None))
                     await callback.message.edit_text(delivery_text, reply_markup=kb)
 
                     return

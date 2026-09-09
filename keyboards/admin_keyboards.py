@@ -3,11 +3,21 @@ from database.models import Category, Product, Variant, Order, Deposit
 from utils.emojis import Emojis, clean_button_text, CustomEmojis
 import config
 
-def get_admin_main_keyboard(pending_deposits: int = 0, pending_orders: int = 0) -> InlineKeyboardMarkup:
+def get_admin_main_keyboard(pending_deposits: int = 0, pending_orders: int = 0, admin_status: str = "ONLINE") -> InlineKeyboardMarkup:
     dep_badge = f" ({pending_deposits})" if pending_deposits > 0 else ""
     ord_badge = f" ({pending_orders})" if pending_orders > 0 else ""
     
+    if admin_status == "ONLINE":
+        status_text = "🟢 Status: Online (Instant OTP)"
+        status_icon = CustomEmojis.CHECK
+    else:
+        status_text = "🌙 Status: Away / Night Mode"
+        status_icon = CustomEmojis.LOCK
+
     buttons = [
+        [
+            InlineKeyboardButton(text=status_text, callback_data="adm_toggle_status", icon_custom_emoji_id=status_icon)
+        ],
         [
             InlineKeyboardButton(text=f"Pending Orders{ord_badge}", callback_data="adm_pending_orders", icon_custom_emoji_id=CustomEmojis.ORDERS),
             InlineKeyboardButton(text=f"Payment Logs{dep_badge}", callback_data="adm_deposits", icon_custom_emoji_id=CustomEmojis.WALLET)
@@ -398,9 +408,23 @@ def get_admin_persistent_keyboard() -> ReplyKeyboardMarkup:
     ]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, is_persistent=True)
 
-def get_admin_variant_edit_keyboard(variant_id: int, product_id: int, is_manual: bool = False, requires_customer_input: bool = True) -> InlineKeyboardMarkup:
+def get_admin_variant_edit_keyboard(
+    variant_id: int,
+    product_id: int,
+    is_manual: bool = False,
+    requires_customer_input: bool = True,
+    otp_mode: str = "NONE"
+) -> InlineKeyboardMarkup:
     mode_btn_text = "Switch to MANUAL Mode" if not is_manual else "Switch to AUTOMATIC Mode"
     
+    otp_label_map = {
+        "NONE": "OTP: None",
+        "ADMIN_ASKS_CUSTOMER": "OTP: Admin Asks Cust",
+        "CUSTOMER_ASKS_ADMIN": "OTP: Cust Asks Admin",
+        "BOTH": "OTP: Dual Direction"
+    }
+    otp_btn_text = otp_label_map.get(otp_mode, "OTP: None")
+
     buttons = [
         [
             InlineKeyboardButton(text="Edit Plan Name", callback_data=f"adm_varedit_name_{variant_id}", icon_custom_emoji_id=CustomEmojis.DIAMOND),
@@ -409,6 +433,9 @@ def get_admin_variant_edit_keyboard(variant_id: int, product_id: int, is_manual:
         [
             InlineKeyboardButton(text="Edit Description", callback_data=f"adm_varedit_desc_{variant_id}", icon_custom_emoji_id=CustomEmojis.SPARKLE),
             InlineKeyboardButton(text=mode_btn_text, callback_data=f"adm_varedit_togglemode_{variant_id}", icon_custom_emoji_id=CustomEmojis.FIRE)
+        ],
+        [
+            InlineKeyboardButton(text=f"🔐 {otp_btn_text}", callback_data=f"adm_varedit_toggleotp_{variant_id}", icon_custom_emoji_id=CustomEmojis.KEY)
         ]
     ]
 
@@ -439,6 +466,17 @@ def get_admin_variant_edit_keyboard(variant_id: int, product_id: int, is_manual:
         InlineKeyboardButton(text="Admin Home", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_admin_customer_otp_request_keyboard(order_id: int) -> InlineKeyboardMarkup:
+    """Action buttons shown to admin when customer requests TV/Login OTP."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🔑 Send OTP to Customer", callback_data=f"adm_send_cust_otp_{order_id}", icon_custom_emoji_id=CustomEmojis.KEY)
+        ],
+        [
+            InlineKeyboardButton(text="❌ Dismiss", callback_data=f"adm_dismiss_cust_otp_{order_id}", icon_custom_emoji_id=CustomEmojis.LOCK)
+        ]
+    ])
 
 def get_admin_fulfillment_type_keyboard(cancel_cb: str = "admin_home") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[

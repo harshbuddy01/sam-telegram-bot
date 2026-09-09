@@ -4,7 +4,7 @@ from typing import Optional, List, Tuple
 from sqlalchemy import select, func, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from database.models import User, Category, Product, Variant, Stock, Order, Deposit
+from database.models import User, Category, Product, Variant, Stock, Order, Deposit, BotSetting
 from utils.emojis import Emojis, CustomEmojis, clean_button_text
 import config
 
@@ -526,7 +526,8 @@ async def fulfill_order(
 
     user = await get_user(session, user_id)
     if not user or user.balance < total_amount:
-        return None, f"Insufficient balance. Need {config.CURRENCY_SYMBOL}{total_amount:.2f}, you have {config.CURRENCY_SYMBOL}{user.balance:.2f}."
+        user_bal = user.balance if user else 0.0
+        return None, f"Insufficient balance. Need {config.CURRENCY_SYMBOL}{total_amount:.2f}, you have {config.CURRENCY_SYMBOL}{user_bal:.2f}."
 
     variant = await get_variant(session, variant_id)
     if not variant:
@@ -1437,6 +1438,102 @@ async def save_order_feedback(
             order.review_tags = review_tags.strip()
         if review_text:
             order.review_text = review_text.strip()
+        await session.commit()
+        await session.refresh(order)
+    return order
+
+# ================= BOT SETTINGS & OTP ENGINE CRUD =================
+
+async def get_bot_setting(session: AsyncSession, key: str, default: str = "ONLINE") -> str:
+    """Retrieves a persistent store-wide setting value, returning default if not found."""
+    stmt = select(BotSetting).where(BotSetting.key == key)
+    res = await session.execute(stmt)
+    setting = res.scalar_one_or_none()
+    if setting:
+        return setting.value
+    return default
+
+async def set_bot_setting(session: AsyncSession, key: str, value: str) -> BotSetting:
+    """Creates or updates a persistent store-wide setting."""
+    stmt = select(BotSetting).where(BotSetting.key == key)
+    res = await session.execute(stmt)
+    setting = res.scalar_one_or_none()
+    if setting:
+        setting.value = str(value)
+        setting.updated_at = datetime.datetime.utcnow()
+    else:
+        setting = BotSetting(key=key, value=str(value), updated_at=datetime.datetime.utcnow())
+        session.add(setting)
+    await session.commit()
+    await session.refresh(setting)
+    return setting
+
+async def update_variant_otp_mode(session: AsyncSession, variant_id: int, otp_mode: str) -> Optional[Variant]:
+    """Updates the OTP configuration mode for a subscription plan variant."""
+    variant = await get_variant(session, variant_id)
+    if variant:
+        variant.otp_mode = otp_mode
+        await session.commit()
+        await session.refresh(variant)
+    return variant
+
+async def request_customer_otp_from_admin(
+    session: AsyncSession,
+    order_id: int,
+    cooldown_seconds: int = 90
+) -> Tuple[bool, str, Optional[Order]]:
+    """
+    Handles customer request for a TV / Login OTP from admin.
+    Enforces cooldown and maximum request limits.
+    Returns (success, reason_or_message, order).
+    """
+    stmt = select(Order).options(
+        selectinload(Order.variant).selectinload(Variant.product),
+        selectinload(Order.user)
+    ).where(Order.id == order_id)
+    res = await session.execute(stmt)
+    order = res.scalar_one_or_none()
+    if not order:
+        return False, "Order not found.", None
+
+    variant = order.variant
+    otp_mode = variant.otp_mode if variant else "NONE"
+    if otp_mode not in ("CUSTOMER_ASKS_ADMIN", "BOTH"):
+        return False, "This product does not require admin OTP verification.", order
+
+    max_reqs = (variant.max_otp_requests if variant and variant.max_otp_requests else 5)
+    current_count = order.otp_requests_count or 0
+    if current_count >= max_reqs:
+        return False, f"Maximum OTP requests ({max_reqs}) reached for this order. Please contact support.", order
+
+    now = datetime.datetime.utcnow()
+    if order.last_otp_request_at:
+        elapsed = (now - order.last_otp_request_at).total_seconds()
+        if elapsed < cooldown_seconds:
+            remaining = int(cooldown_seconds - elapsed)
+            return False, f"Please wait {remaining}s before requesting another OTP.", order
+
+    # Update OTP status
+    order.otp_requests_count = current_count + 1
+    order.last_otp_request_at = now
+    order.last_otp_direction = "TO_ADMIN"
+    order.otp_status = "PENDING_ADMIN"
+    await session.commit()
+    await session.refresh(order)
+    return True, "SUCCESS", order
+
+async def deliver_admin_otp_to_customer(session: AsyncSession, order_id: int, otp_code: str) -> Optional[Order]:
+    """Admin delivers the TV / Login OTP code to customer."""
+    stmt = select(Order).options(
+        selectinload(Order.variant).selectinload(Variant.product),
+        selectinload(Order.user)
+    ).where(Order.id == order_id)
+    res = await session.execute(stmt)
+    order = res.scalar_one_or_none()
+    if order:
+        order.otp_code = str(otp_code).strip()
+        order.otp_status = "DELIVERED"
+        order.last_otp_direction = "TO_CUSTOMER"
         await session.commit()
         await session.refresh(order)
     return order

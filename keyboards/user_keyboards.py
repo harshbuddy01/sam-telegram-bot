@@ -433,9 +433,10 @@ def get_order_detail_keyboard(
     is_expired: bool = False,
     can_renew: bool = False,
     price: float = 0.0,
-    support_text: str = ""
+    support_text: str = "",
+    otp_mode: Optional[str] = None
 ) -> InlineKeyboardMarkup:
-    """Buttons displayed on the order detail receipt screen with smart renewal/support."""
+    """Buttons displayed on the order detail receipt screen with smart renewal/support/OTP."""
     buttons = []
     if is_expired and variant_id:
         if can_renew:
@@ -458,6 +459,15 @@ def get_order_detail_keyboard(
                 )
             ])
 
+    if not is_expired and otp_mode in ("CUSTOMER_ASKS_ADMIN", "BOTH"):
+        buttons.append([
+            InlineKeyboardButton(
+                text="📲 Request TV / Login OTP",
+                callback_data=f"cust_req_otp_{order_id}",
+                icon_custom_emoji_id=CustomEmojis.KEY
+            )
+        ])
+
     buttons.append([
         InlineKeyboardButton(text="Need Help / Report Issue", callback_data=f"need_help_{order_id}", icon_custom_emoji_id=CustomEmojis.SUPPORT)
     ])
@@ -474,18 +484,27 @@ def get_back_button(callback_data: str = "nav_home") -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="Go Back", callback_data=callback_data, icon_custom_emoji_id=CustomEmojis.CROWN)]
     ])
 
-def get_post_delivery_keyboard(order_id: int) -> InlineKeyboardMarkup:
-    """Buttons shown after successful product delivery — Rating / I Got It / Need Help."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="⭐ Rate & Review (Vouch)", callback_data=f"rate_order_{order_id}", icon_custom_emoji_id=CustomEmojis.STAR),
-            InlineKeyboardButton(text="I Got It!", callback_data=f"confirm_got_{order_id}", icon_custom_emoji_id=CustomEmojis.CHECK)
-        ],
-        [
-            InlineKeyboardButton(text="I Need Help", callback_data=f"need_help_{order_id}", icon_custom_emoji_id=CustomEmojis.SUPPORT),
-            InlineKeyboardButton(text="View in Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)
-        ]
+def get_post_delivery_keyboard(order_id: int, otp_mode: Optional[str] = None) -> InlineKeyboardMarkup:
+    """Buttons shown after successful product delivery — Rating / I Got It / Need Help / OTP."""
+    buttons = []
+    if otp_mode in ("CUSTOMER_ASKS_ADMIN", "BOTH"):
+        buttons.append([
+            InlineKeyboardButton(
+                text="📲 Request TV / Login OTP",
+                callback_data=f"cust_req_otp_{order_id}",
+                icon_custom_emoji_id=CustomEmojis.KEY
+            )
+        ])
+
+    buttons.append([
+        InlineKeyboardButton(text="⭐ Rate & Review (Vouch)", callback_data=f"rate_order_{order_id}", icon_custom_emoji_id=CustomEmojis.STAR),
+        InlineKeyboardButton(text="I Got It!", callback_data=f"confirm_got_{order_id}", icon_custom_emoji_id=CustomEmojis.CHECK)
     ])
+    buttons.append([
+        InlineKeyboardButton(text="I Need Help", callback_data=f"need_help_{order_id}", icon_custom_emoji_id=CustomEmojis.SUPPORT),
+        InlineKeyboardButton(text="View in Order History", callback_data="view_orders", icon_custom_emoji_id=CustomEmojis.ORDERS)
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_order_rating_keyboard(order_id: int) -> InlineKeyboardMarkup:
     """Star rating buttons for customer review."""

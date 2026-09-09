@@ -1,6 +1,9 @@
 import asyncio
+import logging
 from typing import Optional, Dict, Any, List
 from aiogram import Router, F, types, Bot
+
+logger = logging.getLogger(__name__)
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from database.crud import (
@@ -13,13 +16,16 @@ from database.crud import (
     create_deposit,
     create_deposit_gateway,
     get_order_by_id,
-    save_order_otp
+    save_order_otp,
+    request_customer_otp_from_admin,
+    get_bot_setting
 )
 from utils.states import OrderManualStates, CustomerOrderStates
 from utils.emojis import Emojis, UI, format_emoji, CustomEmojis, ce
 from utils.templates import render_template
 from utils.notifications import send_order_notification
 from keyboards.user_keyboards import get_post_delivery_keyboard, get_customer_otp_prompt_keyboard
+from keyboards.admin_keyboards import get_admin_customer_otp_request_keyboard
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import config
 
@@ -339,7 +345,7 @@ async def cb_buy_variant(callback: types.CallbackQuery, state: FSMContext, sessi
             store_name=config.STORE_NAME
         )
 
-        kb = get_post_delivery_keyboard(order.id)
+        kb = get_post_delivery_keyboard(order.id, otp_mode=getattr(variant, "otp_mode", None))
 
         await callback.message.edit_text(delivery_text, reply_markup=kb)
 
@@ -553,6 +559,115 @@ async def msg_cust_otp_submit(message: types.Message, state: FSMContext, session
             await bot.send_message(admin_id, admin_otp_alert, reply_markup=get_admin_otp_received_keyboard(order.id))
         except Exception:
             pass
+
+# ================= CUSTOMER OTP REQUEST ENGINE =================
+
+async def _otp_inactivity_balancer(bot: Bot, order_id: int, user_id: int, initial_req_count: int):
+    """
+    Waits 5 minutes (300s). If the OTP request is still PENDING_ADMIN for this round,
+    sends a polite update so the customer is never left hanging silently.
+    """
+    await asyncio.sleep(300)
+    try:
+        from database.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as session:
+            order = await get_order_by_id(session, order_id)
+            if not order:
+                return
+            if order.otp_status == "PENDING_ADMIN" and (order.otp_requests_count or 0) == initial_req_count:
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="📲 Request Fresh OTP",
+                            callback_data=f"cust_req_otp_{order_id}",
+                            icon_custom_emoji_id=CustomEmojis.KEY
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="🛟 Contact Direct Support",
+                            url=f"https://t.me/{config.SUPPORT_USERNAME.lstrip('@')}",
+                            icon_custom_emoji_id=CustomEmojis.SUPPORT
+                        )
+                    ]
+                ])
+                msg = (
+                    f"{ce(CustomEmojis.FIRE, '⏱️')} <b>OTP Status Update (Order #{order_id})</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"Your TV / login OTP request is taking slightly longer than usual. "
+                    f"If the code on your screen expired, you can request a fresh code or message direct support right away."
+                )
+                await bot.send_message(user_id, msg, reply_markup=kb)
+    except Exception as e:
+        logger.warning(f"Error in OTP inactivity balancer for Order #{order_id}: {e}")
+
+@router.callback_query(F.data.startswith("cust_req_otp_"))
+async def cb_cust_req_otp(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):
+    """Customer requests TV / Login OTP from admin."""
+    order_id = int(callback.data.split("_")[3])
+    success, reason, order = await request_customer_otp_from_admin(session, order_id)
+    if not success:
+        await callback.answer(reason, show_alert=True)
+        return
+
+    admin_status = await get_bot_setting(session, "admin_status", "ONLINE")
+    
+    variant = order.variant
+    product = variant.product if variant else None
+    prod_title = product.title if product else "Subscription"
+    var_name = variant.name if variant else "Plan"
+
+    if admin_status == "ONLINE":
+        cust_msg = (
+            f"{ce(CustomEmojis.CHECK, '🟢')} <b>TV / LOGIN OTP REQUESTED!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
+            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_title} ({var_name})\n"
+            f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Status:</b> 🟢 <b>ADMIN TEAM ONLINE</b>\n\n"
+            f"Our team has been alerted and is generating your login OTP now. "
+            f"Please keep your device screen active.\n\n"
+            f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Wait:</b> 1–2 minutes.\n"
+            f"<i>You will receive a notification with your code right here!</i>"
+        )
+        await callback.answer("Request sent to online team! Estimated wait: 1-2 mins.", show_alert=True)
+    else:
+        cust_msg = (
+            f"{ce(CustomEmojis.LOCK, '🌙')} <b>OTP REQUEST QUEUED (AWAY / NIGHT MODE)</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
+            f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_title} ({var_name})\n"
+            f"{ce(CustomEmojis.LOCK, '🌙')} <b>Status:</b> 🌙 <b>NIGHT / AWAY MODE ACTIVE</b>\n\n"
+            f"Our team is currently away or resting. Your request has been queued at top priority!\n\n"
+            f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Estimated Wait:</b> 15–30 minutes.\n"
+            f"<i>Your code will be delivered here the moment our team connects.</i>"
+        )
+        await callback.answer("Store is in Away / Night mode. Request queued!", show_alert=True)
+
+    await callback.message.answer(cust_msg)
+
+    # Notify Admins with action button
+    user = order.user
+    user_display = f"{user.full_name}" if user else "Customer"
+    user_handle = f"@{user.username}" if user and user.username else f"ID: {order.user_id}"
+    admin_alert = (
+        f"{ce(CustomEmojis.FIRE, '🚨')} <b>CUSTOMER REQUESTING TV / LOGIN OTP!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> {prod_title} — {var_name}\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {user_display} ({user_handle})\n"
+        f"{ce(CustomEmojis.TROPHY, '📊')} <b>Request Count:</b> {order.otp_requests_count}/{variant.max_otp_requests or 5}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<i>Click below to provide the code to this customer:</i>"
+    )
+    admin_kb = get_admin_customer_otp_request_keyboard(order.id)
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, admin_alert, reply_markup=admin_kb)
+        except Exception:
+            pass
+
+    # Spawn 5-minute inactivity balancer
+    asyncio.create_task(_otp_inactivity_balancer(bot, order.id, order.user_id, order.otp_requests_count))
 
 async def initiate_1click_checkout(
     message: types.Message,

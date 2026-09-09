@@ -66,6 +66,12 @@ async def init_db():
             "ALTER TABLE orders ADD COLUMN review_text TEXT",
             "ALTER TABLE orders ADD COLUMN review_tags VARCHAR(255)",
             "ALTER TABLE orders ADD COLUMN vouch_sent BOOLEAN DEFAULT 0",
+            "ALTER TABLE variants ADD COLUMN otp_mode VARCHAR(30) DEFAULT 'NONE'",
+            "ALTER TABLE variants ADD COLUMN max_otp_requests INTEGER DEFAULT 5",
+            "ALTER TABLE orders ADD COLUMN otp_requests_count INTEGER DEFAULT 0",
+            "ALTER TABLE orders ADD COLUMN last_otp_request_at DATETIME",
+            "ALTER TABLE orders ADD COLUMN last_otp_direction VARCHAR(20)",
+            "ALTER TABLE orders ADD COLUMN otp_status VARCHAR(20) DEFAULT 'IDLE'",
             "UPDATE products SET title = REPLACE(title, '❤️', '') WHERE title LIKE '%❤️%'",
             "UPDATE categories SET name = REPLACE(name, '❤️', '') WHERE name LIKE '%❤️%'",
         ]

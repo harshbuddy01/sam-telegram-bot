@@ -54,10 +54,15 @@ from database.crud import (
     get_all_deposits,
     get_deposits_stats,
     get_product,
-    fulfill_order
+    fulfill_order,
+    get_bot_setting,
+    set_bot_setting,
+    update_variant_otp_mode,
+    deliver_admin_otp_to_customer
 )
 from keyboards.admin_keyboards import (
     get_admin_main_keyboard,
+    get_admin_customer_otp_request_keyboard,
     get_admin_recent_orders_keyboard,
     get_admin_order_audit_keyboard,
     get_admin_categories_keyboard,
@@ -137,15 +142,23 @@ async def cmd_admin(message: types.Message, state: FSMContext, session: AsyncSes
         return
     await state.clear()
     
+    admin_status = await get_bot_setting(session, "admin_status", "ONLINE")
     pending_deps = len(await get_pending_deposits(session))
     pending_orders = len(await get_pending_manual_orders(session))
     
+    status_badge = (
+        f"{ce(CustomEmojis.CHECK, '🟢')} <b>Live Status:</b> 🟢 <b>ONLINE</b> (Instant OTP ~1–2m)\n"
+        if admin_status == "ONLINE"
+        else f"{ce(CustomEmojis.LOCK, '🌙')} <b>Live Status:</b> 🌙 <b>AWAY / NIGHT MODE</b> (Queued ~15–30m)\n"
+    )
+
     text = (
         f"{ce(CustomEmojis.CROWN, '👑')} <b>ADMINISTRATOR CONTROL PANEL</b>\n"
         f"{UI.SECTION_BAR}\n\n"
+        f"{status_badge}\n"
         f"<i>Select a management hub below to manage your store:</i>"
     )
-    await message.answer(text, reply_markup=get_admin_main_keyboard(pending_deps, pending_orders))
+    await message.answer(text, reply_markup=get_admin_main_keyboard(pending_deps, pending_orders, admin_status=admin_status))
 
 @router.message(Command("addstock"))
 async def cmd_addstock(message: types.Message, state: FSMContext, session: AsyncSession):
@@ -177,19 +190,45 @@ async def cb_admin_home(callback: types.CallbackQuery, state: FSMContext, sessio
     await state.clear()
     await callback.answer()
     
+    admin_status = await get_bot_setting(session, "admin_status", "ONLINE")
     pending_deps = len(await get_pending_deposits(session))
     pending_ords = len(await get_pending_manual_orders(session))
     
+    status_badge = (
+        f"{ce(CustomEmojis.CHECK, '🟢')} <b>Live Status:</b> 🟢 <b>ONLINE</b> (Instant OTP ~1–2m)\n"
+        if admin_status == "ONLINE"
+        else f"{ce(CustomEmojis.LOCK, '🌙')} <b>Live Status:</b> 🌙 <b>AWAY / NIGHT MODE</b> (Queued ~15–30m)\n"
+    )
+
     text = (
         f"{ce(CustomEmojis.CROWN, '👑')} <b>ADMIN MANAGEMENT PANEL</b>\n"
         f"{UI.SECTION_BAR}\n\n"
         f"Welcome, Administrator <b>{callback.from_user.first_name}</b>.\n"
+        f"{status_badge}\n"
         f"<i>Select a management option below:</i>"
     )
     try:
-        await callback.message.edit_text(text, reply_markup=get_admin_main_keyboard(pending_deps, pending_ords))
+        await callback.message.edit_text(text, reply_markup=get_admin_main_keyboard(pending_deps, pending_ords, admin_status=admin_status))
     except Exception:
-        await callback.message.answer(text, reply_markup=get_admin_main_keyboard(pending_deps, pending_ords))
+        await callback.message.answer(text, reply_markup=get_admin_main_keyboard(pending_deps, pending_ords, admin_status=admin_status))
+
+@router.callback_query(F.data == "adm_toggle_status")
+async def cb_admin_toggle_status(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        await callback.answer("Unauthorized", show_alert=True)
+        return
+
+    current_status = await get_bot_setting(session, "admin_status", "ONLINE")
+    new_status = "AWAY" if current_status == "ONLINE" else "ONLINE"
+    await set_bot_setting(session, "admin_status", new_status)
+
+    alert_text = (
+        "🌙 Status set to AWAY / NIGHT MODE! Customer OTP requests will now inform them of night queue."
+        if new_status == "AWAY"
+        else "🟢 Status set to ONLINE! Customers are notified that admin is live for instant OTP."
+    )
+    await callback.answer(alert_text, show_alert=True)
+    await cb_admin_home(callback, state, session)
 
 # ================= 1. STORE STATISTICS =================
 
@@ -498,6 +537,92 @@ async def msg_admin_man_ful_content(message: types.Message, state: FSMContext, s
             await session.commit()
         except Exception:
             pass
+
+# ================= DUAL-DIRECTION OTP ADMIN HANDLERS =================
+
+@router.callback_query(F.data.startswith("adm_send_cust_otp_"))
+async def cb_admin_send_cust_otp(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    order_id = int(callback.data.split("_")[4])
+    order = await get_order_by_id(session, order_id)
+    if not order:
+        await callback.message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Order not found.")
+        return
+
+    await state.set_state(AdminManualOrderStates.waiting_for_admin_otp)
+    await state.update_data(admin_otp_order_id=order_id)
+
+    prompt = (
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>SEND LIVE OTP TO CUSTOMER</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order Reference:</b> <code>#{order.id}</code>\n"
+        f"{ce(CustomEmojis.VERIFIED, '👤')} <b>Customer:</b> {order.user.full_name if order.user else 'Customer'} (ID: <code>{order.user_id}</code>)\n\n"
+        f"Please reply directly with the <b>TV / Login OTP Code</b> (e.g. <code>482910</code> or <code>7392</code>):\n\n"
+        f"<i>(The bot will format this into a 1-tap copy block and notify the user instantly):</i>"
+    )
+    await callback.message.answer(prompt, reply_markup=get_admin_cancel_keyboard("admin_home"))
+
+@router.message(AdminManualOrderStates.waiting_for_admin_otp, F.text)
+async def msg_admin_send_cust_otp_code(message: types.Message, state: FSMContext, session: AsyncSession, bot: Bot):
+    otp_code = message.text.strip()
+    data = await state.get_data()
+    order_id = data.get("admin_otp_order_id")
+    await state.clear()
+
+    order = await deliver_admin_otp_to_customer(session, order_id, otp_code)
+    if not order:
+        await message.answer(f"{ce(CustomEmojis.LOCK, '⚠️')} Order #{order_id} could not be updated.")
+        return
+
+    # Confirm to Admin
+    await message.answer(
+        f"{ce(CustomEmojis.CHECK, '✅')} <b>OTP Code Delivered to Customer for Order #{order.id}!</b>\n\n"
+        f"Customer has been notified with a 1-tap copy block for code: <code>{otp_code}</code>",
+        reply_markup=get_admin_cancel_keyboard("admin_home")
+    )
+
+    # Deliver to Customer
+    variant = order.variant
+    product = variant.product if variant else None
+    prod_title = product.title if product else "Subscription"
+    var_name = variant.name if variant else "Plan"
+
+    cust_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🧾 View Order Receipt", callback_data=f"orderdetail_{order.id}", icon_custom_emoji_id=CustomEmojis.ORDERS)],
+        [InlineKeyboardButton(text="🛟 Need Help", callback_data=f"need_help_{order.id}", icon_custom_emoji_id=CustomEmojis.SUPPORT)]
+    ])
+
+    cust_msg = (
+        f"{ce(CustomEmojis.KEY, '🔑')} <b>YOUR LOGIN / TV OTP CODE HAS ARRIVED!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Order ID:</b> #{order.id}\n"
+        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{prod_title}</b> ({var_name})\n\n"
+        f"👉 <b>TAP CODE TO COPY:</b>\n"
+        f"<pre><code>{otp_code}</code></pre>\n\n"
+        f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Enter this code on your TV / device immediately before it expires!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<i>If you need another code later, you can request again from your Order Receipt.</i>"
+    )
+    try:
+        await bot.send_message(order.user_id, cust_msg, reply_markup=cust_kb)
+    except Exception as e:
+        logger.warning(f"Failed to deliver admin OTP to customer {order.user_id}: {e}")
+
+@router.callback_query(F.data.startswith("adm_dismiss_cust_otp_"))
+async def cb_admin_dismiss_cust_otp(callback: types.CallbackQuery):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer("Request dismissed.")
+    try:
+        await callback.message.edit_text(
+            f"{callback.message.text}\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{ce(CustomEmojis.LOCK, '❌')} <i>Dismissed by Administrator.</i>"
+        )
+    except Exception:
+        pass
 
 @router.callback_query(F.data.startswith("adm_man_ref_"))
 async def cb_admin_man_ref(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):
@@ -1372,6 +1497,19 @@ async def cb_admin_prod_viewvars(callback: types.CallbackQuery, session: AsyncSe
     )
     await callback.message.edit_text(text, reply_markup=get_admin_variants_keyboard(variants, prod_id))
 
+OTP_NEXT_MODE = {
+    "NONE": "ADMIN_ASKS_CUSTOMER",
+    "ADMIN_ASKS_CUSTOMER": "CUSTOMER_ASKS_ADMIN",
+    "CUSTOMER_ASKS_ADMIN": "BOTH",
+    "BOTH": "NONE"
+}
+OTP_LABELS = {
+    "NONE": "None (No OTP Required)",
+    "ADMIN_ASKS_CUSTOMER": "Admin Asks Customer (Activation OTP)",
+    "CUSTOMER_ASKS_ADMIN": "Customer Asks Admin (TV / Login OTP)",
+    "BOTH": "Dual-Direction (Both Allowed)"
+}
+
 @router.callback_query(F.data.startswith("adm_var_edit_"))
 async def cb_admin_var_edit(callback: types.CallbackQuery, session: AsyncSession):
     if not check_admin(callback.from_user.id):
@@ -1387,6 +1525,8 @@ async def cb_admin_var_edit(callback: types.CallbackQuery, session: AsyncSession
     mode_str = "⏱️ MANUAL (Dispatch by Admin)" if is_manual else "⚡ AUTOMATIC (Instant Auto-Stock)"
     dispatch_str = variant.manual_dispatch_time or "1–2 Hours"
     prompt_str = variant.input_prompt or "Default (Asks Email / Phone)"
+    otp_mode_val = getattr(variant, "otp_mode", "NONE") or "NONE"
+    otp_str = OTP_LABELS.get(otp_mode_val, "None")
 
     lines = [
         f"{ce(CustomEmojis.SPARKLE, '✏️')} <b>EDIT SUBSCRIPTION PLAN</b>",
@@ -1395,107 +1535,11 @@ async def cb_admin_var_edit(callback: types.CallbackQuery, session: AsyncSession
         f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan Name:</b> <b>{variant.name}</b>",
         f"{ce(CustomEmojis.WALLET, '💰')} <b>Current Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>",
         f"{ce(CustomEmojis.DIAMOND, '🏷️')} <b>Plan Type:</b> <code>{variant.variant_type}</code>",
-        f"{ce(CustomEmojis.FIRE, '🚀')} <b>Fulfillment Mode:</b> <b>{mode_str}</b>"
+        f"{ce(CustomEmojis.FIRE, '🚀')} <b>Fulfillment Mode:</b> <b>{mode_str}</b>",
+        f"{ce(CustomEmojis.KEY, '🔐')} <b>OTP Mode:</b> <b>{otp_str}</b>"
     ]
     if is_manual:
         stock_qty = variant.stock_quantity if getattr(variant, "stock_quantity", None) is not None else 50
-        lines.append(f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Dispatch Time:</b> <code>{dispatch_str}</code>")
-        lines.append(f"👉 <b>Customer Prompt:</b> <i>{prompt_str}</i>")
-        lines.append(f"{ce(CustomEmojis.TROPHY, '📊')} <b>Available Slots / Stock:</b> <b>{stock_qty} slots</b>")
-
-    lines.append(f"{ce(CustomEmojis.SPARKLE, '📝')} <b>Description:</b> <i>{variant.detailed_description or 'Default template'}</i>\n")
-    lines.append("What would you like to edit?")
-
-    text = "\n".join(lines)
-    await callback.message.edit_text(
-        text,
-        reply_markup=get_admin_variant_edit_keyboard(
-            var_id,
-            variant.product_id,
-            is_manual=is_manual,
-            requires_customer_input=getattr(variant, "requires_customer_input", True)
-        )
-    )
-
-@router.callback_query(F.data.startswith("adm_varedit_toggleinput_"))
-async def cb_admin_varedit_toggleinput(callback: types.CallbackQuery, session: AsyncSession):
-    if not check_admin(callback.from_user.id):
-        return
-    await callback.answer()
-    var_id = int(callback.data.split("_")[3])
-    variant = await get_variant(session, var_id)
-    if not variant:
-        return
-    new_input_val = not getattr(variant, "requires_customer_input", True)
-    variant = await update_variant_details(session, var_id, requires_customer_input=new_input_val)
-    
-    is_manual = (variant.fulfillment_type == "MANUAL")
-    mode_str = "⏱️ MANUAL (Dispatch by Admin)" if is_manual else "⚡ AUTOMATIC (Instant Auto-Stock)"
-    dispatch_str = variant.manual_dispatch_time or "1–2 Hours"
-    prompt_str = variant.input_prompt or "Default (Asks Email / Phone)"
-    input_req_str = "YES (Bot asks customer for details)" if variant.requires_customer_input else "NO (Direct Admin Delivery — instant receipt to customer)"
-
-    lines = [
-        f"{ce(CustomEmojis.SPARKLE, '✏️')} <b>EDIT SUBSCRIPTION PLAN</b>",
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{variant.product.title if variant.product else 'Digital Item'}</b>",
-        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan Name:</b> <b>{variant.name}</b>",
-        f"{ce(CustomEmojis.WALLET, '💰')} <b>Current Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>",
-        f"{ce(CustomEmojis.DIAMOND, '🏷️')} <b>Plan Type:</b> <code>{variant.variant_type}</code>",
-        f"{ce(CustomEmojis.FIRE, '🚀')} <b>Fulfillment Mode:</b> <b>{mode_str}</b>"
-    ]
-    if is_manual:
-        stock_qty = variant.stock_quantity if getattr(variant, "stock_quantity", None) is not None else 50
-        lines.append(f"⚙️ <b>Customer Input:</b> <b>{input_req_str}</b>")
-        lines.append(f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Dispatch Time:</b> <code>{dispatch_str}</code>")
-        if variant.requires_customer_input:
-            lines.append(f"👉 <b>Customer Prompt:</b> <i>{prompt_str}</i>")
-        lines.append(f"{ce(CustomEmojis.TROPHY, '📊')} <b>Available Slots / Stock:</b> <b>{stock_qty} slots</b>")
-
-    lines.append(f"{ce(CustomEmojis.SPARKLE, '📝')} <b>Description:</b> <i>{variant.detailed_description or 'Default template'}</i>\n")
-    lines.append("What would you like to edit?")
-
-    text = "\n".join(lines)
-    await callback.message.edit_text(
-        text,
-        reply_markup=get_admin_variant_edit_keyboard(
-            var_id,
-            variant.product_id,
-            is_manual=is_manual,
-            requires_customer_input=getattr(variant, "requires_customer_input", True)
-        )
-    )
-
-@router.callback_query(F.data.startswith("adm_varedit_togglemode_"))
-async def cb_admin_varedit_togglemode(callback: types.CallbackQuery, session: AsyncSession):
-    if not check_admin(callback.from_user.id):
-        return
-    await callback.answer()
-    var_id = int(callback.data.split("_")[3])
-    variant = await get_variant(session, var_id)
-    if not variant:
-        return
-    new_mode = "MANUAL" if variant.fulfillment_type != "MANUAL" else "AUTOMATIC"
-    variant = await update_variant_details(session, var_id, fulfillment_type=new_mode)
-    
-    is_manual = (variant.fulfillment_type == "MANUAL")
-    mode_str = "⏱️ MANUAL (Dispatch by Admin)" if is_manual else "⚡ AUTOMATIC (Instant Auto-Stock)"
-    dispatch_str = variant.manual_dispatch_time or "1–2 Hours"
-    prompt_str = variant.input_prompt or "Default (Asks Email / Phone)"
-    input_req_str = "YES (Bot asks customer for details)" if getattr(variant, "requires_customer_input", True) else "NO (Direct Admin Delivery — instant receipt)"
-
-    lines = [
-        f"{ce(CustomEmojis.SPARKLE, '✏️')} <b>EDIT SUBSCRIPTION PLAN</b>",
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        f"{ce(CustomEmojis.SHOP, '📦')} <b>Product:</b> <b>{variant.product.title if variant.product else 'Digital Item'}</b>",
-        f"{ce(CustomEmojis.SPARKLE, '✨')} <b>Plan Name:</b> <b>{variant.name}</b>",
-        f"{ce(CustomEmojis.WALLET, '💰')} <b>Current Price:</b> <code>{config.CURRENCY_SYMBOL}{variant.price:.2f}</code>",
-        f"{ce(CustomEmojis.DIAMOND, '🏷️')} <b>Plan Type:</b> <code>{variant.variant_type}</code>",
-        f"{ce(CustomEmojis.FIRE, '🚀')} <b>Fulfillment Mode:</b> <b>{mode_str}</b>"
-    ]
-    if is_manual:
-        stock_qty = variant.stock_quantity if getattr(variant, "stock_quantity", None) is not None else 50
-        lines.append(f"⚙️ <b>Customer Input:</b> <b>{input_req_str}</b>")
         lines.append(f"{ce(CustomEmojis.FIRE, '⏱️')} <b>Dispatch Time:</b> <code>{dispatch_str}</code>")
         if getattr(variant, "requires_customer_input", True):
             lines.append(f"👉 <b>Customer Prompt:</b> <i>{prompt_str}</i>")
@@ -1511,9 +1555,56 @@ async def cb_admin_varedit_togglemode(callback: types.CallbackQuery, session: As
             var_id,
             variant.product_id,
             is_manual=is_manual,
-            requires_customer_input=getattr(variant, "requires_customer_input", True)
+            requires_customer_input=getattr(variant, "requires_customer_input", True),
+            otp_mode=otp_mode_val
         )
     )
+
+@router.callback_query(F.data.startswith("adm_varedit_toggleinput_"))
+async def cb_admin_varedit_toggleinput(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    var_id = int(callback.data.split("_")[3])
+    variant = await get_variant(session, var_id)
+    if not variant:
+        return
+    new_input_val = not getattr(variant, "requires_customer_input", True)
+    await update_variant_details(session, var_id, requires_customer_input=new_input_val)
+    callback.data = f"adm_var_edit_{var_id}"
+    await cb_admin_var_edit(callback, session)
+
+@router.callback_query(F.data.startswith("adm_varedit_togglemode_"))
+async def cb_admin_varedit_togglemode(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    await callback.answer()
+    var_id = int(callback.data.split("_")[3])
+    variant = await get_variant(session, var_id)
+    if not variant:
+        return
+    new_mode = "MANUAL" if variant.fulfillment_type != "MANUAL" else "AUTOMATIC"
+    await update_variant_details(session, var_id, fulfillment_type=new_mode)
+    callback.data = f"adm_var_edit_{var_id}"
+    await cb_admin_var_edit(callback, session)
+
+@router.callback_query(F.data.startswith("adm_varedit_toggleotp_"))
+async def cb_admin_varedit_toggleotp(callback: types.CallbackQuery, session: AsyncSession):
+    if not check_admin(callback.from_user.id):
+        return
+    var_id = int(callback.data.split("_")[3])
+    variant = await get_variant(session, var_id)
+    if not variant:
+        await callback.answer("Plan not found.")
+        return
+    current_otp = getattr(variant, "otp_mode", "NONE") or "NONE"
+    new_otp = OTP_NEXT_MODE.get(current_otp, "NONE")
+    await update_variant_otp_mode(session, var_id, new_otp)
+
+    label = OTP_LABELS.get(new_otp, new_otp)
+    await callback.answer(f"🔐 OTP Mode: {label}", show_alert=True)
+    callback.data = f"adm_var_edit_{var_id}"
+    await cb_admin_var_edit(callback, session)
 
 @router.callback_query(F.data.startswith("adm_varedit_dispatch_"))
 async def cb_admin_varedit_dispatch(callback: types.CallbackQuery, state: FSMContext):

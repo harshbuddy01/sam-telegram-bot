@@ -187,7 +187,8 @@ async def cb_order_detail(callback: types.CallbackQuery, session: AsyncSession):
         is_expired=is_expired,
         can_renew=can_renew,
         price=plan_price,
-        support_text=support_msg
+        support_text=support_msg,
+        otp_mode=getattr(variant, "otp_mode", None)
     ))
 
 @router.callback_query(F.data == "nav_refer")

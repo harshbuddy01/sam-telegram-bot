@@ -17,6 +17,7 @@ class CustomerOrderStates(StatesGroup):
 
 class AdminManualOrderStates(StatesGroup):
     waiting_for_fulfillment_content = State()
+    waiting_for_admin_otp = State()
 
 class AdminCategoryStates(StatesGroup):
     waiting_for_name = State()
