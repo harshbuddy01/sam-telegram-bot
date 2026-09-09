@@ -742,7 +742,19 @@ async def initiate_1click_checkout(
                 [InlineKeyboardButton(text="I Have Paid (Auto-Verify & Deliver)", callback_data=f"chkdep_{deposit.id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
                 [InlineKeyboardButton(text="Cancel & Return", callback_data=f"var_{variant.id}", icon_custom_emoji_id=CustomEmojis.LOCK)]
             ])
-            await message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
+            sent_msg = await message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
+
+            # Launch 2-minute auto-expiry watcher
+            from handlers.wallet import _schedule_deposit_expiry
+            asyncio.create_task(_schedule_deposit_expiry(
+                bot=message.bot,
+                chat_id=message.chat.id,
+                message_id=sent_msg.message_id,
+                deposit_id=deposit.id,
+                timeout_seconds=120,
+                is_photo=True
+            ))
+
             if loading_msg:
                 try:
                     await loading_msg.delete()

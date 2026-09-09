@@ -1,4 +1,5 @@
 import datetime
+import logging
 from typing import Optional, List, Tuple
 from sqlalchemy import select, func, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,6 +7,8 @@ from sqlalchemy.orm import selectinload
 from database.models import User, Category, Product, Variant, Stock, Order, Deposit
 from utils.emojis import Emojis, CustomEmojis, clean_button_text
 import config
+
+logger = logging.getLogger(__name__)
 
 # ================= USER CRUD =================
 
@@ -853,13 +856,32 @@ async def update_deposit_proof(
     return deposit
 
 async def get_pending_deposits(session: AsyncSession) -> List[Deposit]:
-    stmt = select(Deposit).where(Deposit.status == "PENDING").order_by(Deposit.created_at.desc())
+    """
+    Returns only manual deposits that have customer-submitted proof (UTR or screenshot)
+    waiting for human admin verification.
+    Automated gateway deposits (Razorpay, PayPal, OxaPay) are handled via webhooks
+    and instant API verification and must NOT clutter the admin approval queue.
+    """
+    stmt = (
+        select(Deposit)
+        .where(
+            Deposit.status == "PENDING",
+            Deposit.gateway == "MANUAL_UPI",
+            (Deposit.utr_number.isnot(None) | Deposit.proof_file_id.isnot(None))
+        )
+        .order_by(Deposit.created_at.desc())
+    )
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
 async def approve_deposit(session: AsyncSession, deposit_id: int) -> Tuple[Optional[Deposit], Optional[User]]:
     deposit = await get_deposit(session, deposit_id)
     if not deposit or deposit.status != "PENDING":
+        return None, None
+
+    # Safety guard: Never allow manual approval of automated gateway deposits!
+    if deposit.gateway != "MANUAL_UPI":
+        logger.warning(f"Blocked manual approval attempt on automated {deposit.gateway} deposit #{deposit.id}")
         return None, None
 
     deposit.status = "APPROVED"
@@ -874,6 +896,26 @@ async def approve_deposit(session: AsyncSession, deposit_id: int) -> Tuple[Optio
     if user:
         await session.refresh(user)
     return deposit, user
+
+async def mark_deposit_status(
+    session: AsyncSession,
+    deposit_id: int,
+    status: str,
+    note: Optional[str] = None
+) -> Optional[Deposit]:
+    """
+    Safely transitions a deposit status (e.g. 'EXPIRED', 'DECLINED', 'FAILED').
+    Does not overwrite successful/approved deposits.
+    """
+    deposit = await get_deposit(session, deposit_id)
+    if not deposit:
+        return None
+    if deposit.status in ("SUCCESS", "APPROVED"):
+        return deposit
+    deposit.status = status
+    await session.commit()
+    await session.refresh(deposit)
+    return deposit
 
 async def reject_deposit(session: AsyncSession, deposit_id: int) -> Optional[Deposit]:
     deposit = await get_deposit(session, deposit_id)

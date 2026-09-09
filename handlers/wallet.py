@@ -10,7 +10,8 @@ from database.crud import (
     get_deposit,
     update_deposit_proof,
     create_deposit_gateway,
-    credit_user_deposit_automated
+    credit_user_deposit_automated,
+    mark_deposit_status
 )
 from utils.qr_generator import generate_upi_qr
 from utils.states import DepositStates
@@ -227,6 +228,90 @@ async def msg_custom_deposit_usd_amount(message: types.Message, state: FSMContex
     sent_msg = await message.answer("Preparing payment options...")
     await prompt_international_gateway_choice(sent_msg, inr_amount, usd_amount)
 
+async def _schedule_deposit_expiry(bot: Bot, chat_id: int, message_id: int, deposit_id: int, timeout_seconds: int = 120, is_photo: bool = True):
+    """
+    Background watcher: After timeout_seconds (e.g. 120s / 2 mins), checks if the deposit is still unpaid.
+    If unpaid, verifies with gateway API one last time. If still unpaid, marks status='EXPIRED'
+    and safely edits the Telegram message/caption to inform user with retry / return options.
+    """
+    await asyncio.sleep(timeout_seconds)
+    try:
+        from database.database import AsyncSessionLocal
+        from database.crud import get_deposit, credit_user_deposit_automated, mark_deposit_status
+        from payments.manager import payment_manager
+
+        async with AsyncSessionLocal() as session:
+            dep = await get_deposit(session, deposit_id)
+            if not dep or dep.status != "PENDING":
+                # Already SUCCESS, APPROVED, EXPIRED or processed
+                return
+
+            # Final check against Gateway API
+            is_paid = False
+            capture_id = "AUTO_EXPIRY_CHECK"
+            if dep.gateway == "RAZORPAY" and dep.gateway_order_id:
+                try:
+                    res = await payment_manager.razorpay.verify_payment_status(dep.gateway_order_id)
+                    if res.get("is_paid"):
+                        is_paid = True
+                        capture_id = res.get("capture_id", "AUTO_EXPIRY_CHECK")
+                except Exception:
+                    pass
+            elif dep.gateway == "PAYPAL" and dep.gateway_order_id:
+                try:
+                    res = await payment_manager.paypal.verify_payment_status(dep.gateway_order_id)
+                    if res.get("is_paid"):
+                        is_paid = True
+                        capture_id = res.get("capture_id", "AUTO_EXPIRY_CHECK")
+                except Exception:
+                    pass
+            elif dep.gateway == "OXAPAY" and dep.gateway_order_id:
+                try:
+                    res = await payment_manager.oxapay.verify_payment_status(dep.gateway_order_id)
+                    if res.get("is_paid"):
+                        is_paid = True
+                        capture_id = res.get("capture_id", "AUTO_EXPIRY_CHECK")
+                except Exception:
+                    pass
+
+            if is_paid:
+                await credit_user_deposit_automated(session, dep.gateway_order_id, capture_id)
+                return
+
+            # Mark as EXPIRED in DB
+            await mark_deposit_status(session, dep.id, "EXPIRED")
+
+        # Safely edit the message/caption to inform user
+        expired_text = (
+            f"{ce(CustomEmojis.FIRE, '⌛')} <b>PAYMENT SESSION EXPIRED</b>\n"
+            f"{UI.SECTION_BAR}\n\n"
+            f"This payment session (#{deposit_id}) was active for 2 minutes and has expired.\n\n"
+            f"<i>No funds were deducted. Tap below to generate a fresh QR code or return to the main menu.</i>"
+        )
+        expired_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Add Funds Again", callback_data="nav_deposit", icon_custom_emoji_id=CustomEmojis.WALLET)],
+            [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+        ])
+        try:
+            if is_photo:
+                await bot.edit_message_caption(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    caption=expired_text,
+                    reply_markup=expired_kb
+                )
+            else:
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=expired_text,
+                    reply_markup=expired_kb
+                )
+        except Exception:
+            pass
+    except Exception:
+        pass
+
 async def initiate_deposit_payment(
     message: types.Message,
     from_user: types.User,
@@ -396,6 +481,7 @@ async def initiate_deposit_payment(
                     f"{ce(CustomEmojis.FIRE, '⚡')} <b>Gateway:</b> Razorpay (Instant Auto-Credit)\n"
                     f"{ce(CustomEmojis.CHECK, '📱')} <b>Supported:</b> PhonePe, Google Pay, Paytm, BHIM, CRED, Cards\n\n"
                     f"{UI.SECTION_BAR}\n"
+                    f"⏱️ <i>This dynamic UPI QR is valid for <b>2 minutes</b>. Scan & pay now!</i>\n"
                     f"<i>Scan the official QR code above with PhonePe/GPay OR click below to pay:</i>"
                 )
                 pay_btn_url = res.get("payment_url") or "https://rzp.io"
@@ -404,7 +490,18 @@ async def initiate_deposit_payment(
                     [InlineKeyboardButton(text="I Have Paid (Auto-Verify & Credit)", callback_data=f"chkdep_{deposit.id}", icon_custom_emoji_id=CustomEmojis.CHECK)],
                     [InlineKeyboardButton(text="Cancel & Return", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.LOCK)]
                 ])
-                await message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
+                sent_msg = await message.answer_photo(photo=input_file, caption=caption, reply_markup=kb)
+                
+                # Launch 2-minute auto-expiry watcher
+                asyncio.create_task(_schedule_deposit_expiry(
+                    bot=message.bot,
+                    chat_id=message.chat.id,
+                    message_id=sent_msg.message_id,
+                    deposit_id=deposit.id,
+                    timeout_seconds=120,
+                    is_photo=True
+                ))
+
                 if loading_msg:
                     try:
                         await loading_msg.delete()
@@ -743,6 +840,28 @@ async def cb_check_automated_deposit(callback: types.CallbackQuery, session: Asy
             [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
         ])
         await callback.message.edit_text(text, reply_markup=kb)
+        return
+
+    gw_status = str(status_res.get("status") or "").upper()
+    if gw_status in ("DECLINED", "FAILED", "REJECTED", "CANCELLED", "VOIDED"):
+        await mark_deposit_status(session, deposit.id, "DECLINED")
+        await callback.answer(
+            f"⚠️ Payment was {gw_status.lower()} by the payment gateway. No funds were charged.",
+            show_alert=True
+        )
+        return
+    elif gw_status in ("PAYING", "CONFIRMING"):
+        await callback.answer(
+            "⏳ Crypto transaction detected on blockchain! Awaiting network block confirmations. Your wallet will be credited automatically once confirmed.",
+            show_alert=True
+        )
+        return
+    elif gw_status == "EXPIRED":
+        await mark_deposit_status(session, deposit.id, "EXPIRED")
+        await callback.answer(
+            "⌛ This payment session has expired. Please tap 'Add Funds' to generate a fresh QR code.",
+            show_alert=True
+        )
         return
 
     await callback.answer(

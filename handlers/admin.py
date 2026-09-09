@@ -531,7 +531,7 @@ async def cb_admin_man_ref(callback: types.CallbackQuery, session: AsyncSession,
     except Exception:
         pass
 
-# ================= 3. DEPOSIT APPROVALS =================
+# ================= 3. PAYMENT GATEWAYS & DEPOSIT AUDIT =================
 
 @router.callback_query(F.data == "adm_deposits")
 async def cb_admin_deposits(callback: types.CallbackQuery, session: AsyncSession):
@@ -539,36 +539,76 @@ async def cb_admin_deposits(callback: types.CallbackQuery, session: AsyncSession
         return
     await callback.answer()
 
-    deposits = await get_pending_deposits(session)
-    if not deposits:
-        await callback.message.edit_text(
-            f"{ce(CustomEmojis.CHECK, '✅')} <b>No pending deposit requests!</b> All requests are reviewed.",
-            reply_markup=get_admin_cancel_keyboard("admin_home")
-        )
-        return
+    stats = await get_deposits_stats(session)
+    recent_deposits = await get_all_deposits(session, limit=10)
+    pending_manual = await get_pending_deposits(session)
 
-    text = f"{ce(CustomEmojis.WALLET, '💳')} <b>PENDING DEPOSIT REQUESTS ({len(deposits)})</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    await callback.message.edit_text(text)
+    def format_dep_status(st: str) -> str:
+        st_upper = (st or "PENDING").upper()
+        if st_upper in ("SUCCESS", "APPROVED"):
+            return "✅ SUCCESS"
+        elif st_upper == "PENDING":
+            return "⏳ PENDING"
+        elif st_upper == "EXPIRED":
+            return "⌛ EXPIRED"
+        elif st_upper in ("DECLINED", "FAILED", "REJECTED"):
+            return "❌ DECLINED"
+        return f"ℹ️ {st_upper}"
 
-    for dep in deposits[:5]:
-        dep_text = (
-            f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Deposit #{dep.id}</b>\n"
-            f"{ce(CustomEmojis.VERIFIED, '👤')} User: <code>{dep.user_id}</code>\n"
-            f"{ce(CustomEmojis.WALLET, '💰')} Amount: <b>{config.CURRENCY_SYMBOL}{dep.amount:.2f}</b>\n"
-            f"{ce(CustomEmojis.KEY, '🔢')} UTR: <code>{dep.utr_number or 'Not provided'}</code>\n"
-            f"{ce(CustomEmojis.STAR, '📅')} Date: {dep.created_at.strftime('%d/%m %H:%M')}"
-        )
-        if dep.proof_file_id:
-            try:
-                await callback.message.answer_photo(
-                    photo=dep.proof_file_id,
-                    caption=dep_text,
-                    reply_markup=get_deposit_approval_keyboard(dep.id)
-                )
-                continue
-            except Exception:
-                pass
-        await callback.message.answer(dep_text, reply_markup=get_deposit_approval_keyboard(dep.id))
+    text_lines = [
+        f"{ce(CustomEmojis.WALLET, '💳')} <b>PAYMENT GATEWAYS & AUDIT HUB</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n",
+        f"<blockquote>",
+        f"{ce(CustomEmojis.WALLET, '💰')} <b>Total Captured:</b> <b>{config.CURRENCY_SYMBOL}{stats['total_captured']:.2f}</b>\n",
+        f"{ce(CustomEmojis.ORDERS, '🧾')} <b>Total Invoices:</b> <b>{stats['total_count']}</b>\n",
+        f"{ce(CustomEmojis.FIRE, '⚡')} <b>Live Gateways:</b> Razorpay UPI | PayPal | OxaPay Crypto",
+        f"</blockquote>\n",
+        f"<b>RECENT GATEWAY TRANSACTIONS:</b>\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    ]
+
+    if not recent_deposits:
+        text_lines.append(f"<i>No transaction records found yet.</i>")
+    else:
+        for dep in recent_deposits:
+            dt_str = dep.created_at.strftime("%d/%m %H:%M") if dep.created_at else "N/A"
+            ref_str = (dep.gateway_order_id or dep.utr_number or "Auto")
+            if len(ref_str) > 18:
+                ref_str = ref_str[:15] + "..."
+            status_str = format_dep_status(dep.status)
+            text_lines.append(
+                f"• <b>#{dep.id}</b> | <code>{dep.user_id}</code> | <b>{config.CURRENCY_SYMBOL}{dep.amount:.2f}</b>\n"
+                f"  └ <code>{dep.gateway}</code> | {status_str} | {dt_str}\n"
+                f"  └ Ref: <code>{ref_str}</code>"
+            )
+
+    kb_buttons = [
+        [InlineKeyboardButton(text="🔄 Refresh Logs", callback_data="adm_deposits", icon_custom_emoji_id=CustomEmojis.FIRE)],
+        [InlineKeyboardButton(text="Cancel & Return", callback_data="admin_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+    ]
+
+    await callback.message.edit_text("\n".join(text_lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons))
+
+    # If any manual UPI deposit exists with proof, notify admin below
+    if pending_manual:
+        for dep in pending_manual[:3]:
+            dep_text = (
+                f"{ce(CustomEmojis.ORDERS, '🧾')} <b>MANUAL UPI PROOF REVIEW #{dep.id}</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"{ce(CustomEmojis.VERIFIED, '👤')} User: <code>{dep.user_id}</code>\n"
+                f"{ce(CustomEmojis.WALLET, '💰')} Amount: <b>{config.CURRENCY_SYMBOL}{dep.amount:.2f}</b>\n"
+                f"{ce(CustomEmojis.KEY, '🔢')} UTR: <code>{dep.utr_number or 'Proof attached'}</code>\n"
+                f"{ce(CustomEmojis.STAR, '📅')} Date: {dep.created_at.strftime('%d/%m %H:%M')}"
+            )
+            if dep.proof_file_id:
+                try:
+                    await callback.message.answer_photo(
+                        photo=dep.proof_file_id,
+                        caption=dep_text,
+                        reply_markup=get_deposit_approval_keyboard(dep.id)
+                    )
+                    continue
+                except Exception:
+                    pass
+            await callback.message.answer(dep_text, reply_markup=get_deposit_approval_keyboard(dep.id))
 
 @router.callback_query(F.data.startswith("adm_dep_appr_"))
 async def cb_admin_dep_approve(callback: types.CallbackQuery, session: AsyncSession, bot: Bot):

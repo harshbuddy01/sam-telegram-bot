@@ -10,7 +10,7 @@ def get_admin_main_keyboard(pending_deposits: int = 0, pending_orders: int = 0) 
     buttons = [
         [
             InlineKeyboardButton(text=f"Pending Orders{ord_badge}", callback_data="adm_pending_orders", icon_custom_emoji_id=CustomEmojis.ORDERS),
-            InlineKeyboardButton(text=f"Deposits{dep_badge}", callback_data="adm_deposits", icon_custom_emoji_id=CustomEmojis.WALLET)
+            InlineKeyboardButton(text=f"Payment Logs{dep_badge}", callback_data="adm_deposits", icon_custom_emoji_id=CustomEmojis.WALLET)
         ],
         [
             InlineKeyboardButton(text="Inventory & Stock Hub", callback_data="adm_stock", icon_custom_emoji_id=CustomEmojis.KEY),

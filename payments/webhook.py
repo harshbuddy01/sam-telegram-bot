@@ -15,7 +15,8 @@ from database.crud import (
     fulfill_order,
     create_manual_order,
     credit_user_deposit_automated,
-    get_available_stock_count
+    get_available_stock_count,
+    mark_deposit_status
 )
 from payments.manager import payment_manager
 from utils.emojis import CustomEmojis, ce, UI
@@ -311,6 +312,36 @@ async def handle_razorpay_webhook(request: web.Request) -> web.Response:
 
             return web.json_response({"status": "credited_deposit"})
 
+    elif event in ("payment.failed", "payment_link.cancelled", "payment_link.expired"):
+        plink_data = payload.get("payload", {}).get("payment_link", {}).get("entity", {})
+        payment_data = payload.get("payload", {}).get("payment", {}).get("entity", {})
+        qr_data = payload.get("payload", {}).get("qr_code", {}).get("entity", {})
+        match_id = qr_data.get("id") or plink_data.get("id") or payment_data.get("order_id") or payment_data.get("id")
+
+        async with AsyncSessionLocal() as session:
+            if match_id:
+                stmt = select(Deposit).where(Deposit.gateway_order_id == match_id)
+                deposit = (await session.execute(stmt)).scalar_one_or_none()
+                if deposit and deposit.status == "PENDING":
+                    new_status = "DECLINED" if "failed" in event else "EXPIRED"
+                    await mark_deposit_status(session, deposit.id, new_status)
+                    try:
+                        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                        fail_text = (
+                            f"{ce(CustomEmojis.LOCK, '⚠️')} <b>RAZORPAY PAYMENT {new_status}</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"Your payment session for <b>{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b> was {new_status.lower()}.\n"
+                            f"<i>No funds were deducted. You can try again anytime.</i>"
+                        )
+                        kb = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="Try Again", callback_data="nav_deposit", icon_custom_emoji_id=CustomEmojis.WALLET)],
+                            [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                        ])
+                        await bot.send_message(deposit.user_id, fail_text, reply_markup=kb)
+                    except Exception:
+                        pass
+        return web.json_response({"status": f"processed_{event}"})
+
     # Always return 200 OK for any unhandled events like qr_code.created, payment.authorized, etc.
     return web.json_response({"status": f"ignored_event_{event}"})
 
@@ -588,6 +619,46 @@ async def handle_paypal_webhook(request: web.Request) -> web.Response:
 
             return web.json_response({"status": "credited_deposit"})
 
+    elif event_type in ("PAYMENT.CAPTURE.DENIED", "CHECKOUT.ORDER.VOIDED"):
+        paypal_order_id = resource.get("id")
+        custom_id = resource.get("custom_id")
+        if not custom_id and "purchase_units" in resource:
+            pu = resource["purchase_units"]
+            if isinstance(pu, list) and len(pu) > 0:
+                custom_id = pu[0].get("custom_id") or pu[0].get("reference_id")
+
+        async with AsyncSessionLocal() as session:
+            deposit = None
+            if paypal_order_id:
+                stmt = select(Deposit).where(Deposit.gateway_order_id == paypal_order_id)
+                deposit = (await session.execute(stmt)).scalar_one_or_none()
+            if not deposit and custom_id:
+                try:
+                    uid = int(str(custom_id).replace("BUY", "").replace("DEP", "").split("_")[0])
+                    stmt = select(Deposit).where(Deposit.user_id == uid, Deposit.status == "PENDING", Deposit.gateway == "PAYPAL").order_by(Deposit.created_at.desc())
+                    deposit = (await session.execute(stmt)).scalar_one_or_none()
+                except Exception:
+                    pass
+
+            if deposit and deposit.status == "PENDING":
+                await mark_deposit_status(session, deposit.id, "DECLINED")
+                try:
+                    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                    fail_text = (
+                        f"{ce(CustomEmojis.LOCK, '⚠️')} <b>PAYPAL PAYMENT DECLINED</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                        f"Your PayPal payment for <b>{config.CURRENCY_SYMBOL}{deposit.amount:.2f}</b> was declined or cancelled.\n"
+                        f"<i>No funds were deducted. You can try again or choose another payment method.</i>"
+                    )
+                    kb = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="Try Again", callback_data="nav_deposit", icon_custom_emoji_id=CustomEmojis.WALLET)],
+                        [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                    ])
+                    await bot.send_message(deposit.user_id, fail_text, reply_markup=kb)
+                except Exception:
+                    pass
+        return web.json_response({"status": f"processed_{event_type}"})
+
     return web.json_response({"status": f"ignored_event_{event_type}"})
 
 async def handle_oxapay_webhook_get(request: web.Request) -> web.Response:
@@ -849,6 +920,59 @@ async def handle_oxapay_webhook(request: web.Request) -> web.Response:
                     pass
 
             return web.Response(text="ok")
+
+    elif status in ("expired", "failed", "rejected", "canceled"):
+        async with AsyncSessionLocal() as session:
+            deposit = None
+            if track_id:
+                stmt = select(Deposit).where(Deposit.gateway_order_id == track_id)
+                deposit = (await session.execute(stmt)).scalar_one_or_none()
+            if not deposit and order_id:
+                try:
+                    dep_id = int(str(order_id).replace("DEP_", "").replace("BUY_", "").split("_")[0])
+                    stmt = select(Deposit).where(Deposit.id == dep_id)
+                    deposit = (await session.execute(stmt)).scalar_one_or_none()
+                except Exception:
+                    pass
+
+            if deposit and deposit.status == "PENDING":
+                new_status = "DECLINED" if status in ("failed", "rejected") else "EXPIRED"
+                await mark_deposit_status(session, deposit.id, new_status)
+                try:
+                    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+                    fail_text = (
+                        f"{ce(CustomEmojis.LOCK, '⚠️')} <b>CRYPTO PAYMENT {new_status}</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                        f"Your crypto payment session #{deposit.id} was {new_status.lower()}.\n"
+                        f"<i>No funds were credited. You can initiate a new payment at any time.</i>"
+                    )
+                    kb = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="Try Again", callback_data="nav_deposit", icon_custom_emoji_id=CustomEmojis.WALLET)],
+                        [InlineKeyboardButton(text="Main Menu", callback_data="nav_home", icon_custom_emoji_id=CustomEmojis.CROWN)]
+                    ])
+                    await bot.send_message(deposit.user_id, fail_text, reply_markup=kb)
+                except Exception:
+                    pass
+        return web.Response(text="ok")
+
+    elif status in ("paying", "confirming"):
+        async with AsyncSessionLocal() as session:
+            deposit = None
+            if track_id:
+                stmt = select(Deposit).where(Deposit.gateway_order_id == track_id)
+                deposit = (await session.execute(stmt)).scalar_one_or_none()
+            if deposit and deposit.status == "PENDING":
+                try:
+                    confirm_text = (
+                        f"{ce(CustomEmojis.FIRE, '⏳')} <b>CRYPTO TRANSACTION DETECTED!</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                        f"We detected your payment on the blockchain for Deposit #{deposit.id}.\n"
+                        f"<i>Awaiting network confirmations (typically 1–5 minutes). Your wallet will be credited automatically once confirmed!</i>"
+                    )
+                    await bot.send_message(deposit.user_id, confirm_text)
+                except Exception:
+                    pass
+        return web.Response(text="ok")
 
     return web.Response(text="ok")
 
