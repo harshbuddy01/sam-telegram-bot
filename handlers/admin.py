@@ -125,6 +125,12 @@ router.callback_query.filter(lambda callback: config.is_admin(callback.from_user
 def check_admin(user_id: int) -> bool:
     return config.is_admin(user_id)
 
+async def safe_answer(callback: types.CallbackQuery, *args, **kwargs):
+    try:
+        await callback.answer(*args, **kwargs)
+    except Exception:
+        pass
+
 @router.message(Command("admin"))
 async def cmd_admin(message: types.Message, state: FSMContext, session: AsyncSession):
     if not check_admin(message.from_user.id):
@@ -351,7 +357,7 @@ async def cb_admin_man_reqotp(callback: types.CallbackQuery, session: AsyncSessi
     order_id = int(callback.data.split("_")[3])
     order = await get_order_by_id(session, order_id)
     if not order or order.status != "PENDING_DISPATCH":
-        await callback.answer("Order is no longer pending dispatch!", show_alert=True)
+        await safe_answer(callback, "Order is no longer pending dispatch!", show_alert=True)
         return
 
     import datetime
@@ -377,7 +383,7 @@ async def cb_admin_man_reqotp(callback: types.CallbackQuery, session: AsyncSessi
 
     try:
         await bot.send_message(order.user_id, otp_prompt_text, reply_markup=get_customer_otp_prompt_keyboard(order.id))
-        await callback.answer(f"📲 OTP request sent to customer for Order #{order_id}!", show_alert=True)
+        await safe_answer(callback, f"📲 OTP request sent to customer for Order #{order_id}!", show_alert=True)
         
         req_time = order.otp_requested_at.strftime("%H:%M:%S UTC")
         updated_text = (
@@ -393,7 +399,7 @@ async def cb_admin_man_reqotp(callback: types.CallbackQuery, session: AsyncSessi
         )
         await callback.message.edit_text(updated_text, reply_markup=get_admin_manual_order_detail_keyboard(order.id))
     except Exception as e:
-        await callback.answer(f"Failed to message customer: {e}", show_alert=True)
+        await safe_answer(callback, f"Failed to message customer: {e}", show_alert=True)
 
 @router.callback_query(F.data.startswith("adm_man_ful_"))
 async def cb_admin_man_ful(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):

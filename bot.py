@@ -71,12 +71,15 @@ async def main():
     dp.include_router(admin.router)
     dp.include_router(support.router)
 
-    # Global Error Handler: gracefully catch expired queries when restarting
+    # Global Error Handler: gracefully catch expired queries when restarting or flood limits
     @dp.error()
     async def global_error_handler(event: ErrorEvent):
         exc = event.exception
         if isinstance(exc, TelegramBadRequest) and ("query is too old" in str(exc).lower() or "query id is invalid" in str(exc).lower()):
             logger.info(f"Gracefully handled stale callback query from restart: {exc}")
+            return True
+        if isinstance(exc, TelegramRetryAfter):
+            logger.warning(f"Telegram flood control rate limit ({exc.retry_after}s). Gracefully handled to prevent crash.")
             return True
         logger.error(f"Cause exception while process update: {exc}", exc_info=exc)
 
